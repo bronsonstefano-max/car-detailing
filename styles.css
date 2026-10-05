@@ -226,3 +226,25 @@ footer{background:#000;color:#fff;border-top:0}
   .circle{width:92%;border-width:4px;margin-bottom:14px}
   .circles h3{font-size:1rem;line-height:1.25;padding:0 4px}
 }
+
+/* Mobile hero: compact and centered, like the reference */
+@media(max-width:860px){
+  .hero{padding-bottom:110px}
+  .header-row{padding-top:18px}
+  .logo{font-size:2rem}
+  .hero-bg{opacity:1;background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.8)),repeating-linear-gradient(120deg,#0d0d0d 0 30px,#050505 30px 60px)}
+  .hero-bg span{display:none}
+  .hero-copy{margin-top:22px;text-align:center}
+  .kicker{font-size:.95rem;letter-spacing:.5px}
+  .hero h1{font-size:1.55rem;line-height:1.2;margin:4px 0 26px}
+  .hero h1 br{display:none}
+  .hero-services{flex-wrap:nowrap;justify-content:center;margin-bottom:28px}
+  .hero-services li,.hero-services li:first-child{padding:0 9px;font-size:.9rem}
+  .hero-services li:not(:last-child)::after{height:22px;top:2px}
+  .free-quote{display:block;letter-spacing:.08em;font-size:.95rem;padding-bottom:12px;border-bottom-width:2px;white-space:nowrap}
+  .hero-cta{flex-wrap:nowrap;justify-content:space-between;gap:12px;margin-top:26px}
+  .pill-dark{padding:14px 22px;font-size:1rem;white-space:nowrap}
+  .reviews-badge{text-align:center}
+  .reviews-badge span{font-size:1.05rem;white-space:nowrap;letter-spacing:-.5px}
+  .stars{font-size:.8rem;letter-spacing:0;white-space:nowrap}
+}
