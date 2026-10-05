@@ -313,3 +313,5 @@ footer{background:#000;color:#fff;border-top:0}
 .visit-addr,.visit-contact{margin-bottom:16px;line-height:1.6}
 .visit-contact a{color:var(--ink);border-bottom:2px solid var(--g)}
 @media(max-width:860px){.loc-grid{grid-template-columns:1fr}}
+.map-embed{display:block;width:100%;height:340px;border:0;background:#dfe7f5;margin-top:6px}
+.map-embed+.dir{margin-top:0}
