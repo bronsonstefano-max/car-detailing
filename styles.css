@@ -306,3 +306,10 @@ footer{background:#000;color:#fff;border-top:0}
 .platforms i{display:block;color:var(--g);font-style:normal;font-size:1.1rem;letter-spacing:2px}
 .cta-curve{position:absolute;left:-10%;right:-10%;bottom:-1px;height:90px;background:#fff;border-radius:100% 100% 0 0/100% 100% 0 0;transform:scaleY(.8) translateY(20px)}
 @media(min-width:861px){.faq-cta h2{font-size:2rem}.faq-cta .container{max-width:680px}}
+
+/* Locate Us: single location */
+.loc-grid{grid-template-columns:1fr 1.4fr;max-width:1000px;margin-left:auto;margin-right:auto}
+.visit-name{font-weight:800;font-size:1.15rem;margin:10px 0 6px}
+.visit-addr,.visit-contact{margin-bottom:16px;line-height:1.6}
+.visit-contact a{color:var(--ink);border-bottom:2px solid var(--g)}
+@media(max-width:860px){.loc-grid{grid-template-columns:1fr}}
