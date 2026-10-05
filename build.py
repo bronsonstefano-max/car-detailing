@@ -78,9 +78,10 @@ def header(active):
   </div>
 </header>'''
 
-def quote_form(fid="quote", select_default=None, extra=""):
+def quote_form(fid=None, select_default=None, extra=""):
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
-    return f'''<form class="qform" name="quote" method="POST" action="thanks.html" data-netlify="true" data-form>
+    idattr = f' id="{fid}"' if fid else ""
+    return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" data-netlify="true" data-form>
   <input type="hidden" name="form-name" value="quote">
   <div class="status"><span class="dot"></span>Free quotes. Tell us about your vehicle and we will get back to you.</div>
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
@@ -174,9 +175,9 @@ def build_home():
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
     <p class="sub">Premium vehicle protection and detailing</p>
     <p class="lead">Protect and perfect your vehicle with Miami&rsquo;s premium detailing and protection shop.</p>
-    <a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a>
+    <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
   </div>
-  <div class="qwrap">{quote_form()}</div>
+  <div class="qwrap">{quote_form(fid="hero-quote")}</div>
 </section>
 {stripes()}
 {partners()}
