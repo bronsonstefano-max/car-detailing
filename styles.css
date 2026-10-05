@@ -278,4 +278,5 @@ details p{padding:0 22px 20px;color:var(--muted)}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
 
-.hero-btns{display:flex;flex-direction:column;align-items:center;gap:14px}
+.hero-btns{display:inline-flex;flex-direction:column;align-items:stretch;gap:14px;max-width:100%}
+.hero-btns .btn{justify-content:center}
