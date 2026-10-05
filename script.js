@@ -1,34 +1,65 @@
-const btn = document.querySelector('.menu-btn');
-const menu = document.getElementById('menu');
-if (btn && menu) {
-  btn.addEventListener('click', () => {
-    const open = menu.classList.toggle('open');
-    btn.setAttribute('aria-expanded', open);
+// Menu
+const menuBtn = document.querySelector('.menu-btn');
+const nav = document.getElementById('nav');
+if (menuBtn && nav) {
+  menuBtn.addEventListener('click', () => {
+    const open = nav.classList.toggle('open');
+    menuBtn.setAttribute('aria-expanded', open);
   });
-  menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
 }
+document.querySelectorAll('.dd-btn').forEach(b => b.addEventListener('click', () => {
+  const dd = b.closest('.has-dd');
+  const open = dd.classList.toggle('open');
+  b.setAttribute('aria-expanded', open);
+}));
+document.addEventListener('click', e => {
+  document.querySelectorAll('.has-dd.open').forEach(d => { if (!d.contains(e.target)) d.classList.remove('open'); });
+});
 
-document.querySelectorAll('.more').forEach(b => b.addEventListener('click', () => {
-  const body = b.closest('.pbody');
-  const open = body.classList.toggle('open');
-  b.textContent = open ? 'Show Less –' : 'Expand & Read More +';
+// Reviews carousel
+const track = document.querySelector('.rev-track');
+document.querySelectorAll('[data-rev]').forEach(b => b.addEventListener('click', () => {
+  if (track) track.scrollBy({ left: Number(b.dataset.rev) * (track.firstElementChild.offsetWidth + 16), behavior: 'smooth' });
 }));
 
-const slides = document.querySelector('.slides');
-if (slides) {
-  const count = slides.children.length;
-  let idx = 0;
-  const go = n => { idx = (n + count) % count; slides.style.transform = `translateX(-${idx * 100}%)`; };
-  document.querySelector('.prev').addEventListener('click', () => go(idx - 1));
-  document.querySelector('.next').addEventListener('click', () => go(idx + 1));
-  setInterval(() => go(idx + 1), 6000);
+// Project filter
+document.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('on', x === b));
+  const f = b.dataset.filter;
+  document.querySelectorAll('#projectGrid [data-cat]').forEach(i => { i.hidden = f !== 'All' && i.dataset.cat !== f; });
+}));
+
+// Tint simulator
+const shade = document.getElementById('simShade');
+if (shade) {
+  document.querySelectorAll('[data-vlt]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-vlt]').forEach(x => x.classList.toggle('on', x === b));
+    const v = Number(b.dataset.vlt);
+    shade.style.opacity = (1 - v / 100).toFixed(2);
+    document.getElementById('simPct').textContent = v + '% VLT';
+    document.getElementById('simName').textContent = b.dataset.name;
+    document.getElementById('simDesc').textContent = b.dataset.desc;
+  }));
+  shade.style.opacity = '0.70';
+  document.querySelectorAll('[data-sim-tab]').forEach(b => b.addEventListener('click', () =>
+    document.querySelectorAll('[data-sim-tab]').forEach(x => x.classList.toggle('on', x === b))));
 }
 
-const rg = document.querySelector('.rev-grid');
-if (rg) {
-  document.querySelector('.rprev').addEventListener('click', () => rg.appendChild(rg.firstElementChild));
-  document.querySelector('.rnext').addEventListener('click', () => rg.prepend(rg.lastElementChild));
-}
+// Forms: post to Netlify Forms; show a clear message anywhere else (local file, preview)
+document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = f.querySelector('button[type=submit]');
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const res = await fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(f)).toString() });
+    if (!res.ok) throw new Error('not ok');
+    window.location.href = 'thanks.html';
+  } catch (err) {
+    btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
+    setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
+  }
+}));
 
 const yr = document.getElementById('yr');
 if (yr) yr.textContent = new Date().getFullYear();
