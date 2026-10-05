@@ -32,17 +32,25 @@ document.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('clic
 // Tint simulator
 const shade = document.getElementById('simShade');
 if (shade) {
+  const view = document.getElementById('simView');
+  const setShade = btn => {
+    const v = Number(btn.dataset.vlt);
+    shade.style.opacity = (1 - v / 100).toFixed(2);
+    document.getElementById('simBadge').textContent = v + '%';
+    document.getElementById('simTitle').textContent = v + '% VLT — ' + btn.dataset.name;
+    document.getElementById('simDesc').textContent = btn.dataset.desc;
+  };
   document.querySelectorAll('[data-vlt]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-vlt]').forEach(x => x.classList.toggle('on', x === b));
-    const v = Number(b.dataset.vlt);
-    shade.style.opacity = (1 - v / 100).toFixed(2);
-    document.getElementById('simPct').textContent = v + '% VLT';
-    document.getElementById('simName').textContent = b.dataset.name;
-    document.getElementById('simDesc').textContent = b.dataset.desc;
+    setShade(b);
   }));
-  shade.style.opacity = '0.70';
-  document.querySelectorAll('[data-sim-tab]').forEach(b => b.addEventListener('click', () =>
-    document.querySelectorAll('[data-sim-tab]').forEach(x => x.classList.toggle('on', x === b))));
+  document.querySelectorAll('[data-sim-tab]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-sim-tab]').forEach(x => x.classList.toggle('on', x === b));
+    const wind = b.dataset.simTab === 'wind';
+    view.classList.toggle('wind', wind);
+    document.getElementById('simBadgeLabel').textContent = wind ? 'WINDSHIELD VLT' : 'SIDE VLT';
+  }));
+  setShade(document.querySelector('[data-vlt].on'));
 }
 
 // Forms: post to Netlify Forms; show a clear message anywhere else (local file, preview)

@@ -157,7 +157,7 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True):
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select)}</div>' if form else ""
-    return f'''<section class="page-hero">
+    return f'''<section class="page-hero{' tall' if form else ''}">
   <div class="hero-media" aria-hidden="true"><span>Photo</span></div>
   <div class="wrap hero-in"><p class="crumbs">{c}</p><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
   {q}
@@ -309,26 +309,26 @@ SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where
 
 def build_service(slug, title, short):
     d = SERVICE_PAGES[slug]
-    pk = "".join(f'<div class="pkg"><h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
+    pk = "".join(f'<div class="pkg"><div class="pimg">Photo</div><h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
     nums = "".join(f'<div><b>{n}</b><span>{l}</span></div>' for n, l in d["nums"])
     tiles = "".join(f'<div class="tile"><span class="kick">{k}</span><h3>{h}</h3><p>{p}</p></div>' for k, h, p in d["tiles"])
     sim = ""
     if d.get("sim"):
-        btns = "".join(f'<button data-vlt="{v}" data-name="{n}" data-desc="{ds}"{" class=on" if v == 30 else ""}>{v}%</button>' for v, n, ds in SIM)
-        sim = f'''<div class="sim" id="simulator"><span class="chip">Divine Detailers</span><h3>Window tint <em>simulator</em></h3>
-<p class="lead" style="margin:6px 0 0;max-width:none">Select a side window shade below.</p>
-<div class="sim-tabs"><button class="on" data-sim-tab="side">Side windows</button><button data-sim-tab="wind">Windshield</button></div>
-<div class="sim-view" aria-hidden="true"><div class="sim-shade" id="simShade"></div></div>
-<div class="sim-info"><div><b id="simPct">30% VLT</b><p id="simName" style="font-weight:700;margin-top:4px">Medium tint</p><p id="simDesc" class="lead" style="margin:4px 0 0;max-width:520px;text-align:left">Balanced privacy with clear night visibility. A daily-driver favorite.</p></div></div>
+        btns = "".join(f'<button data-vlt="{v}" data-name="{n}" data-desc="{ds}"{" class=on" if v == 30 else ""}><i style="--a:{1 - v / 100:.2f}"></i>{v}%</button>' for v, n, ds in SIM)
+        sim = f'''<div class="sim" id="simulator"><p class="sim-label"><span class="dot"></span>DIVINE DETAILERS</p><h3>Window Tint <em>Simulator</em></h3>
+<p class="sim-sub">Select a side window shade below</p>
+<div class="sim-tabs"><button class="on" data-sim-tab="side">Side Windows</button><button data-sim-tab="wind">Windshield</button></div>
+<div class="sim-view" id="simView" aria-hidden="true"><div class="sim-shade" id="simShade"></div><div class="sim-badge"><b id="simBadge">30%</b><span id="simBadgeLabel">SIDE VLT</span></div></div>
+<div class="sim-info"><b id="simTitle">30% VLT — Medium Tint</b><p id="simDesc">Balanced privacy with clear night visibility. A daily-driver favorite.</p></div>
 <div class="sim-vlt" role="group" aria-label="Shade level">{btns}</div>
-<p class="note">Florida law limits how dark tint can be, and the limits differ by window. We will confirm the legal options for your vehicle before we install anything.</p></div>'''
+<p class="note"><b>Florida law:</b> Tint darkness limits differ by window and vehicle. We will confirm the legal options for your vehicle before we install anything.</p></div>'''
     faq = ""
     if d["faq"]:
         faq = '<section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to <em>know</em></h2></div><div class="faq">' + "".join(faq_block(items) for _, items, _ in d["faq"]) + "</div></div></section>"
     body = inner_hero(title.upper().replace("&", "&amp;") if False else esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"])
     body += f'''{stripes()}{partners()}
-<section class="sec"><div class="wrap center"><span class="chip">Packages</span><h2>{d["pk_title"]}</h2><p class="lead" style="margin-top:12px">{d["pk_sub"]}</p>
-<div class="pkgs" style="text-align:initial">{pk}</div>{sim}</div></section>
+<section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
+<div class="pkgs">{pk}</div>{sim}</section>{stripes()}<div class="band" aria-hidden="true"><span>Photo / video</span></div>{stripes()}
 <section class="sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div><div class="ph-box">Photo</div></div></div></section>
 <section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>
 <section class="sec"><div class="wrap"><div class="split"><div class="ph-box">Photo</div><div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
