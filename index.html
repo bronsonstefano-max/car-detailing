@@ -171,6 +171,24 @@
   </div>
 </section>
 
+<section id="reviews" class="navy">
+  <div class="container">
+    <h2 class="title inv">Client <b>Testimonials</b></h2>
+    <div class="bar"></div>
+    <div class="grating"><div class="glogo"><span class="gb">G</span>oogle <small>Rating</small></div>
+      <div class="gline"><b>5.0</b> <span class="gold">★★★★★</span> Based on <b>000</b> Reviews</div></div>
+    <div class="rev-wrap">
+      <button class="rprev" aria-label="Previous review">‹</button>
+      <div class="rev-grid">
+        <article class="rev"><div class="av" style="background:#0b5d46">C</div><div><h4>Customer Name</h4><div class="gold">★★★★★</div><time>Month 00, 0000</time><p>Sample review text. Replace with a real customer review from your Google profile.</p></div></article>
+        <article class="rev"><div class="av" style="background:#4a3a6a">C</div><div><h4>Customer Name</h4><div class="gold">★★★★★</div><time>Month 00, 0000</time><p>Sample review text. Replace with a real customer review from your Google profile.</p></div></article>
+        <article class="rev"><div class="av" style="background:#c2185b">CN</div><div><h4>Customer Name</h4><div class="gold">★★★★★</div><time>Month 00, 0000</time><p>Sample review text. Replace with a real customer review from your Google profile.</p></div></article>
+      </div>
+      <button class="rnext" aria-label="Next review">›</button>
+    </div>
+  </div>
+</section>
+
 <section id="affiliates" class="light">
   <div class="container">
     <h2 class="title">Our <b>Affiliates</b></h2>
@@ -190,27 +208,70 @@
   </div>
 </section>
 
-<section id="quote" class="dark">
-  <div class="container narrow">
-    <h2 class="title inv">Request a <b>Quote</b></h2>
-    <div class="bar"></div>
-    <form action="mailto:info@example.com" method="post" enctype="text/plain">
-      <input name="name" placeholder="Full name" required>
-      <input name="phone" type="tel" placeholder="Phone" required>
-      <input name="email" type="email" placeholder="Email" required>
-      <input name="vehicle" placeholder="Vehicle year, make &amp; model" required>
-      <select name="service"><option>Paint Protection Film</option><option>Ceramic Coating</option><option>Window Tint</option><option>Paint Correction</option><option>Colored PPF</option><option>Wheel Powder Coating</option></select>
-      <input name="date" placeholder="Preferred timeframe">
-      <textarea name="notes" rows="4" placeholder="Tell us about your project"></textarea>
-      <button type="submit" class="getp">Send Request</button>
+<section id="quote" class="contact">
+  <div class="container">
+    <h2 class="contact-title">Contact Us</h2>
+    <form class="cform" action="mailto:info@example.com" method="post" enctype="text/plain">
+      <label>First Name<input name="first" required></label>
+      <label>Last Name<input name="last" required></label>
+      <label>Email<input name="email" type="email" required></label>
+      <label>Phone<input name="phone" type="tel" required></label>
+      <div class="row3">
+        <label>Year<input name="year"></label>
+        <label>Make<input name="make"></label>
+        <label>Model<input name="model"></label>
+      </div>
+      <label>Car Color<input name="color"></label>
+      <label>Primary Service<select name="service"><option>Ceramic Coatings</option><option>Paint Protection Film</option><option>Window Tint</option><option>Paint Correction</option><option>Colored PPF</option><option>Wheel Powder Coating</option></select></label>
+      <div class="radio full">Need a rental car during your service?
+        <label><input type="radio" name="rental" value="yes"> Yes</label>
+        <label><input type="radio" name="rental" value="no"> No</label></div>
+      <label class="full">Your Message<textarea name="message" rows="6"></textarea></label>
+      <div class="radio">Best way to reply:
+        <label><input type="radio" name="reply" value="email"> Email</label>
+        <label><input type="radio" name="reply" value="phone"> Phone</label></div>
+      <button type="submit" class="send">Send</button>
     </form>
   </div>
 </section>
 
+<section id="locate" class="white locate">
+  <div class="container">
+    <h2 class="contact-title center">Locate Us</h2>
+    <div class="loc-grid">
+      <div><h3>Our Locations</h3><p class="small">Enter your ZIP code to see which location is closer to you</p>
+        <div class="map m1"><span>Map</span></div>
+        <div class="find">📍 <b>Find a location near you</b></div>
+        <input class="addr-in" placeholder="Enter your address or zip code">
+        <p class="small all">All locations (1)</p>
+        <div class="loc-item"><b>Apex Auto Aesthetics</b><br><span>1234 E Main St #100<br>City, ST 00000, USA</span></div></div>
+      <div><h3>Amenity Map</h3><div class="map m2"><span>Map</span></div>
+        <input class="addr-in" placeholder="Search nearby places">
+        <div class="place"><div><b>Nearby Place</b><br><span>4.7 ★ (0000)<br>Restaurant</span></div><i></i></div></div>
+      <div><h3>Get directions to visit us</h3><div class="map m3"><span>Map</span></div>
+        <input class="addr-in" placeholder="Enter your address">
+        <a href="#" class="getp dir">Get Directions</a></div>
+    </div>
+  </div>
+</section>
+
 <footer>
-  <a class="logo" href="#top">APEX AUTO<small>A E S T H E T I C S</small></a>
-  <p>1234 E. Main St. Suite #100, City, ST 00000 · (000) 000-0000 · info@example.com</p>
-  <p class="copy">© <span id="yr"></span> Apex Auto Aesthetics. All rights reserved.</p>
+  <div class="foot-main">
+    <div class="foot-left">
+      <div class="foot-info">
+        <a class="logo" href="#top">APEX AUTO<small>A E S T H E T I C S</small></a>
+        <p class="follow">Follow us <a href="#" class="soc">f</a><a href="#" class="soc">◎</a><a href="#" class="soc">▶</a><a href="#" class="soc">in</a></p>
+        <p class="faddr"><b>Apex Auto Aesthetics</b><br>1234 E Main St Suite #100 City, ST 00000</p>
+        <div class="fbtns"><a href="tel:+10000000000">000.000.0000</a><a href="#locate">View Map</a><a href="#locate">Get Directions</a></div>
+      </div>
+      <ul class="flinks">
+        <li><a href="#quote">Book Online</a></li><li><a href="#quote">Contact Us</a></li><li><a href="#about">About Us</a></li>
+        <li><a href="#faq">FAQ</a></li><li><a href="#works">Latest Works</a></li><li><a href="#">Blog</a></li>
+      </ul>
+    </div>
+    <div class="foot-map"><span>Map graphic</span></div>
+  </div>
+  <div class="foot-copy">Copyright <span id="yr"></span> | All Rights Reserved | Sitemap | APEX AUTO AESTHETICS</div>
 </footer>
 
 <div class="text-us">

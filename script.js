@@ -21,3 +21,7 @@ document.querySelector('.next').addEventListener('click', () => go(idx + 1));
 setInterval(() => go(idx + 1), 6000);
 
 document.getElementById('yr').textContent = new Date().getFullYear();
+
+const rg=document.querySelector('.rev-grid');
+document.querySelector('.rprev').addEventListener('click',()=>rg.appendChild(rg.firstElementChild));
+document.querySelector('.rnext').addEventListener('click',()=>rg.prepend(rg.lastElementChild));
