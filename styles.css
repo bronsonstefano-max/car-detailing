@@ -323,7 +323,7 @@ details p{padding:0 22px 20px;color:var(--muted)}
 
 /* logo image */
 .logo-img{display:block;flex:none;line-height:0}
-.logo-img img{display:block;width:96px;height:96px;object-fit:contain}
+.logo-img img{display:block;height:96px;width:auto;max-width:200px;object-fit:contain}
 .foot-logo{display:inline-block;margin-bottom:18px;line-height:0}
-.foot-logo img{width:150px;height:150px;object-fit:contain}
-@media(max-width:860px){:root{--hdr-h:88px}.logo-img img{width:72px;height:72px}}
+.foot-logo img{width:240px;height:auto;max-width:100%;object-fit:contain}
+@media(max-width:860px){:root{--hdr-h:88px}.logo-img img{height:72px;max-width:150px}}
