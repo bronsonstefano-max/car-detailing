@@ -349,3 +349,9 @@ details p{padding:0 22px 20px;color:var(--muted)}
 
 .hero-media.lighter::after{background:linear-gradient(180deg,rgba(1,2,6,.5),rgba(1,2,6,.7) 58%,var(--bg))}
 .hero-in .small,.hero-in .sub,.hero-in p.lead,.hero-in h1{text-shadow:0 2px 14px rgba(0,0,0,.75)}
+
+/* home hero: image stays above the form */
+.hero-top{position:relative;overflow:hidden}
+.hero-top .hero-in{padding-block:120px 70px}
+.hero-top+.qwrap{margin-top:0;padding-top:34px}
+@media(max-width:860px){.hero-top .hero-in{padding-block:70px 50px}}

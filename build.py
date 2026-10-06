@@ -204,13 +204,15 @@ def build_home():
     revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>Miami, FL</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i></i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
     body = f'''<section class="hero">
-  <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 46%", alt=False, eager=True)}</div>
+  <div class="hero-top">
+  <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 60%", alt=False, eager=True)}</div>
   <div class="wrap hero-in">
     <p class="small">Welcome to {SITE['name']}</p>
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
     <p class="sub">Premium vehicle protection and detailing</p>
     <p class="lead">Protect and perfect your vehicle with Miami&rsquo;s premium detailing and protection shop.</p>
     <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
+  </div>
   </div>
   <div class="qwrap">{quote_form(fid="hero-quote")}</div>
 </section>
