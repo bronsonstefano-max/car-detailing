@@ -37,7 +37,7 @@ h3{font-size:clamp(1.1rem,1.8vw,1.5rem)}
 
 /* header */
 .site-header{position:sticky;top:0;z-index:50;background:rgba(1,2,6,.96);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
-.hdr{max-width:1290px;margin:0 auto;display:flex;align-items:center;gap:34px;height:var(--hdr-h);padding:0 clamp(16px,4vw,75px)}
+.hdr{max-width:1290px;margin:0 auto;display:flex;align-items:center;gap:34px;height:var(--hdr-h);padding:0 clamp(24px,5vw,90px)}
 .logo{display:flex;flex-direction:column;border:1px solid var(--text);padding:6px 14px;line-height:1;font-family:var(--head);text-transform:uppercase;white-space:nowrap}
 .logo b{font-weight:400;font-size:1.15rem;letter-spacing:.04em}
 .logo span{font-size:.55rem;letter-spacing:.38em;margin-top:5px;color:var(--g)}
@@ -323,7 +323,7 @@ details p{padding:0 22px 20px;color:var(--muted)}
 
 /* logo image */
 .logo-img{display:block;flex:none;line-height:0}
-.logo-img img{display:block;height:96px;width:auto;max-width:200px;object-fit:contain}
+.logo-img img{display:block;height:80px;width:auto;max-width:170px;object-fit:contain}
 .foot-logo{display:inline-block;margin-bottom:18px;line-height:0}
 .foot-logo img{width:240px;height:auto;max-width:100%;object-fit:contain}
-@media(max-width:860px){:root{--hdr-h:88px}.logo-img img{height:72px;max-width:150px}}
+@media(max-width:860px){:root{--hdr-h:84px}.hdr{padding:0 24px}.logo-img img{height:58px;max-width:130px}}
