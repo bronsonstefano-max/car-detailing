@@ -319,3 +319,10 @@ details p{padding:0 22px 20px;color:var(--muted)}
 .faq .faq-cat{grid-column:1/-1;margin-bottom:0}
 .faq details{margin:0;border-radius:12px;background:#12141a}
 @media(max-width:860px){.faq{grid-template-columns:1fr}.sim-vlt{grid-template-columns:repeat(5,1fr);gap:5px}.sim-vlt button{padding:6px 4px;font-size:.7rem}.page-hero.tall{padding:90px 0 40px}.pk-head{padding-left:16px}}
+
+/* logo image */
+.logo-img{display:block;flex:none;line-height:0}
+.logo-img img{display:block;width:66px;height:66px;object-fit:contain}
+.foot-logo{display:inline-block;margin-bottom:18px;line-height:0}
+.foot-logo img{width:150px;height:150px;object-fit:contain}
+@media(max-width:860px){.logo-img img{width:58px;height:58px}}

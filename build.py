@@ -65,7 +65,7 @@ def header(active):
     cur = lambda s: ' aria-current="page"' if active == s else ""
     return f'''<header class="site-header">
   <div class="hdr">
-    <a class="logo" href="index.html" aria-label="{SITE['name']} home"><b>DIVINE</b><span>DETAILERS</span></a>
+    <a class="logo-img" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo: It's time to shine" width="66" height="66"></a>
     <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="nav">&#9776;</button>
     <nav class="nav" id="nav">
       <div class="has-dd"><button class="dd-btn" aria-expanded="false">Services <i>+</i></button><div class="dd"><a href="services.html">All services</a>{dd}</div></div>
@@ -111,7 +111,7 @@ def footer():
     soc = "".join(f'<li><a href="{SITE[k]}">{k.capitalize()}</a></li>' for k in ("tiktok", "instagram", "youtube"))
     return f'''<footer class="foot-wrap">
   <div class="foot">
-    <div><h4>Quick links</h4><ul><li><a href="index.html">Home</a></li><li><a href="about-us.html">About us</a></li><li><a href="projects.html">Projects</a></li><li><a href="blog.html">Blogs</a></li><li><a href="contact.html">Contact us</a></li></ul></div>
+    <div><a class="foot-logo" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo" width="150" height="150" loading="lazy"></a><h4>Quick links</h4><ul><li><a href="index.html">Home</a></li><li><a href="about-us.html">About us</a></li><li><a href="projects.html">Projects</a></li><li><a href="blog.html">Blogs</a></li><li><a href="contact.html">Contact us</a></li></ul></div>
     <div><h4>Services</h4><ul>{svc}</ul></div>
     <div><h4>Follow us</h4><ul>{soc}<li><a href="tel:{SITE['tel']}">{SITE['phone']}</a></li><li><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul></div>
     <div class="news"><p>Join for expert car care tips and exclusive offers on our top services.</p>
@@ -132,6 +132,8 @@ def page(fname, title, desc, body, active=None):
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
