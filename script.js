@@ -22,6 +22,32 @@ document.querySelectorAll('[data-rev]').forEach(b => b.addEventListener('click',
   if (track) track.scrollBy({ left: Number(b.dataset.rev) * (track.firstElementChild.offsetWidth + 16), behavior: 'smooth' });
 }));
 
+// Build slideshow
+const buildTrack = document.getElementById('buildTrack');
+if (buildTrack) {
+  const step = dir => {
+    const w = buildTrack.firstElementChild.offsetWidth + 8;
+    const atEnd = buildTrack.scrollLeft + buildTrack.clientWidth >= buildTrack.scrollWidth - 4;
+    const atStart = buildTrack.scrollLeft <= 4;
+    if (dir > 0 && atEnd) buildTrack.scrollTo({ left: 0, behavior: 'smooth' });
+    else if (dir < 0 && atStart) buildTrack.scrollTo({ left: buildTrack.scrollWidth, behavior: 'smooth' });
+    else buildTrack.scrollBy({ left: dir * w, behavior: 'smooth' });
+  };
+  document.querySelectorAll('[data-slide]').forEach(b => b.addEventListener('click', () => step(Number(b.dataset.slide))));
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce) {
+    let timer = setInterval(() => step(1), 4500);
+    const pause = () => { clearInterval(timer); timer = null; };
+    const resume = () => { if (!timer) timer = setInterval(() => step(1), 4500); };
+    const slider = buildTrack.parentElement;
+    slider.addEventListener('mouseenter', pause);
+    slider.addEventListener('mouseleave', resume);
+    slider.addEventListener('focusin', pause);
+    slider.addEventListener('focusout', resume);
+    slider.addEventListener('touchstart', pause, { passive: true });
+  }
+}
+
 // Project filter
 document.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('on', x === b));

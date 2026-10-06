@@ -355,3 +355,16 @@ details p{padding:0 22px 20px;color:var(--muted)}
 .hero-top .hero-in{padding-block:120px 70px}
 .hero-top+.qwrap{margin-top:0;padding-top:34px}
 @media(max-width:860px){.hero-top .hero-in{padding-block:70px 50px}}
+
+/* build slideshow */
+.slider{position:relative;border-top:1px solid var(--line);background:var(--bg)}
+.slide-track{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding:8px 0}
+.slide-track::-webkit-scrollbar{display:none}
+.slide{flex:0 0 calc(25% - 6px);aspect-ratio:1/1.08;scroll-snap-align:start;overflow:hidden;background:#0a0c10}
+.slide img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .6s}
+.slide:hover img{transform:scale(1.04)}
+.slider-btn{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:56px;border:0;background:var(--g);color:var(--g-ink);font-size:2rem;line-height:1;cursor:pointer;z-index:2;transition:.2s}
+.slider-btn:hover{background:#fff}
+.slider-btn.prev{left:0}.slider-btn.next{right:0}
+@media(max-width:1100px){.slide{flex-basis:calc(33.333% - 6px)}}
+@media(max-width:860px){.slide{flex-basis:calc(78% - 6px)}.slider-btn{width:44px;height:48px}}

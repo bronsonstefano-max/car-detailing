@@ -201,6 +201,7 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, h
 # ---------------------------------------------------------------- home
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
+    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "ceramic", "wash", "tint", "polish", "spray", "heat"])
     revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>Miami, FL</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i></i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
     body = f'''<section class="hero">
@@ -229,10 +230,15 @@ def build_home():
 <section class="sec" style="padding-bottom:0">
   <div class="wrap center"><span class="chip">Our Achievements</span></div>
   <div class="stats"><div class="stat"><b>000+</b><span>Vehicles completed</span></div><div class="stat"><b>0.0★</b><span>Google rating</span></div><div class="stat"><b>00</b><span>Years of experience</span></div></div>
-  <div class="wrap center" style="padding:70px 0 90px"><span class="chip">Social Media Following</span>
+  <div class="wrap center" style="padding:70px 0 70px"><span class="chip">Social Media Following</span>
   <div class="social-ico">{socials}</div>
   <p class="followers"><b>000K+</b> Followers across platforms</p>
   <h2>Follow every <em>build</em></h2><div style="margin-top:26px"><a class="btn gray" href="{SITE['instagram']}">Visit Instagram</a></div></div>
+  <div class="slider" aria-roledescription="carousel" aria-label="Recent work photos">
+    <div class="slide-track" id="buildTrack">{slides}</div>
+    <button class="slider-btn prev" data-slide="-1" aria-label="Previous photos">&#8249;</button>
+    <button class="slider-btn next" data-slide="1" aria-label="Next photos">&#8250;</button>
+  </div>
 </section>
 <section id="locations" style="border-top:1px solid var(--line)">
   <h2 class="loc-title">Our <em>Location</em></h2>
