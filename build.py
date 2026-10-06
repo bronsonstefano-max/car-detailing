@@ -59,12 +59,13 @@ PHOTOS = {
     "heat": ("tint-heatgun", "Technician using a heat gun and squeegee on film over a black car window", "50% 28%"),
     "ceramic": ("ceramic-apply", "Gloved hand dripping ceramic coating onto a blue applicator sponge", "50% 58%"),
     "tint": ("tint-squeegee", "Technician using a squeegee and heat gun to install window tint on an olive green truck", "62% 40%"),
+    "wash": ("wash-porsche", "Technician foam washing a red Porsche sports car in the shop", "55% 55%"),
     "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
 }
-CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish"}
-HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%")}
-SERVICE_PHOTOS = {"window-tinting": ("tint", "heat"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": (None, None)}
-BAND_POS = {"spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "wash"}
+HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("wash", "55% 55%")}
+SERVICE_PHOTOS = {"window-tinting": ("tint", "heat"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", None)}
+BAND_POS = {"wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
@@ -202,7 +203,7 @@ def build_home():
     revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>Miami, FL</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i></i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
     body = f'''<section class="hero">
-  <div class="hero-media has-photo" aria-hidden="true">{photo("polish", 1600, "45% 38%", alt=False, eager=True)}</div>
+  <div class="hero-media has-photo" aria-hidden="true">{photo("wash", 1600, "55% 62%", alt=False, eager=True)}</div>
   <div class="wrap hero-in">
     <p class="small">Welcome to {SITE['name']}</p>
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
