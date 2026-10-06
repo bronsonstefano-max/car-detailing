@@ -61,12 +61,15 @@ PHOTOS = {
     "tint": ("tint-squeegee", "Technician using a squeegee and heat gun to install window tint on an olive green truck", "62% 40%"),
     "wash": ("wash-porsche", "Technician foam washing a red Porsche sports car in the shop", "55% 55%"),
     "gwagon": ("gwagon-wipe", "Technician wiping the hood of a green Mercedes G-Class with a microfiber towel", "50% 45%"),
+    "wheel": ("wheel-wipe", "Technician wiping the wheel of a green Porsche with a blue microfiber towel", "35% 50%"),
+    "foam": ("foam-wash", "Technician foam washing a green Mercedes G-Class outside the shop", "40% 45%"),
+    "rolls": ("rolls-tint", "Technician using a heat gun and squeegee to install window tint on the rear glass of a black luxury car", "55% 40%"),
     "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
 }
-CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "wash"}
-HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("wash", "55% 55%")}
-SERVICE_PHOTOS = {"window-tinting": ("tint", "heat"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", None)}
-BAND_POS = {"wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "foam"}
+HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
+SERVICE_PHOTOS = {"window-tinting": ("rolls", "tint"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
+BAND_POS = {"wheel": "40% 52%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
@@ -201,7 +204,7 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, h
 # ---------------------------------------------------------------- home
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
-    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "ceramic", "wash", "tint", "polish", "spray", "heat"])
+    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "ceramic", "wash", "rolls", "polish", "foam", "tint", "wheel", "spray", "heat"])
     revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>Miami, FL</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i></i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
     body = f'''<section class="hero">
@@ -393,7 +396,7 @@ def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
     items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"), ("Tint", "spray"),
-             ("Wraps", None), ("Detailing", None), ("PPF", None), ("Ceramic", None)]
+             ("Tint", "rolls"), ("Detailing", "foam"), ("Detailing", "wheel"), ("Detailing", "wash"), ("Wraps", None), ("PPF", None)]
     grid = "".join(
         (f'<div class="ph-box has-img" data-cat="{c}">{photo(k)}</div>' if k else f'<div class="ph-box" data-cat="{c}">Add photo · {c}</div>')
         for c, k in items)
