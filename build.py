@@ -41,10 +41,13 @@ GENERAL_FAQ = [
     ("How can I get a quote for services?", "Fill out the quote form on this page, call us, or send a text with your vehicle year, make and model and the service you want."),
 ]
 
-REVIEWS = [("Customer Name", "Sample review. Replace this with a real review from your Google Business Profile."),
-           ("Customer Name", "Sample review. Replace this with a real review from your Google Business Profile."),
-           ("Customer Name", "Sample review. Replace this with a real review from your Google Business Profile."),
-           ("Customer Name", "Sample review. Replace this with a real review from your Google Business Profile.")]
+REVIEWS = [
+ ("Olive", "Absolutely blown away by Divine Detailers! Found on instagram. They took my car in for a ceramic coating and window tints, and I can confidently say they exceeded every single expectation. My car looks insane, like it just rolled off a luxury showroom floor. The ceramic coating gave it the most flawless, glassy finish, and the tints are perfect, not only sleek but also super functional in the heat. Did everything in a timely manner and extremely thorough. Gio was professional, knowledgeable, and took real pride in their work. They walked me through the entire process, and made everything seamless and easy."),
+ ("Bryant Chef", "Divine Detailers where do I start. The moment I contact Gio he was all in. From showing me demos of what need to be done explaining all the material that will be used to make this project worthwhile. Gio is the man to see. With my busy schedule he made sure to work something out to benefit my work schedule. With the end results I was blown away. I thought I brought my car all over again from the dealer off the showroom floor. Gio great work can't thank you enough."),
+ ("Emilio Berkowitz Jr.", "I recently had my car detailed and I couldn't be more impressed! From start to finish, the experience was top-notch. The team was professional, punctual, and meticulous in their work. My car came back looking better than the day I bought it. The paint had an incredible shine, the interior was spotless, and even the smallest crevices were free of dust and grime. They took the time to explain the process, use high-quality products, and ensure every inch of my vehicle was flawless."),
+ ("Alexander Gonzalez", "Absolutely amazing service! My car has never looked better, inside and out. The staff was professional, friendly, and paid close attention to every detail. They removed spots I thought were permanent, and the shine on my car is showroom-level. Quick, efficient, and worth every penny. Highly recommend to anyone looking for top-tier car care!"),
+ ("Raider Farinas", "The best mobile detailing out there left my car looking like a 2026. El gio es un mostro."),
+]
 
 ICON = {
     "instagram": '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".6"/></svg>',
@@ -205,7 +208,7 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, h
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "ceramic", "wash", "rolls", "polish", "foam", "tint", "wheel", "spray", "heat"])
-    revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>Miami, FL</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i></i>{n}</div></article>''' for n, t in REVIEWS)
+    revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>5.0 &#9733;</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i aria-hidden="true">{n[0]}</i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
     body = f'''<section class="hero">
   <div class="hero-top">

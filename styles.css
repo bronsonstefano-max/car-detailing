@@ -368,3 +368,6 @@ details p{padding:0 22px 20px;color:var(--muted)}
 .slider-btn.prev{left:0}.slider-btn.next{right:0}
 @media(max-width:1100px){.slide{flex-basis:calc(33.333% - 6px)}}
 @media(max-width:860px){.slide{flex-basis:calc(78% - 6px)}.slider-btn{width:44px;height:48px}}
+
+.review .who i{display:grid;place-items:center;font-style:normal;font-weight:800;color:#031403}
+.review p{display:-webkit-box;-webkit-line-clamp:9;-webkit-box-orient:vertical;overflow:hidden}
