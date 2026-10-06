@@ -54,16 +54,17 @@ ICON = {
 }
 
 PHOTOS = {
-    "ppf": ("ppf-install", "Technician spraying slip solution while applying clear paint protection film to a dark blue car", "35% 45%"),
+    "spray": ("ppf-install", "Technician spraying slip solution on a dark blue car while installing film", "35% 45%"),
+    "ppf": ("ppf-fender", "Technician smoothing clear paint protection film onto the fender of a gray car", "40% 50%"),
     "heat": ("tint-heatgun", "Technician using a heat gun and squeegee on film over a black car window", "50% 28%"),
     "ceramic": ("ceramic-apply", "Gloved hand dripping ceramic coating onto a blue applicator sponge", "50% 58%"),
     "tint": ("tint-squeegee", "Technician using a squeegee and heat gun to install window tint on an olive green truck", "62% 40%"),
     "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
 }
-CARD_PHOTO = {"window-tinting": "tint", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish"}
-HERO_PHOTO = {"window-tinting": ("tint", "60% 30%"), "paint-protection-film": ("ppf", "40% 45%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%")}
+CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish"}
+HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%")}
 SERVICE_PHOTOS = {"window-tinting": ("tint", "heat"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": (None, None)}
-BAND_POS = {"tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+BAND_POS = {"spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
@@ -381,7 +382,7 @@ def build_brands():
 def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
-    items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"),
+    items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"), ("Tint", "spray"),
              ("Wraps", None), ("Detailing", None), ("PPF", None), ("Ceramic", None)]
     grid = "".join(
         (f'<div class="ph-box has-img" data-cat="{c}">{photo(k)}</div>' if k else f'<div class="ph-box" data-cat="{c}">Add photo · {c}</div>')
