@@ -193,14 +193,12 @@ def faq_block(items, cat=None, cid=None):
     return out
 
 def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None):
-    hm = photo(hero[0], 1600, hero[1], alt=False, eager=True) if hero else "<span>Photo</span>"
-    hmc = "hero-media has-photo" if hero else "hero-media"
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select)}</div>' if form else ""
     return f'''<section class="page-hero{' tall' if form else ''}">
-  <div class="{hmc}" aria-hidden="true">{hm}</div>
-  <div class="wrap hero-in"><p class="crumbs">{c}</p><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
+  <div class="hero-media" aria-hidden="true"></div>
+  <div class="wrap hero-in"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
   {q}
 </section>'''
 
