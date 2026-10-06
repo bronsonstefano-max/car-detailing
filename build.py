@@ -53,6 +53,34 @@ ICON = {
     "youtube": '<svg viewBox="0 0 24 24"><rect x="2.5" y="5.5" width="19" height="13" rx="4"/><path d="M10 9.2v5.6l5-2.8z"/></svg>',
 }
 
+PHOTOS = {
+    "ppf": ("ppf-install", "Technician spraying slip solution while applying clear paint protection film to a dark blue car", "35% 45%"),
+    "heat": ("tint-heatgun", "Technician using a heat gun and squeegee on film over a black car window", "50% 28%"),
+    "ceramic": ("ceramic-apply", "Gloved hand dripping ceramic coating onto a blue applicator sponge", "50% 58%"),
+    "tint": ("tint-squeegee", "Technician using a squeegee and heat gun to install window tint on an olive green truck", "62% 40%"),
+    "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
+}
+CARD_PHOTO = {"window-tinting": "tint", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish"}
+HERO_PHOTO = {"window-tinting": ("tint", "60% 30%"), "paint-protection-film": ("ppf", "40% 45%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%")}
+SERVICE_PHOTOS = {"window-tinting": ("tint", "heat"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": (None, None)}
+BAND_POS = {"tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+
+def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
+    f, a, p = PHOTOS[key]
+    return (f'<img class="{cls}" src="assets/photos/{f}-{size}.webp" alt="{a if alt else ""}" '
+            f'style="object-position:{pos or p}" loading="{"eager" if eager else "lazy"}" decoding="async">')
+
+def photo_box(key, label="Photo", pos=None, size=720):
+    if key:
+        return f'<div class="ph-box has-img">{photo(key, size, pos)}</div>'
+    return f'<div class="ph-box">{label}</div>'
+
+def service_card(s, t, d):
+    k = CARD_PHOTO.get(s)
+    if k:
+        return f'<a class="scard has-img" href="{s}.html">{photo(k, 720, None, "scard-img", alt=False)}<h3>{t}</h3><p>{d}</p><span class="btn gray sm">View Service</span></a>'
+    return f'<a class="scard" href="{s}.html"><span class="ph">Photo</span><h3>{t}</h3><p>{d}</p><span class="btn gray sm">View Service</span></a>'
+
 # ---------------------------------------------------------------- helpers
 def esc(s):
     return s.replace("&", "&amp;")
@@ -100,7 +128,7 @@ def partners():
   <div class="logos"><div>Brand logo</div><div>Brand logo</div><div>Brand logo</div><div>Brand logo</div><div>Brand logo</div></div></section>'''
 
 def cta_banner():
-    return f'''<section class="banner center">
+    return f'''<section class="banner center" style="--banner-img:url('assets/photos/tint-heatgun-1600.webp')">
   <div class="wrap"><span class="chip">Contact us</span>
   <h2>We don&rsquo;t just detail cars, <span class="dim">we perfect them.</span></h2>
   <p>Reach out and let&rsquo;s talk about what your car needs next.</p>
@@ -155,23 +183,25 @@ def faq_block(items, cat=None, cid=None):
     out += "".join(f"<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>" for q, a in items)
     return out
 
-def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True):
+def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None):
+    hm = photo(hero[0], 1600, hero[1], alt=False, eager=True) if hero else "<span>Photo</span>"
+    hmc = "hero-media has-photo" if hero else "hero-media"
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select)}</div>' if form else ""
     return f'''<section class="page-hero{' tall' if form else ''}">
-  <div class="hero-media" aria-hidden="true"><span>Photo</span></div>
+  <div class="{hmc}" aria-hidden="true">{hm}</div>
   <div class="wrap hero-in"><p class="crumbs">{c}</p><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
   {q}
 </section>'''
 
 # ---------------------------------------------------------------- home
 def build_home():
-    cards = "".join(f'''<a class="scard" href="{s}.html"><span class="ph">Photo</span><h3>{t}</h3><p>{d}</p><span class="btn gray sm">View Service</span></a>''' for s, t, d in SERVICES)
+    cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>Miami, FL</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i></i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
     body = f'''<section class="hero">
-  <div class="hero-media" aria-hidden="true"><span>Hero video / photo</span></div>
+  <div class="hero-media has-photo" aria-hidden="true">{photo("polish", 1600, "45% 38%", alt=False, eager=True)}</div>
   <div class="wrap hero-in">
     <p class="small">Welcome to {SITE['name']}</p>
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
@@ -215,14 +245,14 @@ def build_home():
 <section class="sec">
   <div class="wrap"><div class="unlock"><div class="bar"><h2>Unlock the ultimate driving experience</h2>
   <p>{SITE['name']} brings vehicle protection and detailing to Miami drivers who care about how their car looks and how long it lasts. We tailor each service to your vehicle and your style, with certified installers who focus on the small details. Every project happens in a facility built for precise work, quality products and a polished experience from start to finish.</p>
-  <a class="btn" href="about-us.html">About us</a></div><div class="ph-box">Shop photo</div></div></div>
+  <a class="btn" href="about-us.html">About us</a></div>{photo_box("tint", pos="62% 35%")}</div></div>
 </section>
-<section class="feat"><div class="txt"><span class="kick">Protect</span><h2>Protect and preserve your car&rsquo;s flawless finish</h2><p>Keep your vehicle looking new with protection built for Miami&rsquo;s sun, salt air and storms. Paint protection film takes the hit from rock chips and road debris, while ceramic coating adds gloss, shrugs off contaminants and makes every wash faster.</p></div><div class="ph-box">Photo</div></section>
-<section class="feat rev"><div class="txt"><span class="kick">Customize</span><h2>Make your ride uniquely yours</h2><p>Whether you want a refined upgrade or a bold new look, we turn your ideas into high-quality results. Vinyl wraps change color, texture and finish, while premium window tint cuts heat and glare and gives the car a cleaner, finished look.</p></div><div class="ph-box">Photo</div></section>
-<section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div><div class="ph-box">Photo</div></section>
+<section class="feat"><div class="txt"><span class="kick">Protect</span><h2>Protect and preserve your car&rsquo;s flawless finish</h2><p>Keep your vehicle looking new with protection built for Miami&rsquo;s sun, salt air and storms. Paint protection film takes the hit from rock chips and road debris, while ceramic coating adds gloss, shrugs off contaminants and makes every wash faster.</p></div>{photo_box("ppf", pos="40% 50%")}</section>
+<section class="feat rev"><div class="txt"><span class="kick">Customize</span><h2>Make your ride uniquely yours</h2><p>Whether you want a refined upgrade or a bold new look, we turn your ideas into high-quality results. Vinyl wraps change color, texture and finish, while premium window tint cuts heat and glare and gives the car a cleaner, finished look.</p></div>{photo_box("heat", pos="50% 35%")}</section>
+<section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div>{photo_box("polish", pos="40% 45%")}</section>
 <section class="sec" id="portfolio">
   <div class="wrap center"><span class="chip">Our Portfolio</span><h2>Recent vehicles <em>completed.</em></h2>
-  <div class="grid3">{"".join('<div class="ph-box">Vehicle photo</div>' for _ in range(6))}</div>
+  <div class="grid3">{photo_box("ppf")}{photo_box("ceramic")}{photo_box("polish")}</div>
   <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>
 </section>
 {cta_banner()}'''
@@ -231,7 +261,7 @@ def build_home():
 
 # ---------------------------------------------------------------- services hub
 def build_services_hub():
-    cards = "".join(f'''<a class="scard" href="{s}.html"><span class="ph">Photo</span><h3>{t}</h3><p>{d}</p><span class="btn gray sm">View Service</span></a>''' for s, t, d in SERVICES)
+    cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     body = inner_hero("Our <em>Services</em>", "Elevate your ride with expert protection and customization.", ['<a href="index.html">Home</a>', "Services"], form=True)
     body += f'''{stripes()}{partners()}
 <section class="sec"><div class="wrap center"><span class="chip">Our Services</span><h2>Elevate your ride with expert <em>custom services</em></h2>
@@ -327,13 +357,16 @@ def build_service(slug, title, short):
     faq = ""
     if d["faq"]:
         faq = '<section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to <em>know</em></h2></div><div class="faq">' + "".join(faq_block(items) for _, items, _ in d["faq"]) + "</div></div></section>"
-    body = inner_hero(title.upper().replace("&", "&amp;") if False else esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"])
+    ik, wk = SERVICE_PHOTOS[slug]
+    bk = wk or ik
+    band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug))
     body += f'''{stripes()}{partners()}
 <section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
-<div class="pkgs">{pk}</div>{sim}</section>{stripes()}<div class="band" aria-hidden="true"><span>Photo / video</span></div>{stripes()}
-<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div><div class="ph-box">Photo</div></div></div></section>
+<div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
+<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
 <section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>
-<section class="sec"><div class="wrap"><div class="split"><div class="ph-box">Photo</div><div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
+<section class="sec"><div class="wrap"><div class="split">{photo_box(wk)}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
 {faq}{cta_banner()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
 
@@ -346,10 +379,13 @@ def build_brands():
     page("brands.html", f"Brands | {SITE['name']}", "The premium film, coating and wrap brands we install.", body, "brands")
 
 def build_projects():
-    cats = ["All", "SUV", "Sedan", "Coupe", "Truck"]
+    cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
-    items = [("SUV", "Ceramic coating"), ("Sedan", "Window tint"), ("Coupe", "Paint protection film"), ("Truck", "Vinyl wrap"), ("SUV", "Paint correction"), ("Sedan", "Ceramic coating"), ("Coupe", "Window tint"), ("Truck", "Paint protection film"), ("SUV", "Vinyl wrap")]
-    grid = "".join(f'<div class="ph-box" data-cat="{c}">{c} · {s}</div>' for c, s in items)
+    items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"),
+             ("Wraps", None), ("Detailing", None), ("PPF", None), ("Ceramic", None)]
+    grid = "".join(
+        (f'<div class="ph-box has-img" data-cat="{c}">{photo(k)}</div>' if k else f'<div class="ph-box" data-cat="{c}">Add photo · {c}</div>')
+        for c, k in items)
     body = inner_hero("Our recent <em>projects</em>", "Explore real vehicles completed in our shop featuring paint protection film, vinyl wraps, ceramic coating, tint and detailing.", ['<a href="index.html">Home</a>', "Projects"], form=True)
     body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Explore more of our projects</span><h2>Vehicles we&rsquo;ve <em>completed</em></h2>
 <div class="filters" role="group" aria-label="Filter projects">{f}</div><div class="grid3" id="projectGrid">{grid}</div></div></section>{cta_banner()}'''
@@ -358,9 +394,9 @@ def build_projects():
 def build_about():
     body = inner_hero("About <em>us</em>", f"{SITE['name']} is a Miami vehicle protection and detailing shop built on craft and customer care.", ['<a href="index.html">Home</a>', "About us"], form=False)
     body += f'''{stripes()}
-<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>Placeholder copy. Tell the story of {SITE['name']}: who started it, why, and what makes your shop different. Mention your experience, certifications and the kind of vehicles you love working on.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div><div class="ph-box">Shop photo</div></div></div></section>
+<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>Placeholder copy. Tell the story of {SITE['name']}: who started it, why, and what makes your shop different. Mention your experience, certifications and the kind of vehicles you love working on.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div>{photo_box("heat", pos="50% 30%")}</div></div></section>
 <section class="stats"><div class="stat"><b>000+</b><span>Vehicles completed</span></div><div class="stat"><b>00</b><span>Years of experience</span></div><div class="stat"><b>0.0★</b><span>Google rating</span></div></section>
-<section class="feat"><div class="txt"><span class="kick">Our mission</span><h2>Correction, protection, reflection</h2><p>Placeholder copy. Describe your mission and values, and what customers can expect every time they bring a car in.</p></div><div class="ph-box">Team photo</div></section>
+<section class="feat"><div class="txt"><span class="kick">Our mission</span><h2>Correction, protection, reflection</h2><p>Placeholder copy. Describe your mission and values, and what customers can expect every time they bring a car in.</p></div>{photo_box("polish", pos="40% 45%")}</section>
 <section class="sec"><div class="wrap center"><span class="chip">Meet the team</span><h2>The people behind <em>the work</em></h2><div class="grid3">{"".join('<div class="ph-box">Team member</div>' for _ in range(3))}</div></div></section>{cta_banner()}'''
     page("about-us.html", f"About Us | {SITE['name']}", f"Learn about {SITE['name']}, a Miami vehicle protection and detailing shop.", body, "about")
 
@@ -369,7 +405,7 @@ POSTS = [("gloss-vs-matte-ppf", "Gloss PPF vs. Matte PPF: Which Finish Fits Your
          (None, "How Window Tint Keeps Your Cabin Cool", "How ceramic tint cuts heat and UV, and how to choose the right shade.")]
 
 def build_blog():
-    cards = "".join(f'<article class="post"><div class="ph-box">Photo</div><div class="b"><time>Month 00, 0000</time><h3>{esc(t)}</h3><p>{d}</p><a class="more" href="{(s + ".html") if s else "#"}">Read more</a></div></article>' for s, t, d in POSTS)
+    cards = "".join(f'<article class="post">{photo_box(k)}<div class="b"><time>Month 00, 0000</time><h3>{esc(t)}</h3><p>{d}</p><a class="more" href="{(s + ".html") if s else "#"}">Read more</a></div></article>' for (s, t, d), k in zip(POSTS, ["ppf", "ceramic", "tint"]))
     body = inner_hero("Our <em>blog</em>", "Car care tips and answers from the team at Divine Detailers.", ['<a href="index.html">Home</a>', "Blogs"], buttons=False)
     body += f'<section class="sec"><div class="wrap"><div class="grid3" style="margin-top:0">{cards}</div></div></section>{cta_banner()}'
     page("blog.html", f"Blog | {SITE['name']}", "Car care tips on ceramic coating, paint protection film and window tint.", body, "blog")

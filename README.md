@@ -9,3 +9,6 @@ Static site (plain HTML, CSS and JS) for Divine Detailers, Miami.
 - Quote and newsletter forms use Netlify Forms (`data-netlify`), so they work once deployed on Netlify.
 
 Placeholders to replace: address and hours, photos, partner/brand logos, Google reviews, social links, stats.
+
+Photos live in `assets/photos/` (a 720px and a 1600px version of each). To add more, drop the files there and
+reference them in `PHOTOS` / the page functions in `build.py`, then run `python3 build.py`.
