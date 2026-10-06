@@ -235,7 +235,7 @@ def build_home():
   <div class="stats"><div class="stat"><b>000+</b><span>Vehicles completed</span></div><div class="stat"><b>0.0★</b><span>Google rating</span></div><div class="stat"><b>00</b><span>Years of experience</span></div></div>
   <div class="wrap center" style="padding:70px 0 70px"><span class="chip">Social Media Following</span>
   <div class="social-ico">{socials}</div>
-  <p class="followers"><b>000K+</b> Followers across platforms</p>
+  <p class="followers"><b>15K+</b> Followers across platforms</p>
   <h2>Follow every <em>build</em></h2><div style="margin-top:26px"><a class="btn gray" href="{SITE['instagram']}">Visit Instagram</a></div></div>
   <div class="slider" aria-roledescription="carousel" aria-label="Recent work photos">
     <div class="slide-track" id="buildTrack">{slides}</div>
