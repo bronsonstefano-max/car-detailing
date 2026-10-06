@@ -115,12 +115,14 @@ def header(active):
   </div>
 </header>'''
 
-def quote_form(fid=None, select_default=None, extra=""):
+STATUS = '<div class="status"><span class="dot"></span>Free quotes. Tell us about your vehicle and we will get back to you.</div>'
+
+def quote_form(fid=None, select_default=None, extra="", status=True):
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
     idattr = f' id="{fid}"' if fid else ""
     return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" data-netlify="true" data-form>
   <input type="hidden" name="form-name" value="quote">
-  <div class="status"><span class="dot"></span>Free quotes. Tell us about your vehicle and we will get back to you.</div>
+  {STATUS if status else ""}
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
   <label>Phone<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel"></label>
@@ -192,10 +194,10 @@ def faq_block(items, cat=None, cid=None):
     out += "".join(f"<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>" for q, a in items)
     return out
 
-def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None):
+def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True):
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
-    q = f'<div class="qwrap">{quote_form(select_default=select)}</div>' if form else ""
+    q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
     return f'''<section class="page-hero{' tall' if form else ''}">
   <div class="hero-media" aria-hidden="true"></div>
   <div class="wrap hero-in"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
@@ -277,7 +279,7 @@ def build_home():
 # ---------------------------------------------------------------- services hub
 def build_services_hub():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
-    body = inner_hero("Our <em>Services</em>", "Elevate your ride with expert protection and customization.", ['<a href="index.html">Home</a>', "Services"], form=True)
+    body = inner_hero("Our <em>Services</em>", "Elevate your ride with expert protection and customization.", ['<a href="index.html">Home</a>', "Services"], form=True, status=False)
     body += f'''{stripes()}{partners()}
 <section class="sec"><div class="wrap center"><span class="chip">Our Services</span><h2>Elevate your ride with expert <em>custom services</em></h2>
 <p class="lead" style="margin-top:14px">From window tint to ceramic coating, our services enhance your ride&rsquo;s style, protection and performance. Trust our skilled team to deliver quality and luxury your car deserves.</p>
@@ -415,7 +417,7 @@ def build_service(slug, title, short):
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
     band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
-    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug))
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False)
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     rows = ""
