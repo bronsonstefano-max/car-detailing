@@ -346,3 +346,6 @@ details p{padding:0 22px 20px;color:var(--muted)}
 .banner{background:linear-gradient(rgba(1,2,6,.82),rgba(1,2,6,.9)),var(--banner-img,none) center/cover,var(--bg)}
 .feat .ph-box.has-img{border:0}
 .post .ph-box.has-img{aspect-ratio:16/10}
+
+.hero-media.lighter::after{background:linear-gradient(180deg,rgba(1,2,6,.5),rgba(1,2,6,.7) 58%,var(--bg))}
+.hero-in .small,.hero-in .sub,.hero-in p.lead,.hero-in h1{text-shadow:0 2px 14px rgba(0,0,0,.75)}
