@@ -264,6 +264,8 @@ def build_home():
     <div class="loc hot"><h3>{SITE['name']}</h3><div class="cols"><div><b>Store Hours</b><span>{SITE['hours'][0]}<br>{SITE['hours'][1]}</span></div><div><b>Office</b><span>{SITE['addr1']}<br>{SITE['addr2']}</span></div></div></div>
     <div class="loc call"><small>CALL NOW</small><a href="tel:{SITE['tel']}">{SITE['phone']}</a></div>
   </div>
+  <div class="loc-map"><iframe class="map-embed" title="Map showing {SITE['name']} at {SITE['addr1']}, {SITE['addr2']}" src="https://www.google.com/maps?q={SITE['map_query'].replace(' ', '+')}&amp;output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+  <a class="map-dir btn" href="https://www.google.com/maps/dir/?api=1&amp;destination={SITE['map_query'].replace(' ', '+')}" target="_blank" rel="noopener">Get Directions</a></div>
 </section>
 <section class="sec" id="reviews">
   <div class="wrap rev-head"><span class="chip">Recent Reviews</span><h2>What our <em>clients</em> say</h2>
