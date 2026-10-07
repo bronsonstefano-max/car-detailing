@@ -121,7 +121,7 @@ def header(active):
   </div>
 </header>'''
 
-STATUS = '<div class="status"><span class="dot"></span>Free quotes. Tell us about your vehicle and we will get back to you.</div>'
+STATUS = '<div class="status"><span class="dot"></span>Estimated Wait Time: 30 Minutes or less</div>'
 
 def quote_form(fid=None, select_default=None, extra="", status=True):
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
