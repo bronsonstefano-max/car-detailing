@@ -502,3 +502,14 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 @media(max-width:860px){
   .hero-btns .btn,.btn-row .btn,.unlock .btn,.cta-pair .btn,.hero-top .hero-in .hero-btns .btn{width:calc(100vw - 34px)}
 }
+
+/* phones: buttons sized to their container so they stay centered and inside the screen */
+@media(max-width:860px){
+  .hero-btns .btn,.btn-row .btn,.unlock .btn,.cta-pair .btn,.hero-top .hero-in .hero-btns .btn{width:100%;max-width:100%}
+  .hero-btns,.btn-row{width:100%;max-width:100%}
+  .cta-strip{padding-left:clamp(16px,4vw,60px);padding-right:clamp(16px,4vw,60px)}
+  .cta-strip .btn-row{padding:0;width:100%}
+  .unlock.single .bar{padding-left:0;border-left:0}
+  .unlock .bar .btn{margin-left:0}
+  .unlock.single .bar h2{border-left:3px solid var(--g);padding-left:16px}
+}
