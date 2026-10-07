@@ -432,3 +432,5 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 @keyframes revslide{to{transform:translateX(-50%)}}
 @media(max-width:860px){.rev-run .review{flex-basis:84vw}.rev-run{animation-duration:48s}}
 @media(prefers-reduced-motion:reduce){.rev-track.marquee{overflow-x:auto}.rev-run{animation:none}.rev-run .review[aria-hidden=true]{display:none}}
+.unlock.single{grid-template-columns:1fr}
+.unlock.single .bar{max-width:900px}
