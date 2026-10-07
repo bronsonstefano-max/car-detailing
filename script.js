@@ -66,7 +66,7 @@ if (shade) {
   const view = document.getElementById('simView');
   const setShade = btn => {
     const v = Number(btn.dataset.vlt);
-    shade.style.opacity = (1 - v / 100).toFixed(2);
+    view.style.setProperty('--o', (1 - v / 100).toFixed(2));
     document.getElementById('simBadge').textContent = v + '%';
     document.getElementById('simTitle').textContent = v + '% VLT — ' + btn.dataset.name;
     document.getElementById('simDesc').textContent = btn.dataset.desc;

@@ -450,7 +450,7 @@ def build_service(slug, title, short):
         sim = f'''<div class="sim" id="simulator"><p class="sim-label"><span class="dot"></span>DIVINE DETAILERS</p><h3>Window Tint <em>Simulator</em></h3>
 <p class="sim-sub">Select a side window shade below</p>
 <div class="sim-tabs"><button class="on" data-sim-tab="side">Side Windows</button><button data-sim-tab="wind">Windshield</button></div>
-<div class="sim-view" id="simView" aria-hidden="true"><div class="sim-shade" id="simShade"></div><div class="sim-badge"><b id="simBadge">30%</b><span id="simBadgeLabel">SIDE VLT</span></div></div>
+<div class="sim-view" id="simView" aria-hidden="true"><img class="sim-car" src="assets/tint/sim-car.webp" alt="" width="1200" height="675" loading="lazy"><div class="sim-shade sim-side" id="simShade"></div><div class="sim-shade sim-wind"></div><div class="sim-badge"><b id="simBadge">30%</b><span id="simBadgeLabel">SIDE VLT</span></div></div>
 <div class="sim-info"><b id="simTitle">30% VLT — Medium Tint</b><p id="simDesc">Balanced privacy with clear night visibility. A daily-driver favorite.</p></div>
 <div class="sim-vlt" role="group" aria-label="Shade level">{btns}</div>
 <p class="note"><b>Florida law:</b> Tint darkness limits differ by window and vehicle. We will confirm the legal options for your vehicle before we install anything.</p></div>'''
