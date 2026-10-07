@@ -12,11 +12,11 @@ SITE = dict(
     phone="(786) 757-2658",
     tel="+17867572658",
     email="info@divinedetailers.com",
-    addr1="1234 E Main St Suite #100",
-    addr2="Miami, FL 00000",
+    addr1="5181 NW 74th Ave",
+    addr2="Miami, FL 33166",
     hours=("Mon - Fri - 9:00AM - 5:00PM", "Sat - Sun - Closed"),   # placeholder hours
     instagram="#", tiktok="#", facebook="#", youtube="#",
-    map_query="Miami, FL",   # placeholder: replace with the full street address
+    map_query="5181 NW 74th Ave, Miami, FL 33166",
 )
 
 SERVICES = [
@@ -512,7 +512,6 @@ def build_contact():
     body += f'''{stripes()}
 <section id="quote"><div class="contact-split"><div><span class="chip">Get quote</span><h2>Get your free <em>quote now!</em></h2><p class="lead" style="margin:14px 0 26px;max-width:none">Tell us about your vehicle and what you want done. We will reply with a quote and next steps.</p>{quote_form(extra=ex)}</div>
 <div><span class="chip">Visit us</span><h2>Find the <em>shop</em></h2><ul class="info" style="margin-top:26px"><li><b>Address</b>{SITE['addr1']}<br>{SITE['addr2']}</li><li><b>Hours</b>{SITE['hours'][0]}<br>{SITE['hours'][1]}</li><li><b>Call</b><a href="tel:{SITE['tel']}">{SITE['phone']}</a></li><li><b>Email</b><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul>
-<!-- PLACEHOLDER: replace the map location with the shop's full street address -->
 <iframe class="map-embed" title="Map showing {SITE['name']}" src="https://www.google.com/maps?q={SITE['map_query'].replace(' ', '+')}&amp;output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
 <p style="margin-top:14px"><a class="btn gray sm" href="https://www.google.com/maps/dir/?api=1&amp;destination={SITE['map_query'].replace(' ', '+')}" target="_blank" rel="noopener">Get Directions</a></p></div></div></section>
 <section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to know <em>before looking up.</em></h2>{jump}</div><div class="faq">{faq}</div></div></section>{cta_banner()}'''
