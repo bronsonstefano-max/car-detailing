@@ -48,6 +48,10 @@ REVIEWS = [
  ("Bryant Chef", "Divine Detailers where do I start. The moment I contact Gio he was all in. From showing me demos of what need to be done explaining all the material that will be used to make this project worthwhile. Gio is the man to see. With my busy schedule he made sure to work something out to benefit my work schedule. With the end results I was blown away. I thought I brought my car all over again from the dealer off the showroom floor. Gio great work can't thank you enough."),
  ("Emilio Berkowitz Jr.", "I recently had my car detailed and I couldn't be more impressed! From start to finish, the experience was top-notch. The team was professional, punctual, and meticulous in their work. My car came back looking better than the day I bought it. The paint had an incredible shine, the interior was spotless, and even the smallest crevices were free of dust and grime. They took the time to explain the process, use high-quality products, and ensure every inch of my vehicle was flawless."),
  ("Alexander Gonzalez", "Absolutely amazing service! My car has never looked better, inside and out. The staff was professional, friendly, and paid close attention to every detail. They removed spots I thought were permanent, and the shine on my car is showroom-level. Quick, efficient, and worth every penny. Highly recommend to anyone looking for top-tier car care!"),
+ ("Lourdes Guiardinu", "Excellent work by this team of incredibly talented professionals. Reliable, punctual, very communicative and very good detailed work. My BMW 760i was taken care of with first-class treatment. Highly recommend this team."),
+ ("Imran Valdes", "The only detailer I plan to ever use again. They provided excellent service to 3 of our cars and were very punctual. They took their time and took every extra step to make sure our vehicles were perfect. Worth every single penny, I highly recommend their service."),
+ ("Brian Martinez", "Best detailers in south Florida, very clean and precise on the details. Makes your car look brand new."),
+ ("Kendra Jimenez", "Highly recommend Divine Detailers. Great service, on time and attention to detail. Thank you!!"),
  ("Raider Farinas", "The best mobile detailing out there left my car looking like a 2026. El gio es un mostro."),
 ]
 
@@ -291,7 +295,7 @@ def build_home():
 </section>
 <section class="sec" id="reviews">
   <div class="wrap rev-head"><span class="chip">Recent Reviews</span><h2>What our <em>clients</em> say</h2>
-  <div class="rev-wrap" style="text-align:initial"><div class="rev-track marquee"><div class="rev-run">{revs}{revs_dup}</div></div>
+  <div class="rev-wrap" style="text-align:initial"><div class="rev-track marquee"><div class="rev-run" style="animation-duration:{len(REVIEWS) * 11}s">{revs}{revs_dup}</div></div>
   </div></div>
 </section>
 {stripes()}
