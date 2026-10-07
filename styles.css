@@ -449,3 +449,17 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .dot{animation:dotpulse 1.8s ease-out infinite}
 @keyframes dotpulse{0%{box-shadow:0 0 0 0 rgba(0,232,135,.7)}70%{box-shadow:0 0 0 12px rgba(0,232,135,0)}100%{box-shadow:0 0 0 0 rgba(0,232,135,0)}}
 @media(prefers-reduced-motion:reduce){.dot{animation:none}}
+
+/* services slider (phones): one card at a time with side arrows */
+.svc-slider{position:relative}
+.svc-btn{display:none}
+@media(max-width:860px){
+  .svc-slider .cards{display:flex;gap:0;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin-top:36px}
+  .svc-slider .cards::-webkit-scrollbar{display:none}
+  .svc-slider .scard{flex:0 0 100%;scroll-snap-align:center;min-height:460px;justify-content:flex-end}
+  .svc-btn{display:grid;place-items:center;position:absolute;top:50%;transform:translateY(-50%);width:48px;height:48px;border:0;background:rgba(67,67,67,.85);color:#fff;font-size:1.9rem;line-height:1;cursor:pointer;z-index:3}
+  .svc-btn.prev{left:0}.svc-btn.next{right:0}
+  .svc-btn:active{background:var(--g);color:#000}
+  .cta-strip .btn-row{flex-direction:column;align-items:stretch;padding:0 16px}
+  .cta-strip .btn{justify-content:center}
+}

@@ -16,6 +16,17 @@ document.addEventListener('click', e => {
   document.querySelectorAll('.has-dd.open').forEach(d => { if (!d.contains(e.target)) d.classList.remove('open'); });
 });
 
+// Services slider (phones)
+document.querySelectorAll('[data-svc]').forEach(btn => btn.addEventListener('click', () => {
+  const cards = btn.closest('.svc-slider').querySelector('.cards');
+  const w = cards.firstElementChild.offsetWidth;
+  const atEnd = cards.scrollLeft + cards.clientWidth >= cards.scrollWidth - 4;
+  const dir = Number(btn.dataset.svc);
+  if (dir > 0 && atEnd) cards.scrollTo({ left: 0, behavior: 'smooth' });
+  else if (dir < 0 && cards.scrollLeft <= 4) cards.scrollTo({ left: cards.scrollWidth, behavior: 'smooth' });
+  else cards.scrollBy({ left: dir * w, behavior: 'smooth' });
+}));
+
 // Build slideshow
 const buildTrack = document.getElementById('buildTrack');
 if (buildTrack) {
