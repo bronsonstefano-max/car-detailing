@@ -158,8 +158,8 @@ def partners():
   <div class="rev-track marquee logo-marquee"><div class="rev-run logo-run" style="animation-duration:{len(BRANDS) * 5}s">{tiles}{dup}</div></div></section>'''
 
 def cta_banner():
-    return f'''<section class="banner center" style="--banner-img:url('assets/photos/tint-heatgun-1600.webp')">
-  <div class="wrap"><span class="chip">Contact us</span>
+    return f'''<section class="banner center">
+  <div class="wrap"><a class="foot-logo banner-logo" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo" width="240" height="138" loading="lazy"></a>
   <h2>We don&rsquo;t just detail cars, <span class="dim">we perfect them.</span></h2>
   <p>Reach out and let&rsquo;s talk about what your car needs next.</p>
   <a class="btn" href="contact.html#quote"><span class="dot"></span>Contact us</a></div></section>'''
@@ -169,7 +169,7 @@ def footer():
     soc = "".join(f'<li><a href="{SITE[k]}" target="_blank" rel="noopener">{k.capitalize()}</a></li>' for k in ("tiktok", "instagram", "youtube") if SITE[k] != "#")
     return f'''<footer class="foot-wrap">
   <div class="foot">
-    <div><a class="foot-logo" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo" width="240" height="138" loading="lazy"></a><h4>Quick links</h4><ul><li><a href="index.html">Home</a></li><li><a href="about-us.html">About us</a></li><li><a href="projects.html">Projects</a></li><li><a href="blog.html">Blogs</a></li><li><a href="contact.html">Contact us</a></li></ul></div>
+    <div><h4>Quick links</h4><ul><li><a href="index.html">Home</a></li><li><a href="about-us.html">About us</a></li><li><a href="projects.html">Projects</a></li><li><a href="blog.html">Blogs</a></li><li><a href="contact.html">Contact us</a></li></ul></div>
     <div><h4>Services</h4><ul>{svc}</ul></div>
     <div><h4>Follow us</h4><ul>{soc}<li><a href="tel:{SITE['tel']}">{SITE['phone']}</a></li><li><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul></div>
     <div class="news"><p>Join for expert car care tips and exclusive offers on our top services.</p>

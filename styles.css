@@ -517,3 +517,9 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 /* Contact us banner button: same size as the other CTAs */
 .banner .btn{box-sizing:border-box;width:330px;max-width:100%;min-height:56px;padding:0 20px;justify-content:center;text-align:center;font-size:1rem}
 @media(max-width:860px){.banner .btn{width:100%}}
+
+/* Closing banner: plain black, logo on top, then heading (footer starts at Quick links) */
+.banner{background:var(--bg)}
+.banner-logo{display:block;text-align:left;margin:0 0 56px}
+.banner-logo img{width:min(360px,100%)}
+@media(max-width:860px){.banner{padding:50px 0 60px}.banner-logo{margin-bottom:44px}}
