@@ -16,25 +16,6 @@ document.addEventListener('click', e => {
   document.querySelectorAll('.has-dd.open').forEach(d => { if (!d.contains(e.target)) d.classList.remove('open'); });
 });
 
-// Reviews carousel: rotates on its own, no buttons
-const track = document.querySelector('.rev-track');
-if (track && track.children.length > 1) {
-  const stepReviews = () => {
-    const w = track.firstElementChild.offsetWidth + 16;
-    const atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
-    track.scrollTo({ left: atEnd ? 0 : track.scrollLeft + w, behavior: 'smooth' });
-  };
-  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    let revTimer = setInterval(stepReviews, 5000);
-    const stop = () => { clearInterval(revTimer); revTimer = null; };
-    const go = () => { if (!revTimer) revTimer = setInterval(stepReviews, 5000); };
-    track.addEventListener('mouseenter', stop);
-    track.addEventListener('mouseleave', go);
-    track.addEventListener('touchstart', stop, { passive: true });
-    track.addEventListener('touchend', () => setTimeout(go, 4000), { passive: true });
-  }
-}
-
 // Build slideshow
 const buildTrack = document.getElementById('buildTrack');
 if (buildTrack) {
