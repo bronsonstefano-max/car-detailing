@@ -483,3 +483,22 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .hero-top .hero-in .hero-btns{display:flex;width:100%;gap:10px}
   .hero-top .hero-in .hero-btns .btn{width:100%;padding:18px 16px}
 }
+
+/* one size for every call / quote CTA button */
+.hero-btns .btn,.btn-row .btn,.unlock .btn,.cta-pair .btn{box-sizing:border-box;width:330px;max-width:100%;min-height:56px;padding:0 20px;justify-content:center;text-align:center;font-size:1rem}
+.hero-btns{display:flex;flex-direction:column;align-items:center;gap:12px}
+.btn-row{gap:12px}
+@media(max-width:860px){
+  .hero-btns,.btn-row{width:100%}
+  .btn-row{flex-direction:column;align-items:stretch;padding:0 16px}
+  .hero-btns .btn,.btn-row .btn,.unlock .btn,.cta-pair .btn{width:100%;min-height:56px}
+  .hero-top .hero-in .hero-btns .btn{padding:0 16px}
+}
+@media(max-width:860px){
+  .btn-row{align-items:center;padding:0}
+  .hero-btns{align-items:center}
+  .hero-btns .btn,.btn-row .btn,.unlock .btn,.cta-pair .btn{width:calc(100vw - 32px);max-width:none}
+}
+@media(max-width:860px){
+  .hero-btns .btn,.btn-row .btn,.unlock .btn,.cta-pair .btn,.hero-top .hero-in .hero-btns .btn{width:calc(100vw - 34px)}
+}
