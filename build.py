@@ -572,7 +572,7 @@ def build_privacy():
 <h2>Changes to Our Privacy Policy</h2><p>We will post any changes to our privacy policy on this page with an updated revision date. You are responsible for periodically visiting this page to check for any changes.</p>
 <div class="legal-card"><h2>Contact Us</h2><p>If you have any questions about this privacy policy, please contact us:</p><p><strong>{n}</strong></p><p><a href="mailto:{SITE['email']}">{SITE['email']}</a></p><p><a href="tel:{SITE['tel']}">{SITE['phone']}</a></p><p class="small">{SITE['addr1']}, {SITE['addr2']}</p><p class="small">Thank you for visiting {n}.</p></div></article></div></section>
 <div class="ticker" aria-hidden="true"><div class="ticker-run">{"<span>Contact us <i>&#8600;</i></span>"*16}</div></div>
-<section class="sec"><div class="wrap">{map_block()[0]}</div></section>'''
+<section class="sec"><div class="wrap">{map_block()[0]}</div></section>''' + cta_banner()
     page("privacy-policy.html", f"Privacy Policy | {n}", "Divine Detailers privacy policy.", body)
 
 def build_thanks():
