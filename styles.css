@@ -526,3 +526,4 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .banner-logo{margin-bottom:36px}
 .banner-logo img{width:150px}
 @media(max-width:860px){.banner-logo{margin-bottom:30px}.banner-logo img{width:130px}}
+.legal h3{font-size:1.05rem;margin:22px 0 10px;color:var(--g)}
