@@ -17,6 +17,7 @@ SITE = dict(
     hours=("Mon - Fri - 9:00AM - 5:00PM", "Sat - Sun - Closed"),   # placeholder hours
     instagram="#", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
+    gmaps_key="",   # paste a Google Maps Embed API key here to show the live map with pin (see README)
 )
 
 SERVICES = [
@@ -217,8 +218,23 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, h
 </section>'''
 
 # ---------------------------------------------------------------- home
+
+def map_block(cls="map-embed"):
+    from urllib.parse import quote_plus
+    q = quote_plus(SITE["map_query"])
+    place = f"https://www.google.com/maps/search/?api=1&query={q}"
+    direc = f"https://www.google.com/maps/dir/?api=1&destination={q}"
+    if SITE["gmaps_key"]:
+        frame = (f'<iframe class="{cls}" title="Map showing {SITE["name"]}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen '
+                 f'src="https://www.google.com/maps/embed/v1/place?key={SITE["gmaps_key"]}&amp;q={q}"></iframe>')
+    else:
+        frame = (f'<a class="{cls} map-card" href="{place}" target="_blank" rel="noopener" aria-label="Open {SITE["name"]} in Google Maps">'
+                 f'<span class="pin" aria-hidden="true"></span><b>{SITE["name"]}</b><span>{SITE["addr1"]}<br>{SITE["addr2"]}</span><em>View on Google Maps</em></a>')
+    return frame, place, direc
+
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
+    home_map = map_block()
     slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "ceramic", "wash", "rolls", "polish", "foam", "tint", "wheel", "spray", "heat"])
     revs = "".join(f'''<article class="review"><div class="tag"><span>Google review</span><span>5.0 &#9733;</span></div><div class="stars">★★★★★</div><p>{t}</p><div class="who"><i aria-hidden="true">{n[0]}</i>{n}</div></article>''' for n, t in REVIEWS)
     socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
@@ -264,8 +280,8 @@ def build_home():
     <div class="loc hot"><h3>{SITE['name']}</h3><div class="cols"><div><b>Store Hours</b><span>{SITE['hours'][0]}<br>{SITE['hours'][1]}</span></div><div><b>Office</b><span>{SITE['addr1']}<br>{SITE['addr2']}</span></div></div></div>
     <div class="loc call"><small>CALL NOW</small><a href="tel:{SITE['tel']}">{SITE['phone']}</a></div>
   </div>
-  <div class="loc-map"><iframe class="map-embed" title="Map showing {SITE['name']} at {SITE['addr1']}, {SITE['addr2']}" src="https://www.google.com/maps?q={SITE['map_query'].replace(' ', '+')}&amp;output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
-  <a class="map-dir btn" href="https://www.google.com/maps/dir/?api=1&amp;destination={SITE['map_query'].replace(' ', '+')}" target="_blank" rel="noopener">Get Directions</a></div>
+  <div class="loc-map">{home_map[0]}
+  <a class="map-dir btn" href="{home_map[2]}" target="_blank" rel="noopener">Get Directions</a></div>
 </section>
 <section class="sec" id="reviews">
   <div class="wrap rev-head"><span class="chip">Recent Reviews</span><h2>What our <em>clients</em> say</h2>
@@ -506,6 +522,7 @@ def build_post():
     page("gloss-vs-matte-ppf.html", f"Gloss PPF vs. Matte PPF | {SITE['name']}", "Which paint protection film finish fits your style and vehicle.", body, "blog")
 
 def build_contact():
+    cmap = map_block()
     cats = [("Ceramic coating", FAQ_CERAMIC, "faq-ceramic"), ("Paint correction", FAQ_CORRECTION, "faq-correction"), ("PPF / Clear bra", FAQ_PPF, "faq-ppf"), ("Window tint", FAQ_TINT, "faq-tint")]
     jump = '<nav class="faq-jump"><a href="#faq-general">General</a>' + "".join(f'<a href="#{i}">{esc(n)}</a>' for n, _, i in cats) + "</nav>"
     faq = faq_block(GENERAL_FAQ, "General", "faq-general") + "".join(faq_block(it, n, i) for n, it, i in cats)
@@ -514,8 +531,8 @@ def build_contact():
     body += f'''{stripes()}
 <section id="quote"><div class="contact-split"><div><span class="chip">Get quote</span><h2>Get your free <em>quote now!</em></h2><p class="lead" style="margin:14px 0 26px;max-width:none">Tell us about your vehicle and what you want done. We will reply with a quote and next steps.</p>{quote_form(extra=ex)}</div>
 <div><span class="chip">Visit us</span><h2>Find the <em>shop</em></h2><ul class="info" style="margin-top:26px"><li><b>Address</b>{SITE['addr1']}<br>{SITE['addr2']}</li><li><b>Hours</b>{SITE['hours'][0]}<br>{SITE['hours'][1]}</li><li><b>Call</b><a href="tel:{SITE['tel']}">{SITE['phone']}</a></li><li><b>Email</b><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul>
-<iframe class="map-embed" title="Map showing {SITE['name']}" src="https://www.google.com/maps?q={SITE['map_query'].replace(' ', '+')}&amp;output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
-<p style="margin-top:14px"><a class="btn gray sm" href="https://www.google.com/maps/dir/?api=1&amp;destination={SITE['map_query'].replace(' ', '+')}" target="_blank" rel="noopener">Get Directions</a></p></div></div></section>
+{cmap[0]}
+<p style="margin-top:14px"><a class="btn gray sm" href="{cmap[2]}" target="_blank" rel="noopener">Get Directions</a></p></div></div></section>
 <section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to know <em>before looking up.</em></h2>{jump}</div><div class="faq">{faq}</div></div></section>{cta_banner()}'''
     page("contact.html", f"Request a Quote | {SITE['name']}", "Request a free quote for window tint, PPF, ceramic coating and more in Miami.", body, "contact")
 
