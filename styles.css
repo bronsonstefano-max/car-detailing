@@ -523,3 +523,6 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .banner-logo{display:block;text-align:left;margin:0 0 56px}
 .banner-logo img{width:min(360px,100%)}
 @media(max-width:860px){.banner{padding:50px 0 60px}.banner-logo{margin-bottom:44px}}
+.banner-logo{margin-bottom:36px}
+.banner-logo img{width:150px}
+@media(max-width:860px){.banner-logo{margin-bottom:30px}.banner-logo img{width:130px}}
