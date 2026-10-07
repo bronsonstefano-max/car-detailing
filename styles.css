@@ -444,3 +444,8 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .logo-run .brand{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-sizing:border-box}
 .logo-run .brand:not(.has-logo){border:1px solid var(--line2);background:var(--card)}
 .logo-run .brand.has-logo{border:0;background:transparent}
+
+/* pulsing live-status dot */
+.dot{animation:dotpulse 1.8s ease-out infinite}
+@keyframes dotpulse{0%{box-shadow:0 0 0 0 rgba(0,232,135,.7)}70%{box-shadow:0 0 0 12px rgba(0,232,135,0)}100%{box-shadow:0 0 0 0 rgba(0,232,135,0)}}
+@media(prefers-reduced-motion:reduce){.dot{animation:none}}
