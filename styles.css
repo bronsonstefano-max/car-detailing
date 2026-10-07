@@ -538,4 +538,4 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .ticker span{font-family:var(--head);text-transform:uppercase;font-size:1.3rem;color:#8b9098;padding:0 28px;white-space:nowrap}
 .ticker i{font-style:normal;margin-left:28px}
 @media(prefers-reduced-motion:reduce){.ticker-run{animation:none}}
-.pimg:has(img){height:auto;aspect-ratio:960/500}
+.pimg:has(img){height:auto;aspect-ratio:960/519}
