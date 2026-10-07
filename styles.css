@@ -386,3 +386,13 @@ details p{padding:0 22px 20px;color:var(--muted)}
 .feat .ph-box.has-img{position:relative;min-height:420px}
 .feat .ph-box.has-img img{position:absolute;inset:0}
 @media(max-width:860px){.feat .ph-box.has-img{min-height:300px}}
+
+/* brand tiles */
+.logos .brand{width:auto;min-width:150px;height:72px;padding:0 24px;border:1px solid var(--line2);border-style:solid;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--text);text-transform:none}
+.brand b{font-family:var(--head);font-weight:400;text-transform:uppercase;font-size:.95rem;letter-spacing:.04em;color:var(--text)}
+.brand small{font-size:.65rem;letter-spacing:.2em;text-transform:uppercase;color:var(--g)}
+.brand.has-logo{padding:14px 24px}
+.brand.has-logo img{max-height:100%;width:auto;max-width:140px;object-fit:contain}
+.logos.big .brand{height:110px;min-width:210px}
+.logos.big .brand b{font-size:1.15rem}
+@media(max-width:860px){.logos .brand{flex:1 1 calc(50% - 18px);min-width:0;height:64px;padding:0 10px}.logos .brand b{font-size:.8rem}.logos.big .brand{flex-basis:100%;height:84px}}

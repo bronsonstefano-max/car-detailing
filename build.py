@@ -134,9 +134,21 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
 def stripes():
     return '<div class="stripes" aria-hidden="true"></div>'
 
+BRANDS = [("avery-dennison", "Avery Dennison", "Wrap"), ("3m", "3M", "Wrap"), ("pure-ppf", "Pure PPF", ""), ("xpel", "XPEL", ""),
+          ("braman-miami", "Braman Miami", ""), ("doral-collision-center", "Doral Collision Center", ""), ("limited-spec", "Limited Spec", "")]
+
+def brand_tile(slug, name, sub):
+    import os
+    for ext in ("svg", "png", "webp"):
+        if os.path.exists(f"assets/brands/{slug}.{ext}"):
+            return f'<div class="brand has-logo" title="{name}"><img src="assets/brands/{slug}.{ext}" alt="{name}" loading="lazy"></div>'
+    s = f"<small>{sub}</small>" if sub else ""
+    return f'<div class="brand"><b>{name}</b>{s}</div>'
+
 def partners():
+    tiles = "".join(brand_tile(*x) for x in BRANDS)
     return f'''<section class="partners center"><span class="chip">In partnership with the best in the business</span>
-  <div class="logos"><div>Brand logo</div><div>Brand logo</div><div>Brand logo</div><div>Brand logo</div><div>Brand logo</div></div></section>'''
+  <div class="logos">{tiles}</div></section>'''
 
 def cta_banner():
     return f'''<section class="banner center" style="--banner-img:url('assets/photos/tint-heatgun-1600.webp')">
@@ -440,8 +452,8 @@ def build_service(slug, title, short):
 def build_brands():
     body = inner_hero("Our <em>Brands</em>", "We install premium products from manufacturers we trust.", ['<a href="index.html">Home</a>', "Brands"], form=False)
     body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Partners</span><h2>Premium products, <em>proven results</em></h2>
-<p class="lead" style="margin-top:14px">Placeholder page. Add the film, coating and wrap brands you carry, with a logo and a short note for each.</p>
-<div class="grid3">{"".join('<div class="ph-box">Brand logo</div>' for _ in range(6))}</div></div></section>{cta_banner()}'''
+<p class="lead" style="margin-top:14px">The film, wrap and trade partners we work with.</p>
+<div class="logos big">{"".join(brand_tile(*x) for x in BRANDS)}</div></div></section>{cta_banner()}'''
     page("brands.html", f"Brands | {SITE['name']}", "The premium film, coating and wrap brands we install.", body, "brands")
 
 def build_projects():
