@@ -17,6 +17,7 @@ SITE = dict(
     hours=("Mon - Fri - 9:00AM - 5:00PM", "Sat - Sun - Closed"),   # placeholder hours
     instagram="#", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
+    map_embed="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus",   # Google "Share > Embed a map" URL for the business listing
     gmaps_key="",   # paste a Google Maps Embed API key here to show the live map with pin (see README)
 )
 
@@ -221,10 +222,13 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, h
 
 def map_block(cls="map-embed"):
     from urllib.parse import quote_plus
-    q = quote_plus(SITE["map_query"])
+    q = quote_plus(SITE["name"] + " " + SITE["map_query"])
     place = f"https://www.google.com/maps/search/?api=1&query={q}"
     direc = f"https://www.google.com/maps/dir/?api=1&destination={q}"
-    if SITE["gmaps_key"]:
+    if SITE["map_embed"]:
+        frame = (f'<iframe class="{cls}" title="Map showing {SITE["name"]}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen '
+                 f'src="{SITE["map_embed"]}"></iframe>')
+    elif SITE["gmaps_key"]:
         frame = (f'<iframe class="{cls}" title="Map showing {SITE["name"]}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen '
                  f'src="https://www.google.com/maps/embed/v1/place?key={SITE["gmaps_key"]}&amp;q={q}"></iframe>')
     else:

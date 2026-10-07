@@ -14,7 +14,8 @@ Photos live in `assets/photos/` (a 720px and a 1600px version of each). To add m
 reference them in `PHOTOS` / the page functions in `build.py`, then run `python3 build.py`.
 
 ## Google Map with pin
-Google blocks keyless map embeds, so the map shows a "View on Google Maps" card by default.
+The map uses the Google "Share > Embed a map" URL for the Divine Detailers listing (`map_embed` in `build.py`).
+If it is cleared, a "View on Google Maps" card is shown instead.
 To show the live embedded map with a pin: in Google Cloud Console create a project, enable **Maps Embed API**
 (free, no usage charge), create an API key, restrict it to your site's domain (HTTP referrers), then paste it into
 `gmaps_key` at the top of `build.py` and run `python3 build.py`.
