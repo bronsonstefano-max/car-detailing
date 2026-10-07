@@ -153,8 +153,9 @@ def brand_tile(slug, name, sub):
 
 def partners():
     tiles = "".join(brand_tile(*x) for x in BRANDS)
+    dup = tiles.replace('<div class="brand', '<div aria-hidden="true" class="brand')
     return f'''<section class="partners center"><span class="chip">In partnership with the best in the business</span>
-  <div class="logos">{tiles}</div></section>'''
+  <div class="rev-track marquee logo-marquee"><div class="rev-run logo-run" style="animation-duration:{len(BRANDS) * 8}s">{tiles}{dup}</div></div></section>'''
 
 def cta_banner():
     return f'''<section class="banner center" style="--banner-img:url('assets/photos/tint-heatgun-1600.webp')">

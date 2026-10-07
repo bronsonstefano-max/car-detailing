@@ -434,3 +434,13 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 @media(prefers-reduced-motion:reduce){.rev-track.marquee{overflow-x:auto}.rev-run{animation:none}.rev-run .review[aria-hidden=true]{display:none}}
 .unlock.single{grid-template-columns:1fr}
 .unlock.single .bar{max-width:900px}
+
+/* brand logo carousel */
+.logo-marquee{margin-top:8px}
+.logo-run .brand{flex:0 0 auto;width:230px;height:96px;margin-right:16px;padding:0 20px}
+.logo-run .brand.has-logo{padding:16px 24px}
+.logo-run .brand.has-logo img{max-height:100%;max-width:100%;width:auto;filter:none}
+@media(max-width:860px){.logo-run .brand{width:170px;height:80px;flex:0 0 auto!important}}
+.logo-run .brand{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-sizing:border-box}
+.logo-run .brand:not(.has-logo){border:1px solid var(--line2);background:var(--card)}
+.logo-run .brand.has-logo{border:0;background:transparent}
