@@ -463,3 +463,11 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .cta-strip .btn-row{flex-direction:column;align-items:stretch;padding:0 16px}
   .cta-strip .btn{justify-content:center}
 }
+/* call/quote buttons under services: tighter, no divider line */
+.cta-strip{border-top:0;padding:28px 0 40px}
+@media(max-width:860px){
+  .cta-strip{padding:14px 0 28px}
+  .cta-strip .btn-row{gap:10px}
+  .svc-slider+*{margin-top:0}
+  #services.sec{padding-bottom:0}
+}
