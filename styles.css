@@ -527,3 +527,14 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .banner-logo img{width:150px}
 @media(max-width:860px){.banner-logo{margin-bottom:30px}.banner-logo img{width:130px}}
 .legal h3{font-size:1.05rem;margin:22px 0 10px;color:var(--g)}
+
+/* privacy: contact card + ticker */
+.legal-card{margin-top:40px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--g);border-radius:8px;padding:26px 28px}
+.legal-card h2{margin-top:0}
+.legal-card a{color:var(--g)}
+.legal-card .small{font-size:.85rem;color:#6b7078}
+.ticker{overflow:hidden;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:22px 0;background:repeating-linear-gradient(90deg,transparent 0 5px,#15171c 5px 6px)}
+.ticker-run{display:flex;width:max-content;animation:revslide 40s linear infinite}
+.ticker span{font-family:var(--head);text-transform:uppercase;font-size:1.3rem;color:#8b9098;padding:0 28px;white-space:nowrap}
+.ticker i{font-style:normal;margin-left:28px}
+@media(prefers-reduced-motion:reduce){.ticker-run{animation:none}}

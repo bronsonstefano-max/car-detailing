@@ -570,7 +570,9 @@ def build_privacy():
 <h2>California Privacy Rights</h2><p>California Civil Code Section 1798.83 permits users who are California residents to request certain information regarding our disclosure of personal information to third parties for their direct marketing purposes. To make such a request, please contact us using the information below.</p>
 <h2>Data Security</h2><p>We have implemented measures designed to secure your personal information from accidental loss and from unauthorized access, use, alteration, and disclosure. However, the transmission of information via the internet is not completely secure. Any transmission of personal information is at your own risk.</p>
 <h2>Changes to Our Privacy Policy</h2><p>We will post any changes to our privacy policy on this page with an updated revision date. You are responsible for periodically visiting this page to check for any changes.</p>
-<h2>Contact Us</h2><p>{n}<br>{SITE['addr1']}, {SITE['addr2']}<br><a href="tel:{SITE['tel']}">{SITE['phone']}</a><br><a href="mailto:{SITE['email']}">{SITE['email']}</a></p></article></div></section>'''
+<div class="legal-card"><h2>Contact Us</h2><p>If you have any questions about this privacy policy, please contact us:</p><p><strong>{n}</strong></p><p><a href="mailto:{SITE['email']}">{SITE['email']}</a></p><p><a href="tel:{SITE['tel']}">{SITE['phone']}</a></p><p class="small">{SITE['addr1']}, {SITE['addr2']}</p><p class="small">Thank you for visiting {n}.</p></div></article></div></section>
+<div class="ticker" aria-hidden="true"><div class="ticker-run">{"<span>Contact us <i>&#8600;</i></span>"*16}</div></div>
+<section class="sec"><div class="wrap">{map_block()[0]}</div></section>'''
     page("privacy-policy.html", f"Privacy Policy | {n}", "Divine Detailers privacy policy.", body)
 
 def build_thanks():
