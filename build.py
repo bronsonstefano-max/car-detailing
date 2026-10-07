@@ -15,7 +15,7 @@ SITE = dict(
     addr1="5181 NW 74th Ave",
     addr2="Miami, FL 33166",
     hours=("Mon - Fri - 9:00AM - 5:00PM", "Sat - Sun - Closed"),   # placeholder hours
-    instagram="#", tiktok="#", facebook="#", youtube="#",
+    instagram="https://www.instagram.com/divinedetailer", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
     map_embed="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus",   # Google "Share > Embed a map" URL for the business listing
     gmaps_key="",   # paste a Google Maps Embed API key here to show the live map with pin (see README)
@@ -166,7 +166,7 @@ def cta_banner():
 
 def footer():
     svc = "".join(f'<li><a href="{s}.html">{t}</a></li>' for s, t, _ in SERVICES)
-    soc = "".join(f'<li><a href="{SITE[k]}">{k.capitalize()}</a></li>' for k in ("tiktok", "instagram", "youtube"))
+    soc = "".join(f'<li><a href="{SITE[k]}" target="_blank" rel="noopener">{k.capitalize()}</a></li>' for k in ("tiktok", "instagram", "youtube") if SITE[k] != "#")
     return f'''<footer class="foot-wrap">
   <div class="foot">
     <div><a class="foot-logo" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo" width="240" height="138" loading="lazy"></a><h4>Quick links</h4><ul><li><a href="index.html">Home</a></li><li><a href="about-us.html">About us</a></li><li><a href="projects.html">Projects</a></li><li><a href="blog.html">Blogs</a></li><li><a href="contact.html">Contact us</a></li></ul></div>
@@ -248,7 +248,7 @@ def build_home():
     GICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>'
     revs = "".join(f'''<article class="review"><div class="rhead"><span class="gbadge">{GICON}</span><div class="rsrc"><b>GOOGLE REVIEW</b><span>{SITE['name']}</span></div><span class="rstars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div><h4>Recent Client</h4><p>{t}</p></article>''' for n, t in REVIEWS)
     revs_dup = revs.replace('<article class="review">', '<article class="review" aria-hidden="true">')
-    socials = "".join(f'<a href="{SITE[k]}" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube"))
+    socials = "".join(f'<a href="{SITE[k]}" target="_blank" rel="noopener" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube") if SITE[k] != "#")
     body = f'''<section class="hero">
   <div class="hero-top">
   <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 60%", alt=False, eager=True)}</div>
@@ -278,7 +278,7 @@ def build_home():
   <div class="wrap center" style="padding:70px 0 70px"><span class="chip">Social Media Following</span>
   <div class="social-ico">{socials}</div>
   <p class="followers"><b>15K+</b> Followers across platforms</p>
-  <h2>Follow every <em>build</em></h2><div style="margin-top:26px"><a class="btn gray" href="{SITE['instagram']}">Visit Instagram</a></div></div>
+  <h2>Follow every <em>build</em></h2><div style="margin-top:26px"><a class="btn gray" href="{SITE['instagram']}" target="_blank" rel="noopener">Visit Instagram</a></div></div>
   <div class="slider" aria-roledescription="carousel" aria-label="Recent work photos">
     <div class="slide-track" id="buildTrack">{slides}</div>
     <button class="slider-btn prev" data-slide="-1" aria-label="Previous photos">&#8249;</button>
