@@ -257,7 +257,7 @@ def build_home():
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
     <p class="sub">Premium vehicle protection and detailing</p>
     <p class="lead">Protect and perfect your vehicle with Miami&rsquo;s premium detailing and protection shop.</p>
-    <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
+    <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL: {SITE['phone']}</a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
   </div>
   </div>
   <div class="qwrap">{quote_form(fid="hero-quote")}</div>

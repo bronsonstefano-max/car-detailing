@@ -471,3 +471,11 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .svc-slider+*{margin-top:0}
   #services.sec{padding-bottom:0}
 }
+
+/* home hero text hierarchy (matches reference on phones) */
+.hero-top .hero-in .small{display:inline-block;background:var(--chip);color:var(--text);font-size:.9rem;padding:6px 14px;border-radius:3px;margin-bottom:22px}
+@media(max-width:860px){
+  .hero-top .hero-in h1{font-family:var(--head);font-size:1.7rem;line-height:1.2;margin:0 0 22px}
+  .hero-top .hero-in .sub{font-family:var(--head);font-weight:400;font-size:1.6rem;line-height:1.2;letter-spacing:0;color:var(--text);margin:0 0 20px}
+  .hero-top .hero-in p.lead{font-size:.95rem;margin-bottom:24px}
+}
