@@ -291,7 +291,7 @@ def build_home():
 <section class="sec" id="reviews">
   <div class="wrap rev-head"><span class="chip">Recent Reviews</span><h2>What our <em>clients</em> say</h2>
   <div class="rev-wrap" style="text-align:initial"><div class="rev-track">{revs}</div>
-  <div class="rev-btns"><button data-rev="-1" aria-label="Previous review">&#8249;</button><button data-rev="1" aria-label="Next review">&#8250;</button></div></div></div>
+  </div></div>
 </section>
 {stripes()}
 <section class="sec">
