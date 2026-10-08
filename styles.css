@@ -631,3 +631,6 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .cf h3{font-size:1.05rem;margin:0 0 6px;text-transform:none;font-family:var(--body);font-weight:600}
 .cf p{color:var(--muted);font-size:.92rem;margin:0}
 @media(max-width:860px){.cpp{grid-template-columns:1fr}.cpp-img{min-height:260px}.cfs{grid-template-columns:1fr;gap:22px}}
+/* video fades in over its poster once it is ready */
+.hero-vid{opacity:0;transition:opacity .8s ease}
+.hero-vid.on{opacity:1}
