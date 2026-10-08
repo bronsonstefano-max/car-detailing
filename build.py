@@ -226,9 +226,9 @@ def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, h
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
-    return f'''<section class="page-hero{' tall' if form else ''}">
-  <div class="hero-media{' has-photo' if video else ''}" aria-hidden="true">{VIDEO if video else ""}</div>
-  <div class="wrap hero-in"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
+    return f'''<section class="page-hero{' tall' if form else ''}{' has-vid' if video else ''}">
+  <div class="hero-media" aria-hidden="true"></div>
+  <div class="wrap hero-in"><div class="hero-txt"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>{('<div class="vframe" aria-hidden="true">' + VIDEO + '</div>') if video else ""}</div>
   {q}
 </section>'''
 
