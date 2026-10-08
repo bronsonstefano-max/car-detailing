@@ -476,13 +476,161 @@ def build_service(slug, title, short):
         p2h = f"<p>{p2}</p>" if p2 else ""
         rows += f'<section class="feat{rev}"><div class="txt"><span class="kick">{kick}</span><h2>{h2}</h2><p>{p1}</p>{p2h}</div>{photo_box(key)}</section>'
     portfolio = f'<section class="sec"><div class="wrap center"><span class="chip">Our Portfolio</span><h2>Real vehicles. Real work. <em>Real results.</em></h2><div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf")}</div><div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div></section>'
+    body += f'''{stripes()}{partners()}
+<section class="sec"><div class="wrap center"><span class="chip">Our Services</span><h2>Elevate your ride with expert <em>custom services</em></h2>
+<p class="lead" style="margin-top:14px">From window tint to ceramic coating, our services enhance your ride&rsquo;s style, protection and performance. Trust our skilled team to deliver quality and luxury your car deserves.</p>
+<div class="svc-slider"><div class="cards" style="text-align:initial">{cards}</div><button class="svc-btn prev" data-svc="-1" aria-label="Previous service">&#8249;</button><button class="svc-btn next" data-svc="1" aria-label="Next service">&#8250;</button></div></div></section><section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>{cta_banner()}'''
+    page("services.html", f"Our Services | {SITE['name']}", "Window tint, paint protection film, ceramic coating, paint correction, vinyl wraps and exterior detailing in Miami.", body, "services")
+
+# ---------------------------------------------------------------- service pages
+SERVICE_PAGES = {
+ "window-tinting": dict(
+    sub="Enhance privacy, reduce glare, and keep your interior cooler with tint installation.",
+    pk_title="Tint package options", pk_sub="Browse our different package options.",
+    packages=[("Two windows", ["Front driver side", "Front passenger side"]), ("Full tint", ["Front driver + passenger", "Rear driver + passenger"]), ("Windshield", ["Full windshield", "Extra protection"]), ("Sunvisor strip", ["Sun strip", "Reduces sun glare"])],
+    impact_kick="The impact", impact_h="Cooler drives. Cleaner look.",
+    impact_p="Miami&rsquo;s sunshine can heat up a cabin quickly. Premium ceramic window film stops heat before it builds up inside, so even after sitting in direct sun, the vehicle feels more comfortable for you and your passengers.",
+    nums=[("00%", "Placeholder: heat rejection of your chosen film"), ("99%", "UV rays blocked by quality ceramic film")],
+    tiles=[("Comfort", "Comfort", "Reduces interior heat and makes driving more enjoyable year-round."), ("Privacy", "Privacy", "Limits visibility into your vehicle while keeping clear visibility out."), ("Protection", "Protection", "Blocks harmful UV rays that damage interiors and skin."), ("Appearance", "Appearance", "Gives your vehicle a clean, finished and more refined look.")],
+    why_h="Why trust Divine Detailers", why_p="Our certified installers cut film with precision and finish every job with a close final inspection before delivery. We use premium ceramic films with a manufacturer warranty, and we back our workmanship.",
+    faq=[("Window tint", FAQ_TINT, "tint")], sim=True, select="Window Tint"),
+ "paint-protection-film": dict(
+    sub="Paint protection film guards your vehicle from rock chips, scratches and everyday road damage while keeping the original paint looking untouched.",
+    pk_title="PPF coverage options", pk_sub="Choose the coverage that fits how you drive.",
+    packages=[("Highway package", ["Hood or hood edge", "Front bumper", "Fender edges", "Headlights + mirrors"]), ("Full front", ["Full hood + fenders", "Front bumper", "Headlights", "Mirrors"]), ("Full body", ["Every painted panel", "Edges wrapped", "Door jambs optional", "Maximum protection"]), ("Individual panels", ["High-wear areas", "Door edges + cargo", "Targeted coverage", "Add more later"])],
+    impact_kick="The impact", impact_h="Protection that takes the hit.",
+    impact_p="Rock chips and road debris go through clear coat, not around it. Paint protection film is a thick, clear urethane that absorbs the impact so your paint does not. Self-healing top coats make light marks fade away.",
+    nums=[("5-10", "Years a quality film typically lasts"), ("100%", "Clear, gloss or satin finish options")],
+    tiles=[("Chip protection", "Rock chips", "Takes the impact from stones and debris so your paint stays intact."), ("Self-healing", "Light scratches", "A self-healing top coat lets light marks fade in the warmth."), ("Finish options", "Gloss or satin", "Keep the factory look or give gloss paint a satin finish."), ("Resale", "Preserve value", "Protected paint keeps your vehicle looking newer for longer.")],
+    why_h="Why trust Divine Detailers", why_p="Film is only as good as the install. Our technicians prepare every panel, wrap edges where it counts and inspect the work under proper lighting. Your film carries a manufacturer warranty and our own workmanship cover.",
+    faq=[("PPF / Clear Bra", FAQ_PPF, "ppf")], select="PPF / Clear Bra"),
+ "ceramic-coating": dict(
+    sub="Ceramic coating is not just about gloss. It is a long-term protective layer that keeps your vehicle looking newer, cleaner and easier to maintain.",
+    pk_title="Coating options", pk_sub="Prep, correction and coating matched to your paint.",
+    packages=[("Prep + coat", ["Decontamination wash", "Clay + iron removal", "Panel wipe", "Ceramic coating"]), ("Correct + coat", ["Single-stage polish", "Light defect removal", "Ceramic coating", "Gloss boost"]), ("Full correction", ["Multi-stage correction", "Deep defect removal", "Ceramic coating", "Maximum clarity"]), ("Add-ons", ["Glass coating", "Wheel coating", "Trim coating", "Over PPF"])],
+    impact_kick="The impact", impact_h="Deeper gloss. Easier washes.",
+    impact_p="A ceramic coating bonds to your clear coat and forms a slick, hydrophobic layer. Water, dirt and bird droppings have a hard time sticking, and washing takes a fraction of the time.",
+    nums=[("2-5", "Years of protection from a quality coating"), ("1-2", "Days for a typical full install")],
+    tiles=[("Gloss", "Deep shine", "Adds depth and clarity that wax cannot match."), ("Hydrophobic", "Sheds water", "Water beads and rolls off, carrying dirt with it."), ("Protection", "UV and chemicals", "Resists fading, oxidation and acid rain."), ("Easy care", "Faster washes", "Contaminants release easily so the paint stays cleaner.")],
+    why_h="Why trust Divine Detailers", why_p="Prep is where most of the quality comes from. We decontaminate, correct the paint to the level it needs and wipe every panel before the coating goes on. Coatings carry a manufacturer warranty and we back our application.",
+    faq=[("Ceramic coating", FAQ_CERAMIC, "ceramic")], select="Ceramic Coating"),
+ "paint-correction": dict(
+    sub="Machine polishing removes swirls, scratches and water spots to restore deep, true gloss to your paint.",
+    pk_title="Correction levels", pk_sub="We inspect your paint first and recommend only what it needs.",
+    packages=[("Enhancement", ["Light single-stage polish", "Boosts gloss", "Minimal paint removal", "Great for newer cars"]), ("One-step", ["Cut and polish in one pass", "Removes light swirls", "Improves clarity", "Daily-driver favorite"]), ("Multi-stage", ["Heavy cut + finish polish", "Deeper defect removal", "Maximum clarity", "For neglected paint"]), ("Spot repair", ["Wet sanding where needed", "Deep scratch work", "Targeted panels", "Inspected under lights"])],
+    impact_kick="The impact", impact_h="Real defects removed, not filled.",
+    impact_p="Polishes that only fill swirls wash out in weeks. Paint correction levels the clear coat so imperfections are gone, and the gloss you see is the paint itself.",
+    nums=[("1-2", "Days for a thorough multi-stage correction"), ("100%", "Inspected under proper lighting")],
+    tiles=[("Swirls", "Swirl marks", "Fine circular marks from washing disappear."), ("Scratches", "Light scratches", "Scratches in the clear coat are reduced or removed."), ("Etching", "Water spots", "Mineral etching is polished out where it is shallow."), ("Clarity", "Deep gloss", "A flawless surface gives the best base for ceramic coating or PPF.")],
+    why_h="Why trust Divine Detailers", why_p="We measure the paint, inspect it under proper lighting and only recommend the level of correction your car needs. No upselling, and we will tell you honestly what polishing can and cannot fix.",
+    faq=[("Paint correction", FAQ_CORRECTION, "correction")], select="Paint Correction"),
+ "vinyl-wraps": dict(
+    sub="Transform your vehicle with custom vinyl wraps in bold colors, textures and finishes.",
+    pk_title="Wrap options", pk_sub="From accents to a complete color change.",
+    packages=[("Accents", ["Roof, mirrors, trim", "Chrome delete", "Stripes + decals", "Quick turnaround"]), ("Partial wrap", ["Hood, roof or panels", "Two-tone looks", "Custom graphics", "Budget-friendly"]), ("Full color change", ["Every painted panel", "Gloss, satin, matte", "Premium cast vinyl", "Reversible"]), ("Custom graphics", ["Business branding", "Window graphics", "Printed designs", "Fleet-ready"])],
+    impact_kick="The impact", impact_h="A new look, no repaint.",
+    impact_p="Vinyl lets you change your car&rsquo;s color or finish without touching the factory paint. When you want a different look or you sell the car, the wrap can come off and the paint underneath stays protected.",
+    nums=[("100+", "Colors and finishes to choose from (placeholder)"), ("100%", "Reversible when removed correctly")],
+    tiles=[("Style", "Bold finishes", "Gloss, satin, matte, metallic and color-shift options."), ("Protection", "Covers the paint", "A wrap shields paint from light scratches and UV."), ("Custom", "Graphics", "Printed graphics and branding for personal or business cars."), ("Resale", "Reversible", "Remove it later and the factory paint is preserved.")],
+    why_h="Why trust Divine Detailers", why_p="A great wrap comes from clean prep, careful tucking and patient finishing. Our installers take their time on edges, seams and curves so the wrap looks like paint.",
+    faq=[], select="Vinyl Wraps"),
+ "exterior-detailing": dict(
+    sub="Hand wash, decontamination and finishing that keep your paint looking its best.",
+    pk_title="Detail packages", pk_sub="Choose the level of care your car needs.",
+    packages=[("Maintenance wash", ["Foam + hand wash", "Wheels and tires", "Drying + glass", "Quick refresh"]), ("Full exterior", ["Decontamination wash", "Clay + iron removal", "Sealant or wax", "Trim + tire dressing"]), ("Detail + coat prep", ["Full decontamination", "Panel prep", "Ready for ceramic or PPF", "Inspected"]), ("Ongoing care", ["Scheduled maintenance", "Coating upkeep", "Priority booking", "Ask us"])],
+    impact_kick="The impact", impact_h="Clean paint, properly cared for.",
+    impact_p="Most paint damage comes from the wash. Our process uses safe, controlled methods that lift dirt instead of grinding it in, so your finish stays glossy and swirl-free.",
+    nums=[("2-step", "Safe contact wash process"), ("100%", "Hand finished")],
+    tiles=[("Safe wash", "No swirls", "Lubricated hand washing keeps scratches out of the paint."), ("Decon", "Deep clean", "Iron and clay treatments remove what washing leaves behind."), ("Protect", "Sealant", "A protective layer keeps the shine and eases the next wash."), ("Finish", "Attention to detail", "Wheels, trim, glass and door jambs get the same care.")],
+    why_h="Why trust Divine Detailers", why_p="We treat every wash like the first step of a correction or coating, because it is. Gentle methods and quality products keep your paint ready for whatever protection comes next.",
+    faq=[], select="Exterior Detailing"),
+}
+
+
+EXTRA = {
+ "window-tinting": dict(
+    hl_h="Stay cool, private and protected.",
+    hl=[("Heat rejection", "Cuts the heat that builds up in the cabin", "Easier on you and your AC"), ("UV protection", "Blocks nearly all harmful UV rays", "Protects skin and interiors"), ("Privacy", "Dark enough to limit views in", "Clear visibility looking out"), ("Clean look", "Computer-cut film, precise edges", "A finished, factory-style fit")],
+    rows=[("Comfort", "Cooler drives in Miami's sun", "Premium ceramic window film stops solar heat before it warms the cabin. Seats, steering wheel and dash stay more comfortable after the car sits in the sun.", "Because the film has no metal in it, GPS, phone and radio signals keep working normally.", "tgarage"),
+          ("Protection", "Protect your interior and your skin", "UV rays fade and crack leather, plastics and upholstery over time. Quality film blocks nearly all of them, so your interior keeps its color and feel.", "The same film helps hold glass together and reduces glare for safer, less tiring driving.", "tmirror"),
+          ("Style", "A cleaner, more finished look", "Tint changes how a vehicle looks from the first glance. We help you pick a shade that fits your style and stays within legal limits for each window.", "Every piece is cut to fit and installed in a clean bay, then inspected before you drive away.", "tint")]),
+ "paint-protection-film": dict(
+    hl_h="Defend your paint from day one.",
+    hl=[("Chip protection", "Absorbs rock chips and road debris", "Keeps paint intact where it counts"), ("Self-healing", "Light marks fade with warmth", "Stays smooth and glossy"), ("Invisible look", "Clear, gloss or satin finishes", "Your color shows through"), ("Long-lasting", "Built for years of daily driving", "Backed by a manufacturer warranty")],
+    rows=[("Protect", "Take the hit so your paint doesn't", "Paint protection film is a thick, clear urethane that sits over your paint. Chips, scratches and stains land on the film instead of the finish.", "The most-hit areas are the front bumper, hood, fenders and mirrors, and that is where most owners start.", "ppf"),
+          ("Preserve", "Keep the factory finish like new", "Protected paint holds its gloss and color, and the car keeps stronger resale appeal. When the film's time is up, a pro can remove it and the paint underneath is untouched.", "Add a ceramic coating on top and the film is easier to wash and resists water spots.", "spray"),
+          ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "heat")]),
+ "ceramic-coating": dict(
+    hl_h="Why get ceramic coating.",
+    hl=[("Prep", "Full wash, decon and clay treatment", "A clean base for proper bonding"), ("Correction", "Polish out swirls and light defects", "So the gloss you see is clean paint"), ("Application", "Applied panel by panel", "Even, consistent coverage"), ("Inspection", "Checked under proper lighting", "Nothing leaves until it is right")],
+    rows=[("Gloss", "Deeper shine that lasts", "A ceramic coating bonds to your clear coat and adds depth, clarity and reflections that wax can't match, and it keeps that look far longer.", "Prep and correction come first, because the coating locks in whatever is under it.", "ceramic"),
+          ("Protect", "Shrugs off dirt, water and sun", "The slick, hydrophobic surface helps resist dirt, road grime, bird droppings, water spots and UV fading. Less sticks, and what does comes off easily.", "It does not replace washing, but it makes every wash faster and keeps the car cleaner in between.", "polish"),
+          ("Maintain", "Easier care, year after year", "With gentle washing and an occasional maintenance spray, a good coating keeps performing for years of daily driving and Miami weather.", "We will walk you through care tips so you get the most from it.", "wheel")]),
+ "paint-correction": dict(
+    hl_h="Real defects removed, not filled.",
+    hl=[("Inspect", "Measure paint and check under lights", "We find what is really there"), ("Cut", "Remove swirls, scratches and etching", "Only as much as the paint needs"), ("Refine", "Polish to a deep, clear finish", "Maximum gloss and clarity"), ("Protect", "Finish with sealant, coating or film", "Keep the result looking new")],
+    rows=[("Correct", "Restore the gloss you paid for", "Everyday washing, dust and water spots leave fine marks that dull the paint. Machine polishing levels the clear coat so those marks are gone, not hidden.", "We only correct as much as your paint needs, and we tell you honestly what polishing can and can't fix.", "polish"),
+          ("Prepare", "The best base for coating or film", "A flawless surface is the first step before ceramic coating or paint protection film, since both lock in whatever is under them.", "Many customers combine correction with a coating for a finish that lasts.", "ceramic"),
+          ("Enjoy", "Paint that looks new again", "After correction, color looks richer and reflections look sharper. It is the biggest visual change you can make without repainting.", "", "gwagon")]),
+ "vinyl-wraps": dict(
+    hl_h="Customize your vehicle color today.",
+    hl=[("Preparation", "Deep clean and panel decontamination", "A perfect base for adhesion"), ("Precision install", "Seamless wrapping across curves and edges", "A paint-like finish"), ("After install", "Heat-set edges and final inspection", "A clean, tight finish built to last"), ("Care guidance", "Washing and maintenance tips", "Keep the color vibrant")],
+    rows=[("Protect", "Shields your factory paint", "A wrap takes the beating from road debris, light scratches and weather, so the paint underneath stays in better shape.", "That added layer also helps resale when the wrap is removed.", None),
+          ("Customize", "Colors and finishes without limits", "Gloss, satin, matte, metallic or color-shift: vinyl gives you looks that would be costly or impossible with paint, and it can be changed later.", "You can go for a bold full color change or just add accents.", None),
+          ("Maintain", "Simple to care for", "Wrapped vehicles are easy to wash, and with proper care the color depth and finish stay fresh for years.", "We'll explain what to use and what to avoid.", None)]),
+ "exterior-detailing": dict(
+    hl_h="Clean paint, properly cared for.",
+    hl=[("Safe wash", "Lubricated hand washing", "Keeps swirls out of the paint"), ("Decontamination", "Iron and clay treatment", "Removes what washing leaves behind"), ("Protection", "Sealant or wax", "Keeps the shine and eases the next wash"), ("Finishing", "Wheels, trim, glass, door jambs", "Every detail handled")],
+    rows=[("Wash", "A wash that protects your paint", "Most paint damage starts with a bad wash. We use controlled, gentle methods that lift dirt away instead of grinding it in.", "The result is a clean surface that is ready for protection.", "foam"),
+          ("Decon", "Deep clean beyond the wash", "Iron remover and clay treatment lift the embedded contamination that makes paint feel rough and look dull.", "It is also the right first step before correction, coating or film.", "wash"),
+          ("Maintain", "Keep it looking its best", "Regular maintenance details keep coatings performing and paint glossy, so small problems never turn into big ones.", "Ask us about a maintenance schedule that fits your car.", "wheel")]),
+}
+
+SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where legal."),
+       (15, "Dark tint", "Strong privacy with a bold look. Check legal limits for your windows."),
+       (30, "Medium tint", "Balanced privacy with clear night visibility. A daily-driver favorite."),
+       (50, "Light tint", "Subtle look with strong heat and UV protection. Easy night driving."),
+       (70, "Clear heat-rejection", "Nearly invisible film that still cuts heat and blocks UV.")]
+
+def build_service(slug, title, short):
+    d = SERVICE_PAGES[slug]
+    PIMG = {"Two windows": "two-windows", "Full tint": "full-tint", "Windshield": "windshield", "Sunvisor strip": "sunvisor-strip"} if slug == "window-tinting" else {}
+    pimg = lambda t: (f'<div class="pimg"><img src="assets/tint/{PIMG[t]}.webp" alt="{t} tint package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
+    pk = "".join(f'<div class="pkg">{pimg(t)}<h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
+    nums = "".join(f'<div><b>{n}</b><span>{l}</span></div>' for n, l in d["nums"])
+    tiles = "".join(f'<div class="tile"><span class="kick">{k}</span><h3>{h}</h3><p>{p}</p></div>' for k, h, p in d["tiles"])
+    sim = ""
+    if d.get("sim"):
+        btns = "".join(f'<button data-vlt="{v}" data-name="{n}" data-desc="{ds}"{" class=on" if v == 30 else ""}><i style="--a:{1 - v / 100:.2f}"></i>{v}%</button>' for v, n, ds in SIM)
+        sim = f'''<div class="sim" id="simulator"><p class="sim-label"><span class="dot"></span>DIVINE DETAILERS</p><h3>Window Tint <em>Simulator</em></h3>
+<p class="sim-sub">Select a side window shade below</p>
+<div class="sim-tabs"><button class="on" data-sim-tab="side">Side Windows</button><button data-sim-tab="wind">Windshield</button></div>
+<div class="sim-view" id="simView" aria-hidden="true"><img class="sim-car sim-car-side" src="assets/tint/sim-side.webp" alt="" width="1200" height="675" loading="lazy"><img class="sim-car sim-car-front" src="assets/tint/sim-front.webp" alt="" width="1200" height="675" loading="lazy"><div class="sim-shade sim-side" id="simShade"></div><div class="sim-shade sim-wind"></div><div class="sim-badge"><b id="simBadge">30%</b><span id="simBadgeLabel">SIDE VLT</span></div></div>
+<div class="sim-info"><b id="simTitle">30% VLT — Medium Tint</b><p id="simDesc">Balanced privacy with clear night visibility. A daily-driver favorite.</p></div>
+<div class="sim-vlt" role="group" aria-label="Shade level">{btns}</div>
+<p class="note"><b>Florida law:</b> Tint darkness limits differ by window and vehicle. We will confirm the legal options for your vehicle before we install anything.</p></div>'''
+    faq = ""
+    if d["faq"]:
+        faq = '<section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to <em>know</em></h2></div><div class="faq">' + "".join(faq_block(items) for _, items, _ in d["faq"]) + "</div></div></section>"
+    ik, wk = SERVICE_PHOTOS[slug]
+    bk = wk or ik
+    band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False)
+    x = EXTRA[slug]
+    hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
+    rows = ""
+    for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
+        rev = " rev" if i % 2 else ""
+        p2h = f"<p>{p2}</p>" if p2 else ""
+        rows += f'<section class="feat{rev}"><div class="txt"><span class="kick">{kick}</span><h2>{h2}</h2><p>{p1}</p>{p2h}</div>{photo_box(key)}</section>'
+    portfolio = f'<section class="sec"><div class="wrap center"><span class="chip">Our Portfolio</span><h2>Real vehicles. Real work. <em>Real results.</em></h2><div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf")}</div><div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div></section>'
     video = ""
     if slug == "window-tinting":
         video = f'''<section class="sec vid-sec"><div class="wrap"><div class="split"><div><span class="chip">Watch it done</span><h2>See a tint install <em>start to finish</em></h2><p>Every film is cut to fit, applied wet and squeegeed flat in a clean bay. Watch how our installers handle the glass on a real car.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div><div class="vid"><video controls playsinline preload="none" poster="assets/video/tint-install-poster.webp" width="540" height="960"><source src="assets/video/tint-install.mp4" type="video/mp4"></video></div></div></div></section>'''
     body += f'''{stripes()}{partners()}
 <section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2><div class="hls">{hl}</div></div></section>
 <section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
-<div class="pkgs">{pk}</div>{sim}</section>{video}{stripes()}{band}{stripes()}
+<div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
 <section class="sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
 <section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>
 <section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
