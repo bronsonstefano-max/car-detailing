@@ -220,15 +220,19 @@ def faq_block(items, cat=None, cid=None):
     out += "".join(f"<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>" for q, a in items)
     return out
 
-VIDEO = '<video class="hero-vid" autoplay muted loop playsinline preload="auto" poster="assets/video/tint-hero-poster.webp" tabindex="-1"><source src="assets/video/hero-bg.webm" type="video/webm"><source src="assets/video/hero-bg.mp4" type="video/mp4"></video>'
+def hero_video(name, poster):
+    return (f'<video class="hero-vid" autoplay muted loop playsinline preload="auto" poster="assets/video/{poster}.webp" tabindex="-1">'
+            f'<source src="assets/video/{name}.webm" type="video/webm"><source src="assets/video/{name}.mp4" type="video/mp4"></video>')
+VIDEO = hero_video("hero-bg", "tint-hero-poster")
+HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster")}
 
-def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=False):
+def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None):
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
     return f'''<section class="page-hero{' tall' if form else ''}{' has-vid' if video else ''}">
   <div class="hero-media" aria-hidden="true"></div>
-  <div class="wrap hero-in"><div class="hero-txt"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>{('<div class="vframe" aria-hidden="true">' + VIDEO + '</div>') if video else ""}</div>
+  <div class="wrap hero-in"><div class="hero-txt"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>{('<div class="vframe" aria-hidden="true">' + video + '</div>') if video else ""}</div>
   {q}
 </section>'''
 
@@ -469,7 +473,7 @@ def build_service(slug, title, short):
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
     band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
-    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=(slug == "window-tinting"))
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     rows = ""
@@ -621,7 +625,7 @@ def build_service(slug, title, short):
         feats = "".join(f'<div class="cf"><h3>{h}</h3><p>{p}</p></div>' for _, h, p in d["tiles"])
         band = f'''<section class="cpp"><div class="cpp-img">{photo("tdoor", 1600, "50% 45%", alt=True)}</div><div class="cpp-txt"><h2>Comfort, privacy, and protection</h2><p>We install premium ceramic window film that rejects heat, cuts glare and blocks harmful UV rays, so every drive in Miami&rsquo;s sun feels cooler and more comfortable.</p><div class="cfs">{feats}</div></div></section>'''
     benefits = "" if slug == "window-tinting" else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
-    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=(slug == "window-tinting"))
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     rows = ""
