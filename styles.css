@@ -558,3 +558,7 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .sim-view.wind .sim-side{opacity:0}
 .sim-view.wind .sim-wind{opacity:var(--o)}
 .sim-view.wind .sim-shade{top:0;height:auto;bottom:0}
+/* package photos: show the whole car and the floor beneath it */
+.pimg:has(img){aspect-ratio:960/519}
+.pimg:has(img) img{object-position:50% 100%}
+@media(max-width:860px){.pimg:has(img){aspect-ratio:960/519}.pimg:has(img) img{object-position:50% 100%}}
