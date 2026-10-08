@@ -113,10 +113,15 @@ if (yr) yr.textContent = new Date().getFullYear();
   const conn = navigator.connection;
   if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ''))) return;
   const start = () => {
-    const type = v.canPlayType('video/webm; codecs="vp9"') ? 'webm' : 'mp4';
-    v.src = v.dataset[type];
-    v.preload = 'auto';
-    v.addEventListener('canplay', () => { v.play().catch(() => {}); v.classList.add('on'); }, { once: true });
+    // MP4 (H.264) first: hardware decoded on iPhones. WebM is the fallback. iOS ignores preload, so play() is what starts the download
+    v.muted = true;
+    v.setAttribute('playsinline', '');
+    v.src = v.canPlayType('video/mp4; codecs="avc1.42E01E"') ? v.dataset.mp4 : v.dataset.webm;
+    const tryPlay = () => { const p = v.play(); if (p && p.catch) p.catch(() => {}); };
+    tryPlay();
+    v.addEventListener('loadeddata', tryPlay, { once: true });
+    // if the phone blocked autoplay (Low Power Mode etc.), start on the first touch or scroll
+    ['touchstart', 'scroll', 'click'].forEach(ev => window.addEventListener(ev, () => { if (v.paused) tryPlay(); }, { once: true, passive: true }));
   };
   const go = () => ('requestIdleCallback' in window ? requestIdleCallback(start, { timeout: 2500 }) : setTimeout(start, 1200));
   if (document.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
