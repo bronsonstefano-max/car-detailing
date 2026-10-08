@@ -440,7 +440,7 @@ SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where
 def build_service(slug, title, short):
     d = SERVICE_PAGES[slug]
     PIMG = {"Two windows": "two-windows", "Full tint": "full-tint", "Windshield": "windshield", "Sunvisor strip": "sunvisor-strip"} if slug == "window-tinting" else {}
-    pimg = lambda t: (f'<div class="pimg"><img src="assets/tint/{PIMG[t]}.webp" alt="{t} tint package at the Divine Detailers shop" width="960" height="519" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
+    pimg = lambda t: (f'<div class="pimg"><img src="assets/tint/{PIMG[t]}.webp" alt="{t} tint package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
     pk = "".join(f'<div class="pkg">{pimg(t)}<h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
     nums = "".join(f'<div><b>{n}</b><span>{l}</span></div>' for n, l in d["nums"])
     tiles = "".join(f'<div class="tile"><span class="kick">{k}</span><h3>{h}</h3><p>{p}</p></div>' for k, h, p in d["tiles"])
