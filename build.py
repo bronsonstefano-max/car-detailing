@@ -73,7 +73,7 @@ PHOTOS = {
     "wheel": ("wheel-wipe", "Technician wiping the wheel of a green Porsche with a blue microfiber towel", "35% 50%"),
     "foam": ("foam-wash", "Technician foam washing a green Mercedes G-Class outside the shop", "40% 45%"),
     "rolls": ("rolls-tint", "Technician using a heat gun and squeegee to install window tint on the rear glass of a black luxury car", "55% 40%"),
-    "gblack": ("g63-matte-black", "Matte black Mercedes-AMG G63 with carbon fiber trim parked in the Divine Detailers shop", "50% 55%"),
+    "gblack": ("g63-matte-black", "Matte black Mercedes-AMG G63 with carbon fiber trim parked in the Divine Detailers shop", "50% 62%"),
     "tspray": ("ppf-install", "Technician spraying slip solution on a car window before installing window tint", "45% 50%"),
     "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
     "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
