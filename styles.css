@@ -606,3 +606,15 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .page-hero.has-vid .vframe::after{background:linear-gradient(180deg,rgba(1,2,6,.72),rgba(1,2,6,.62) 45%,rgba(1,2,6,.9));box-shadow:none;z-index:1}
   .page-hero.has-vid .vframe video{object-position:50% 40%}
 }
+
+/* The impact: green fade panel with glass stat cards */
+.impact-sec{background:radial-gradient(circle at 100% 100%,#010206 0,transparent 55%),linear-gradient(135deg,#3fa23f 0%,#1d6a22 38%,#0c3a12 68%,#010206 100%);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.impact-sec .chip{background:rgba(255,255,255,.16);color:#fff}
+.impact-sec h2{color:#fff}
+.impact-sec p{color:rgba(255,255,255,.9)}
+.impact-sec .bignum{gap:18px;margin-top:30px}
+.impact-sec .bignum div{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);border-radius:6px;padding:26px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.impact-sec .bignum b{color:#fff;font-size:3.2rem;line-height:1;margin-bottom:22px}
+.impact-sec .bignum div+div b{color:#b7ffb0}
+.impact-sec .bignum span{color:#fff;font-weight:600;font-size:.98rem;line-height:1.45}
+@media(max-width:860px){.impact-sec .bignum{grid-template-columns:1fr}}

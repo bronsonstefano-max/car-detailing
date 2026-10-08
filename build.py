@@ -344,7 +344,7 @@ SERVICE_PAGES = {
     packages=[("Two windows", ["Front driver side", "Front passenger side"]), ("Full tint", ["Front driver + passenger", "Rear driver + passenger"]), ("Windshield", ["Full windshield", "Extra protection"]), ("Sunvisor strip", ["Sun strip", "Reduces sun glare"])],
     impact_kick="The impact", impact_h="Cooler drives. Cleaner look.",
     impact_p="Miami&rsquo;s sunshine can heat up a cabin quickly. Premium ceramic window film stops heat before it builds up inside, so even after sitting in direct sun, the vehicle feels more comfortable for you and your passengers.",
-    nums=[("00%", "Placeholder: heat rejection of your chosen film"), ("99%", "UV rays blocked by quality ceramic film")],
+    nums=[("60%", "Quality window tint significantly lowers interior temperatures during hot days. This improves comfort and reduces strain on your AC system."), ("99%", "Tint protects your interior materials from fading and cracking over time. It also protects your skin during long drives.")],
     tiles=[("Comfort", "Comfort", "Reduces interior heat and makes driving more enjoyable year-round."), ("Privacy", "Privacy", "Limits visibility into your vehicle while keeping clear visibility out."), ("Protection", "Protection", "Blocks harmful UV rays that damage interiors and skin."), ("Appearance", "Appearance", "Gives your vehicle a clean, finished and more refined look.")],
     why_h="Why trust Divine Detailers", why_p="Our certified installers cut film with precision and finish every job with a close final inspection before delivery. We use premium ceramic films with a manufacturer warranty, and we back our workmanship.",
     faq=[("Window tint", FAQ_TINT, "tint")], sim=True, select="Window Tint"),
@@ -492,7 +492,7 @@ SERVICE_PAGES = {
     packages=[("Two windows", ["Front driver side", "Front passenger side"]), ("Full tint", ["Front driver + passenger", "Rear driver + passenger"]), ("Windshield", ["Full windshield", "Extra protection"]), ("Sunvisor strip", ["Sun strip", "Reduces sun glare"])],
     impact_kick="The impact", impact_h="Cooler drives. Cleaner look.",
     impact_p="Miami&rsquo;s sunshine can heat up a cabin quickly. Premium ceramic window film stops heat before it builds up inside, so even after sitting in direct sun, the vehicle feels more comfortable for you and your passengers.",
-    nums=[("00%", "Placeholder: heat rejection of your chosen film"), ("99%", "UV rays blocked by quality ceramic film")],
+    nums=[("60%", "Quality window tint significantly lowers interior temperatures during hot days. This improves comfort and reduces strain on your AC system."), ("99%", "Tint protects your interior materials from fading and cracking over time. It also protects your skin during long drives.")],
     tiles=[("Comfort", "Comfort", "Reduces interior heat and makes driving more enjoyable year-round."), ("Privacy", "Privacy", "Limits visibility into your vehicle while keeping clear visibility out."), ("Protection", "Protection", "Blocks harmful UV rays that damage interiors and skin."), ("Appearance", "Appearance", "Gives your vehicle a clean, finished and more refined look.")],
     why_h="Why trust Divine Detailers", why_p="Our certified installers cut film with precision and finish every job with a close final inspection before delivery. We use premium ceramic films with a manufacturer warranty, and we back our workmanship.",
     faq=[("Window tint", FAQ_TINT, "tint")], sim=True, select="Window Tint"),
@@ -633,7 +633,7 @@ def build_service(slug, title, short):
 <section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2><div class="hls">{hl}</div></div></section>
 <section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
-<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
+<section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
 <section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>
 <section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
 {rows}{portfolio}{faq}{cta_banner()}'''
