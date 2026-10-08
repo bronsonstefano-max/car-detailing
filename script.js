@@ -80,6 +80,9 @@ if (shade) {
     const wind = b.dataset.simTab === 'wind';
     view.classList.toggle('wind', wind);
     document.getElementById('simBadgeLabel').textContent = wind ? 'WINDSHIELD VLT' : 'SIDE VLT';
+    // windshield tab only offers the lighter shades
+    const cur = document.querySelector('[data-vlt].on');
+    if (wind && cur && Number(cur.dataset.vlt) < 30) document.querySelector('[data-vlt="50"]').click();
   }));
   setShade(document.querySelector('[data-vlt].on'));
 }

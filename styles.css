@@ -572,3 +572,6 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .sim-view .sim-wind{-webkit-mask-image:url(assets/tint/sim-mask-front.png);mask-image:url(assets/tint/sim-mask-front.png)}
 .sim-view .sim-wind{display:none}
 .sim-view.wind .sim-wind{display:block}
+/* windshield tab: only 70 / 50 / 30 */
+.sim:has(.sim-view.wind) .sim-vlt button[data-vlt="5"],.sim:has(.sim-view.wind) .sim-vlt button[data-vlt="15"]{display:none}
+.sim:has(.sim-view.wind) .sim-vlt{grid-template-columns:repeat(3,1fr)}
