@@ -258,7 +258,7 @@ def build_home():
     socials = "".join(f'<a href="{SITE[k]}" target="_blank" rel="noopener" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube") if SITE[k] != "#")
     body = f'''<section class="hero">
   <div class="hero-top">
-  <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 60%", alt=False, eager=True)}</div>
+  <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 60%", alt=False, eager=True)}<video class="hero-vid" autoplay muted loop playsinline preload="auto" poster="assets/photos/gwagon-wipe-1600.webp" tabindex="-1"><source src="assets/video/hero-bg.webm" type="video/webm"><source src="assets/video/hero-bg.mp4" type="video/mp4"></video></div>
   <div class="wrap hero-in">
     <p class="small">Welcome to {SITE['name']}</p>
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
