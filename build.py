@@ -199,7 +199,7 @@ def page(fname, title, desc, body, active=None):
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=20261008b">
 </head>
 <body>
 {header(active)}
@@ -207,7 +207,7 @@ def page(fname, title, desc, body, active=None):
 {body}
 {footer()}
 </main>
-<script src="script.js"></script>
+<script src="script.js?v=20261008b"></script>
 </body>
 </html>
 '''
