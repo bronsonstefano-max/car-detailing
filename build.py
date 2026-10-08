@@ -617,6 +617,10 @@ def build_service(slug, title, short):
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
     band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
+    if slug == "window-tinting":
+        feats = "".join(f'<div class="cf"><h3>{h}</h3><p>{p}</p></div>' for _, h, p in d["tiles"])
+        band = f'''<section class="cpp"><div class="cpp-img">{photo("tdoor", 1600, "50% 45%", alt=True)}</div><div class="cpp-txt"><h2>Comfort, privacy, and protection</h2><p>We install premium ceramic window film that rejects heat, cuts glare and blocks harmful UV rays, so every drive in Miami&rsquo;s sun feels cooler and more comfortable.</p><div class="cfs">{feats}</div></div></section>'''
+    benefits = "" if slug == "window-tinting" else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
     body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=(slug == "window-tinting"))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
@@ -634,7 +638,7 @@ def build_service(slug, title, short):
 <section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
 <section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
-<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>
+{benefits}
 <section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
 {rows}{portfolio}{faq}{cta_banner()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
