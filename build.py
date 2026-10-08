@@ -73,6 +73,9 @@ PHOTOS = {
     "wheel": ("wheel-wipe", "Technician wiping the wheel of a green Porsche with a blue microfiber towel", "35% 50%"),
     "foam": ("foam-wash", "Technician foam washing a green Mercedes G-Class outside the shop", "40% 45%"),
     "rolls": ("rolls-tint", "Technician using a heat gun and squeegee to install window tint on the rear glass of a black luxury car", "55% 40%"),
+    "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
+    "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
+    "tgarage": ("tint-garage-squeegee", "Technician squeegeeing window tint inside the open door of a gray SUV", "55% 40%"),
     "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
 }
 CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "foam"}
@@ -244,7 +247,7 @@ def map_block(cls="map-embed"):
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     home_map = map_block()
-    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "ceramic", "wash", "rolls", "polish", "foam", "tint", "wheel", "spray", "heat"])
+    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "tdoor", "ceramic", "wash", "rolls", "tmirror", "polish", "foam", "tint", "tgarage", "wheel", "spray", "heat"])
     GICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>'
     revs = "".join(f'''<article class="review"><div class="rhead"><span class="gbadge">{GICON}</span><div class="rsrc"><b>GOOGLE REVIEW</b><span>{SITE['name']}</span></div><span class="rstars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div><h4>Recent Client</h4><p>{t}</p></article>''' for n, t in REVIEWS)
     revs_dup = revs.replace('<article class="review">', '<article class="review" aria-hidden="true">')
@@ -396,9 +399,9 @@ EXTRA = {
  "window-tinting": dict(
     hl_h="Stay cool, private and protected.",
     hl=[("Heat rejection", "Cuts the heat that builds up in the cabin", "Easier on you and your AC"), ("UV protection", "Blocks nearly all harmful UV rays", "Protects skin and interiors"), ("Privacy", "Dark enough to limit views in", "Clear visibility looking out"), ("Clean look", "Computer-cut film, precise edges", "A finished, factory-style fit")],
-    rows=[("Comfort", "Cooler drives in Miami's sun", "Premium ceramic window film stops solar heat before it warms the cabin. Seats, steering wheel and dash stay more comfortable after the car sits in the sun.", "Because the film has no metal in it, GPS, phone and radio signals keep working normally.", "tint"),
-          ("Protection", "Protect your interior and your skin", "UV rays fade and crack leather, plastics and upholstery over time. Quality film blocks nearly all of them, so your interior keeps its color and feel.", "The same film helps hold glass together and reduces glare for safer, less tiring driving.", "heat"),
-          ("Style", "A cleaner, more finished look", "Tint changes how a vehicle looks from the first glance. We help you pick a shade that fits your style and stays within legal limits for each window.", "Every piece is cut to fit and installed in a clean bay, then inspected before you drive away.", "rolls")]),
+    rows=[("Comfort", "Cooler drives in Miami's sun", "Premium ceramic window film stops solar heat before it warms the cabin. Seats, steering wheel and dash stay more comfortable after the car sits in the sun.", "Because the film has no metal in it, GPS, phone and radio signals keep working normally.", "tgarage"),
+          ("Protection", "Protect your interior and your skin", "UV rays fade and crack leather, plastics and upholstery over time. Quality film blocks nearly all of them, so your interior keeps its color and feel.", "The same film helps hold glass together and reduces glare for safer, less tiring driving.", "tmirror"),
+          ("Style", "A cleaner, more finished look", "Tint changes how a vehicle looks from the first glance. We help you pick a shade that fits your style and stays within legal limits for each window.", "Every piece is cut to fit and installed in a clean bay, then inspected before you drive away.", "tdoor")]),
  "paint-protection-film": dict(
     hl_h="Defend your paint from day one.",
     hl=[("Chip protection", "Absorbs rock chips and road debris", "Keeps paint intact where it counts"), ("Self-healing", "Light marks fade with warmth", "Stays smooth and glossy"), ("Invisible look", "Clear, gloss or satin finishes", "Your color shows through"), ("Long-lasting", "Built for years of daily driving", "Backed by a manufacturer warranty")],
@@ -491,7 +494,7 @@ def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
     items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"), ("Tint", "spray"),
-             ("Tint", "rolls"), ("Detailing", "foam"), ("Detailing", "wheel"), ("Detailing", "wash"), ("Wraps", None), ("PPF", None)]
+             ("Tint", "rolls"), ("Detailing", "foam"), ("Detailing", "wheel"), ("Detailing", "wash"), ("Wraps", None), ("PPF", None), ("Tint", "tdoor"), ("Tint", "tmirror"), ("Tint", "tgarage")]
     grid = "".join(
         (f'<div class="ph-box has-img" data-cat="{c}">{photo(k)}</div>' if k else f'<div class="ph-box" data-cat="{c}">Add photo · {c}</div>')
         for c, k in items)
