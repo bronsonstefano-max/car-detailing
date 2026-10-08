@@ -220,12 +220,14 @@ def faq_block(items, cat=None, cid=None):
     out += "".join(f"<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>" for q, a in items)
     return out
 
-def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True):
+VIDEO = '<video class="hero-vid" autoplay muted loop playsinline preload="auto" poster="assets/video/tint-hero-poster.webp" tabindex="-1"><source src="assets/video/hero-bg.webm" type="video/webm"><source src="assets/video/hero-bg.mp4" type="video/mp4"></video>'
+
+def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=False):
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
     return f'''<section class="page-hero{' tall' if form else ''}">
-  <div class="hero-media" aria-hidden="true"></div>
+  <div class="hero-media{' has-photo' if video else ''}" aria-hidden="true">{VIDEO if video else ""}</div>
   <div class="wrap hero-in"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>
   {q}
 </section>'''
@@ -258,7 +260,7 @@ def build_home():
     socials = "".join(f'<a href="{SITE[k]}" target="_blank" rel="noopener" aria-label="{k.capitalize()}">{ICON[k]}</a>' for k in ("instagram", "tiktok", "facebook", "youtube") if SITE[k] != "#")
     body = f'''<section class="hero">
   <div class="hero-top">
-  <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 60%", alt=False, eager=True)}<video class="hero-vid" autoplay muted loop playsinline preload="auto" poster="assets/photos/gwagon-wipe-1600.webp" tabindex="-1"><source src="assets/video/hero-bg.webm" type="video/webm"><source src="assets/video/hero-bg.mp4" type="video/mp4"></video></div>
+  <div class="hero-media has-photo lighter" aria-hidden="true">{photo("gwagon", 1600, "50% 60%", alt=False, eager=True)}</div>
   <div class="wrap hero-in">
     <p class="small">Welcome to {SITE['name']}</p>
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
@@ -467,7 +469,7 @@ def build_service(slug, title, short):
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
     band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
-    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False)
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=(slug == "window-tinting"))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     rows = ""
@@ -615,7 +617,7 @@ def build_service(slug, title, short):
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
     band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
-    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False)
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=(slug == "window-tinting"))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     rows = ""
