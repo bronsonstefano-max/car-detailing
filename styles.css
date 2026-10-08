@@ -562,3 +562,13 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .pimg:has(img){aspect-ratio:960/559}
 .pimg:has(img) img{object-position:50% 100%}
 @media(max-width:860px){.pimg:has(img){aspect-ratio:960/559}.pimg:has(img) img{object-position:50% 100%}}
+
+/* simulator: side photo for the side tab, front photo for the windshield tab */
+.sim-view{background:#fff}
+.sim-view .sim-car-front{display:none}
+.sim-view.wind .sim-car-front{display:block}
+.sim-view.wind .sim-car-side{display:none}
+.sim-view .sim-side{-webkit-mask-image:url(assets/tint/sim-mask-side.png);mask-image:url(assets/tint/sim-mask-side.png)}
+.sim-view .sim-wind{-webkit-mask-image:url(assets/tint/sim-mask-front.png);mask-image:url(assets/tint/sim-mask-front.png)}
+.sim-view .sim-wind{display:none}
+.sim-view.wind .sim-wind{display:block}
