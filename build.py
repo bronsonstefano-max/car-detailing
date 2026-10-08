@@ -354,8 +354,8 @@ SERVICE_PAGES = {
     faq=[("Window tint", FAQ_TINT, "tint")], sim=True, select="Window Tint"),
  "paint-protection-film": dict(
     sub="Paint protection film guards your vehicle from rock chips, scratches and everyday road damage while keeping the original paint looking untouched.",
-    pk_title="PPF coverage options", pk_sub="Choose the coverage that fits how you drive.",
-    packages=[("Highway package", ["Hood or hood edge", "Front bumper", "Fender edges", "Headlights + mirrors"]), ("Full front", ["Full hood + fenders", "Front bumper", "Headlights", "Mirrors"]), ("Full body", ["Every painted panel", "Edges wrapped", "Door jambs optional", "Maximum protection"]), ("Individual panels", ["High-wear areas", "Door edges + cargo", "Targeted coverage", "Add more later"])],
+    pk_title="PPF package options", pk_sub="Browse our different package options.",
+    packages=[("Partial Front", ["Partial front bumper", "Partial front hood"]), ("Full Front", ["Full bumper + hood", "Full fenders + mirrors"]), ("Track Package", ["Hood + fenders + bumper", "A-pillars + roof edges + mirrors"]), ("Full Protection", ["Full vehicle coverage", "Rear trunk + bumper"])],
     impact_kick="The impact", impact_h="Protection that takes the hit.",
     impact_p="Rock chips and road debris go through clear coat, not around it. Paint protection film is a thick, clear urethane that absorbs the impact so your paint does not. Self-healing top coats make light marks fade away.",
     nums=[("5-10", "Years a quality film typically lasts"), ("100%", "Clear, gloss or satin finish options")],
@@ -453,7 +453,7 @@ SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where
 def build_service(slug, title, short):
     d = SERVICE_PAGES[slug]
     PIMG_ALL = {"window-tinting": ("tint", {"Two windows": "two-windows", "Full tint": "full-tint", "Windshield": "windshield", "Sunvisor strip": "sunvisor-strip"}),
-                "paint-protection-film": ("ppf", {"Highway package": "highway", "Full front": "full-front", "Full body": "full-body", "Individual panels": "individual-panels"})}
+                "paint-protection-film": ("ppf", {"Partial Front": "highway", "Full Front": "full-front", "Track Package": "individual-panels", "Full Protection": "full-body"})}
     PDIR, PIMG = PIMG_ALL.get(slug, ("", {}))
     pimg = lambda t: (f'<div class="pimg"><img src="assets/{PDIR}/{PIMG[t]}.webp" alt="{t} package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
     pk = "".join(f'<div class="pkg">{pimg(t)}<h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
@@ -504,8 +504,8 @@ SERVICE_PAGES = {
     faq=[("Window tint", FAQ_TINT, "tint")], sim=True, select="Window Tint"),
  "paint-protection-film": dict(
     sub="Paint protection film guards your vehicle from rock chips, scratches and everyday road damage while keeping the original paint looking untouched.",
-    pk_title="PPF coverage options", pk_sub="Choose the coverage that fits how you drive.",
-    packages=[("Highway package", ["Hood or hood edge", "Front bumper", "Fender edges", "Headlights + mirrors"]), ("Full front", ["Full hood + fenders", "Front bumper", "Headlights", "Mirrors"]), ("Full body", ["Every painted panel", "Edges wrapped", "Door jambs optional", "Maximum protection"]), ("Individual panels", ["High-wear areas", "Door edges + cargo", "Targeted coverage", "Add more later"])],
+    pk_title="PPF package options", pk_sub="Browse our different package options.",
+    packages=[("Partial Front", ["Partial front bumper", "Partial front hood"]), ("Full Front", ["Full bumper + hood", "Full fenders + mirrors"]), ("Track Package", ["Hood + fenders + bumper", "A-pillars + roof edges + mirrors"]), ("Full Protection", ["Full vehicle coverage", "Rear trunk + bumper"])],
     impact_kick="The impact", impact_h="Protection that takes the hit.",
     impact_p="Rock chips and road debris go through clear coat, not around it. Paint protection film is a thick, clear urethane that absorbs the impact so your paint does not. Self-healing top coats make light marks fade away.",
     nums=[("5-10", "Years a quality film typically lasts"), ("100%", "Clear, gloss or satin finish options")],
@@ -603,7 +603,7 @@ SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where
 def build_service(slug, title, short):
     d = SERVICE_PAGES[slug]
     PIMG_ALL = {"window-tinting": ("tint", {"Two windows": "two-windows", "Full tint": "full-tint", "Windshield": "windshield", "Sunvisor strip": "sunvisor-strip"}),
-                "paint-protection-film": ("ppf", {"Highway package": "highway", "Full front": "full-front", "Full body": "full-body", "Individual panels": "individual-panels"})}
+                "paint-protection-film": ("ppf", {"Partial Front": "highway", "Full Front": "full-front", "Track Package": "individual-panels", "Full Protection": "full-body"})}
     PDIR, PIMG = PIMG_ALL.get(slug, ("", {}))
     pimg = lambda t: (f'<div class="pimg"><img src="assets/{PDIR}/{PIMG[t]}.webp" alt="{t} package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
     pk = "".join(f'<div class="pkg">{pimg(t)}<h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
