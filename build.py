@@ -767,7 +767,7 @@ def build_projects():
             ("PPF", "f150-ppf", "Ford F-150 PPF install", "Technicians installing paint protection film on a white Ford F-150", False),
             ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
             ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
-            ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black", False),
+            ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black", True),
             ("PPF", "black-ppf", "Black sports car PPF install", "Technicians installing paint protection film on a black sports car", False),
             ("Detailing", "mobile-detail", "Mobile detailing: Porsche 911", "Divine Detailers explaining mobile detailing on a Porsche 911", True),
             ("Tint", "porsche-tint", "Porsche window tint", "Technician tinting the windows of a red Porsche 718 GT4", False),
