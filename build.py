@@ -764,11 +764,16 @@ def build_projects():
     # (category, file stem in assets/projects, title, alt)
     vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin gray wrap on a Lamborghini Urus"),
             ("PPF", "ppf-install", "Paint protection film install", "Technician installing clear paint protection film on the front end of a black SUV"),
+            ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4"),
             ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black"),
             ("Tint", "porsche-tint", "Porsche window tint", "Technician tinting the windows of a red Porsche 718 GT4"),
-            ("PPF", "m3-ppf", "BMW M3 Competition PPF", "Technicians applying paint protection film to a BMW M3 Competition")]
+            ("Detailing", "m3-prep", "BMW M3 paint prep and decon", "Technicians claying and prepping a white BMW M3 before protection"),
+            ("PPF", "m3-ppf", "BMW M3 Competition PPF", "Technicians applying paint protection film to a BMW M3 Competition"),
+            ("PPF", "p911-ppf", "Porsche 911 PPF install", "Technicians installing paint protection film on a black Porsche 911 cabriolet"),
+            ("PPF", "p911-front-ppf", "Porsche 911 full-front PPF", "Technician explaining full-front paint protection film on a light blue Porsche 911"),
+            ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3")]
     grid = "".join(
-        f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-title="{t}" aria-label="Play video: {t}">'
+        f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
         f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
         f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
         f'<span class="vplay" aria-hidden="true"></span><span class="vcap"><i>{c}</i>{t}</span></button>'

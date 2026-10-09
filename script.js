@@ -198,7 +198,7 @@ if (yr) yr.textContent = new Date().getFullYear();
     const io = new IntersectionObserver(es => es.forEach(e => {
       const t = e.target, v = t.querySelector('video');
       if (e.isIntersecting && !t.hidden) {
-        if (!v.src) v.src = t.dataset.src;
+        if (!v.src) v.src = t.dataset.prev || t.dataset.src;
         v.play().then(() => t.classList.add('playing')).catch(() => {});
       } else { v.pause(); t.classList.remove('playing'); }
     }), { threshold: 0.6 });
