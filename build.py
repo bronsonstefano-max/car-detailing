@@ -92,6 +92,10 @@ PHOTOS = {
     "c4": ("cc-g63-wipe", "Technician wiping the hood of a green Mercedes G-Class after ceramic coating", "35% 50%"),
     "c5": ("cc-applicator-pour", "Technician pouring ceramic coating onto an applicator pad beside a green Mercedes G-Class", "40% 45%"),
     "fvan": ("ferrari-van", "Matte black Ferrari parked in front of the Divine Detailers mobile detailing van", "50% 100%"),
+    "df": ("det-f150-wheel", "Divine Detailers technician hand-washing the custom wheel of a lifted white Ford F-150 at night", "40% 60%"),
+    "dv": ("det-truck-van", "Lifted white Ford F-150 parked beside the Divine Detailers wrapped mobile detailing van at night", "35% 60%"),
+    "dh": ("det-huracan-front", "Green and black Lamborghini Huracan parked in front of the Divine Detailers van", "50% 60%"),
+    "dw": ("det-huracan-wash", "Technician pressure washing a green and black Lamborghini Huracan with foam", "40% 50%"),
     "svan": ("s550-van", "Gray Mercedes S-Class at night in front of the Divine Detailers mobile detailing van", "30% 78%"),
     "gt3": ("gt3-green", "Dark green Porsche 911 GT3 with gold wheels and a gold stripe parked in a driveway", "50% 55%"),
     "pc1": ("pc-demon-hood", "Technician machine polishing the masked hood of a black Dodge Challenger SRT in the shop", "50% 50%"),
@@ -107,9 +111,9 @@ PHOTOS = {
 }
 CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "svan"}
 HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
-SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p3", "p1"), "ceramic-coating": ("c3", "ceramic"), "paint-correction": ("pc2", "pc4"), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
+SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p3", "p1"), "ceramic-coating": ("c3", "ceramic"), "paint-correction": ("pc2", "pc4"), "vinyl-wraps": (None, None), "exterior-detailing": ("dv", "wash")}
 WHY_PHOTO = {"paint-correction": "pc3", "window-tinting": "tspray", "ceramic-coating": "c5", "paint-protection-film": "q6"}
-BAND_POS = {"pc4": "45% 55%", "c3": "45% 48%", "c4": "50% 40%", "c5": "50% 45%", "p3": "50% 42%", "p1": "50% 74%", "tdoor": "50% 42%", "wheel": "40% 52%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+BAND_POS = {"pc4": "45% 55%", "c3": "45% 48%", "c4": "50% 40%", "c5": "50% 45%", "p3": "50% 42%", "p1": "50% 74%", "tdoor": "50% 42%", "wheel": "40% 52%", "dv": "40% 62%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
@@ -517,9 +521,9 @@ EXTRA = {
  "exterior-detailing": dict(
     hl_h="Clean paint, properly cared for.",
     hl=[("Safe wash", "Lubricated hand washing", "Keeps swirls out of the paint"), ("Decontamination", "Iron and clay treatment", "Removes what washing leaves behind"), ("Protection", "Sealant or wax", "Keeps the shine and eases the next wash"), ("Finishing", "Wheels, trim, glass, door jambs", "Every detail handled")],
-    rows=[("Wash", "A wash that protects your paint", "Most paint damage starts with a bad wash. We use controlled, gentle methods that lift dirt away instead of grinding it in.", "The result is a clean surface that is ready for protection.", "foam"),
-          ("Decon", "Deep clean beyond the wash", "Iron remover and clay treatment lift the embedded contamination that makes paint feel rough and look dull.", "It is also the right first step before correction, coating or film.", "wash"),
-          ("Maintain", "Keep it looking its best", "Regular maintenance details keep coatings performing and paint glossy, so small problems never turn into big ones.", "Ask us about a maintenance schedule that fits your car.", "wheel")]),
+    rows=[("Wash", "A wash that protects your paint", "Most paint damage starts with a bad wash. We use controlled, gentle methods that lift dirt away instead of grinding it in.", "The result is a clean surface that is ready for protection.", "dw"),
+          ("Decon", "Deep clean beyond the wash", "Iron remover and clay treatment lift the embedded contamination that makes paint feel rough and look dull.", "It is also the right first step before correction, coating or film.", "df"),
+          ("Maintain", "Keep it looking its best", "Regular maintenance details keep coatings performing and paint glossy, so small problems never turn into big ones.", "Ask us about a maintenance schedule that fits your car.", "dh")]),
 }
 
 SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where legal."),
@@ -677,9 +681,9 @@ EXTRA = {
  "exterior-detailing": dict(
     hl_h="Clean paint, properly cared for.",
     hl=[("Safe wash", "Lubricated hand washing", "Keeps swirls out of the paint"), ("Decontamination", "Iron and clay treatment", "Removes what washing leaves behind"), ("Protection", "Sealant or wax", "Keeps the shine and eases the next wash"), ("Finishing", "Wheels, trim, glass, door jambs", "Every detail handled")],
-    rows=[("Wash", "A wash that protects your paint", "Most paint damage starts with a bad wash. We use controlled, gentle methods that lift dirt away instead of grinding it in.", "The result is a clean surface that is ready for protection.", "foam"),
-          ("Decon", "Deep clean beyond the wash", "Iron remover and clay treatment lift the embedded contamination that makes paint feel rough and look dull.", "It is also the right first step before correction, coating or film.", "wash"),
-          ("Maintain", "Keep it looking its best", "Regular maintenance details keep coatings performing and paint glossy, so small problems never turn into big ones.", "Ask us about a maintenance schedule that fits your car.", "wheel")]),
+    rows=[("Wash", "A wash that protects your paint", "Most paint damage starts with a bad wash. We use controlled, gentle methods that lift dirt away instead of grinding it in.", "The result is a clean surface that is ready for protection.", "dw"),
+          ("Decon", "Deep clean beyond the wash", "Iron remover and clay treatment lift the embedded contamination that makes paint feel rough and look dull.", "It is also the right first step before correction, coating or film.", "df"),
+          ("Maintain", "Keep it looking its best", "Regular maintenance details keep coatings performing and paint glossy, so small problems never turn into big ones.", "Ask us about a maintenance schedule that fits your car.", "dh")]),
 }
 
 SIM = [(5, "Limo tint", "Maximum privacy. Very dark, best for rear windows where legal."),
