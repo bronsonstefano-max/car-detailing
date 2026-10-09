@@ -147,7 +147,6 @@ def header(active):
     return f'''<header class="site-header">
   <div class="hdr">
     <a class="logo-img" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo-340.webp" alt="{SITE['name']} logo: It's time to shine" width="168" height="96"></a>
-    <a class="hdr-call" href="tel:{SITE['tel']}" aria-label="Call {SITE['phone']}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>Call Now</a>
     <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><i></i><i></i><i></i></button>
     <nav class="nav" id="nav">
       <div class="has-dd"><button class="dd-btn" aria-expanded="false">Services <i>+</i></button><div class="dd"><a href="services.html">All services</a>{dd}</div></div>
@@ -158,6 +157,7 @@ def header(active):
       <div class="nav-cta"><a class="callnow" href="tel:{SITE['tel']}">CALL NOW<b>{SITE['phone']}</b></a><a class="btn sm" href="contact.html#quote">Request Quote</a></div>
     </nav>
   </div>
+  <a class="hdr-call" href="tel:{SITE['tel']}" aria-label="Call {SITE['phone']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a>
 </header>'''
 
 STATUS = '<div class="status"><span class="dot"></span>Estimated Wait Time: 30 Minutes or less</div>'
@@ -306,7 +306,7 @@ HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-
 
 def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None):
     c = " / ".join(crumbs)
-    btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
+    btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
     return f'''<section class="page-hero{' tall' if form else ''}{' has-vid' if video else ''}">
   <div class="hero-media" aria-hidden="true"></div>
@@ -348,7 +348,7 @@ def build_home():
     <h1>Window tint, PPF, ceramic coatings &amp; <em>paint correction</em></h1>
     <p class="sub">Premium vehicle protection and detailing</p>
     <p class="lead">Protect and perfect your vehicle with Miami&rsquo;s premium detailing and protection shop.</p>
-    <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL: {SITE['phone']}</a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
+    <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
   </div>
   </div>
   <div class="qwrap">{quote_form(fid="hero-quote")}</div>
@@ -361,7 +361,7 @@ def build_home():
   <p class="lead" style="margin-top:14px">At {SITE['name']}, we turn your vehicle into a head-turning masterpiece.</p>
   <div class="svc-slider"><div class="cards" style="text-align:initial">{cards}</div><button class="svc-btn prev" data-svc="-1" aria-label="Previous service">&#8249;</button><button class="svc-btn next" data-svc="1" aria-label="Next service">&#8250;</button></div></div>
 </section>
-<section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>
+<section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>
 {stripes()}
 <section class="sec" style="padding-bottom:0">
   <div class="wrap center"><span class="chip">Our Achievements</span></div>
@@ -394,7 +394,7 @@ def build_home():
 <section class="sec">
   <div class="wrap"><div class="unlock single"><div class="bar"><h2>Unlock the ultimate driving experience</h2>
   <p>{SITE['name']} brings vehicle protection and detailing to Miami drivers who care about how their car looks and how long it lasts. We tailor each service to your vehicle and your style, with certified installers who focus on the small details. Every project happens in a facility built for precise work, quality products and a polished experience from start to finish.</p>
-  <a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a></div></div></div>
+  <a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a></div></div></div>
 </section>
 <section class="feat"><div class="txt"><span class="kick">Protect</span><h2>Protect and preserve your car&rsquo;s flawless finish</h2><p>Keep your vehicle looking new with protection built for Miami&rsquo;s sun, salt air and storms. Paint protection film takes the hit from rock chips and road debris, while ceramic coating adds gloss, shrugs off contaminants and makes every wash faster.</p></div>{photo_box("ppf", pos="40% 50%")}</section>
 <section class="feat rev"><div class="txt"><span class="kick">Customize</span><h2>Make your ride uniquely yours</h2><p>Whether you want a refined upgrade or a bold new look, we turn your ideas into high-quality results. Vinyl wraps change color, texture and finish, while premium window tint cuts heat and glare and gives the car a cleaner, finished look.</p></div>{photo_box("heat", pos="50% 35%")}</section>
@@ -415,7 +415,7 @@ def build_services_hub():
     body += f'''{stripes()}{partners()}
 <section class="sec"><div class="wrap center"><span class="chip">Our Services</span><h2>Elevate your ride with expert <em>custom services</em></h2>
 <p class="lead" style="margin-top:14px">From window tint to ceramic coating, our services enhance your ride&rsquo;s style, protection and performance. Trust our skilled team to deliver quality and luxury your car deserves.</p>
-<div class="svc-slider"><div class="cards" style="text-align:initial">{cards}</div><button class="svc-btn prev" data-svc="-1" aria-label="Previous service">&#8249;</button><button class="svc-btn next" data-svc="1" aria-label="Next service">&#8250;</button></div></div></section><section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>{cta_banner()}'''
+<div class="svc-slider"><div class="cards" style="text-align:initial">{cards}</div><button class="svc-btn prev" data-svc="-1" aria-label="Previous service">&#8249;</button><button class="svc-btn next" data-svc="1" aria-label="Next service">&#8250;</button></div></div></section><section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>{cta_banner()}'''
     page("services.html", f"Our Services | {SITE['name']}", "Window tint, paint protection film, ceramic coating, paint correction, vinyl wraps and exterior detailing in Miami.", body, "services")
 
 # ---------------------------------------------------------------- service pages
@@ -575,7 +575,7 @@ def build_service(slug, title, short):
     body += f'''{stripes()}{partners()}
 <section class="sec"><div class="wrap center"><span class="chip">Our Services</span><h2>Elevate your ride with expert <em>custom services</em></h2>
 <p class="lead" style="margin-top:14px">From window tint to ceramic coating, our services enhance your ride&rsquo;s style, protection and performance. Trust our skilled team to deliver quality and luxury your car deserves.</p>
-<div class="svc-slider"><div class="cards" style="text-align:initial">{cards}</div><button class="svc-btn prev" data-svc="-1" aria-label="Previous service">&#8249;</button><button class="svc-btn next" data-svc="1" aria-label="Next service">&#8250;</button></div></div></section><section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><span class="dot"></span>CALL NOW: {SITE['phone']}</a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>{cta_banner()}'''
+<div class="svc-slider"><div class="cards" style="text-align:initial">{cards}</div><button class="svc-btn prev" data-svc="-1" aria-label="Previous service">&#8249;</button><button class="svc-btn next" data-svc="1" aria-label="Next service">&#8250;</button></div></div></section><section class="cta-strip"><div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></section>{cta_banner()}'''
     page("services.html", f"Our Services | {SITE['name']}", "Window tint, paint protection film, ceramic coating, paint correction, vinyl wraps and exterior detailing in Miami.", body, "services")
 
 # ---------------------------------------------------------------- service pages
