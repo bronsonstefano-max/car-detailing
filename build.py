@@ -281,7 +281,7 @@ def faq_block(items, cat=None, cid=None):
 
 def hero_video(name, poster):
     # sources are attached by script.js after the page has loaded, so the video never competes with the headline
-    return (f'<video class="hero-vid" muted loop playsinline preload="none" poster="assets/video/{poster}.webp" tabindex="-1" '
+    return (f'<video class="hero-vid" muted loop playsinline preload="none" tabindex="-1" '
             f'data-webm="assets/video/{name}.webm" data-mp4="assets/video/{name}.mp4"></video>')
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
 HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster")}
