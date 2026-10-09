@@ -81,6 +81,10 @@ PHOTOS = {
     "p3": ("ppf-porsche-spray", "Technician spraying water and lifting paint protection film around the headlight of a black Porsche", "50% 45%"),
     "p4": ("ppf-blue-g-edge", "Hands laying paint protection film around the corner marker of a blue Mercedes G-Class fender", "50% 50%"),
     "p5": ("ppf-blue-squeegee", "Close-up of a blue squeegee pressing paint protection film into a body-panel edge on a blue car", "50% 50%"),
+    "q1": ("bmw-grille-ppf", "Technician applying paint protection film around the front grille of a white BMW", "50% 50%"),
+    "q3": ("m3-pink-hood", "Pink color film being laid over the hood of a black BMW M3", "50% 55%"),
+    "q4": ("m3-xpel-fender", "Technician finishing film on the pink fender of a BMW M3 next to an XPEL wheel cover", "50% 50%"),
+    "q5": ("porsche-968-spoiler", "Technician applying paint protection film to the rear spoiler of a red Porsche 968", "40% 50%"),
     "tspray": ("ppf-install", "Technician spraying slip solution on a car window before installing window tint", "45% 50%"),
     "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
     "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
@@ -312,7 +316,7 @@ def map_block(cls="map-embed"):
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     home_map = map_block()
-    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "tdoor", "ceramic", "wash", "rolls", "tmirror", "polish", "foam", "tint", "tgarage", "wheel", "spray", "heat"])
+    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "tdoor", "ceramic", "wash", "rolls", "tmirror", "polish", "foam", "tint", "tgarage", "q1", "q3", "wheel", "q4", "spray", "q5", "heat"])
     GICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>'
     revs = "".join(f'''<article class="review"><div class="rhead"><span class="gbadge">{GICON}</span><div class="rsrc"><b>GOOGLE REVIEW</b><span>{SITE['name']}</span></div><span class="rstars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div><h4>Recent Client</h4><p>{t}</p></article>''' for n, t in REVIEWS)
     revs_dup = revs.replace('<article class="review">', '<article class="review" aria-hidden="true">')
@@ -718,7 +722,7 @@ def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
     items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"), ("Tint", "spray"),
-             ("Tint", "rolls"), ("Detailing", "foam"), ("Detailing", "wheel"), ("Detailing", "wash"), ("Wraps", None), ("PPF", None), ("Tint", "tdoor"), ("Tint", "tmirror"), ("Tint", "tgarage")]
+             ("Tint", "rolls"), ("Detailing", "foam"), ("Detailing", "wheel"), ("Detailing", "wash"), ("Wraps", "q3"), ("PPF", "q1"), ("Tint", "tdoor"), ("Tint", "tmirror"), ("Tint", "tgarage"), ("PPF", "q4"), ("PPF", "q5")]
     grid = "".join(
         (f'<div class="ph-box has-img" data-cat="{c}">{photo(k)}</div>' if k else f'<div class="ph-box" data-cat="{c}">Add photo · {c}</div>')
         for c, k in items)
