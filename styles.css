@@ -428,7 +428,7 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 
 /* reviews: continuous marquee */
 .rev-track.marquee{overflow:hidden;scroll-snap-type:none;display:block}
-.rev-run{display:flex;width:max-content;animation:revslide 55s linear infinite}
+.rev-run{display:flex;width:max-content;animation:revslide 55s linear infinite;will-change:transform;backface-visibility:hidden}
 .rev-track.marquee:hover .rev-run{animation-play-state:paused}
 .rev-run .review{flex:0 0 400px;margin-right:16px;scroll-snap-align:none}
 @keyframes revslide{to{transform:translateX(-50%)}}
@@ -651,4 +651,4 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 @media(prefers-reduced-motion:reduce){.callfab svg{animation:none}.callfab{transition:none}}
 
 /* skip rendering work for sections that are far below the fold until they are close to the screen */
-main.page>section:not(.hero):not(.page-hero):not(.hero-top),main.page>footer{content-visibility:auto;contain-intrinsic-size:auto 700px}
+main.page>section:not(.hero):not(.page-hero):not(.hero-top):not(:has(.marquee)):not(:has(.ticker)),main.page>footer{content-visibility:auto;contain-intrinsic-size:auto 700px}

@@ -359,7 +359,7 @@ def build_home():
 </section>
 <section class="sec" id="reviews">
   <div class="wrap rev-head"><span class="chip">Recent Reviews</span><h2>What our <em>clients</em> say</h2>
-  <div class="rev-wrap" style="text-align:initial"><div class="rev-track marquee"><div class="rev-run" style="animation-duration:{len(REVIEWS) * 11}s">{revs}{revs_dup}</div></div>
+  <div class="rev-wrap" style="text-align:initial"><div class="rev-track marquee"><div class="rev-run" style="animation-duration:{len(REVIEWS) * 14}s">{revs}{revs_dup}</div></div>
   </div></div>
 </section>
 {stripes()}
