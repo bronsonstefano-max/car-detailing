@@ -426,11 +426,11 @@ SERVICE_PAGES = {
     sub="Ceramic coating is not just about gloss. It is a long-term protective layer that keeps your vehicle looking newer, cleaner and easier to maintain.",
     pk_title="Coating options", pk_sub="Prep, correction and coating matched to your paint.",
     packages=[("Prep + coat", ["Decontamination wash", "Clay + iron removal", "Panel wipe", "Ceramic coating"]), ("Correct + coat", ["Single-stage polish", "Light defect removal", "Ceramic coating", "Gloss boost"]), ("Full correction", ["Multi-stage correction", "Deep defect removal", "Ceramic coating", "Maximum clarity"]), ("Add-ons", ["Glass coating", "Wheel coating", "Trim coating", "Over PPF"])],
-    impact_kick="The impact", impact_h="Deeper gloss. Easier washes.",
-    impact_p="A ceramic coating bonds to your clear coat and forms a slick, hydrophobic layer. Water, dirt and bird droppings have a hard time sticking, and washing takes a fraction of the time.",
-    nums=[("2-5", "Years of protection from a quality coating"), ("1-2", "Days for a typical full install")],
+    impact_kick="The impact", impact_h="Professional ceramic coating for long-term protection",
+    impact_p="At Divine Detailers, we know that paint condition decides how well a coating bonds and how good the final gloss looks. Our installers carefully inspect the vehicle, prepare the surface and apply the ceramic coating for long-lasting protection built for Miami&rsquo;s sun, rain and humidity.",
+    nums=[("90%", "Ceramic coating helps block most dirt, grime and environmental fallout from bonding to your paint."), ("80%", "The coating reduces the sun exposure that causes fading and oxidation over time.")],
     tiles=[("Gloss", "Deep shine", "Adds depth and clarity that wax cannot match."), ("Hydrophobic", "Sheds water", "Water beads and rolls off, carrying dirt with it."), ("Protection", "UV and chemicals", "Resists fading, oxidation and acid rain."), ("Easy care", "Faster washes", "Contaminants release easily so the paint stays cleaner.")],
-    why_h="Why trust Divine Detailers", why_p="Prep is where most of the quality comes from. We decontaminate, correct the paint to the level it needs and wipe every panel before the coating goes on. Coatings carry a manufacturer warranty and we back our application.",
+    why_h="Why ceramic coating is worth it", why_p="A ceramic coating doesn&rsquo;t replace regular washing. It makes routine care easier and helps your vehicle keep a sleek look between washes. For ceramic coating installation, book an appointment with Divine Detailers in Miami. We combine careful prep and premium products with workmanship we stand behind, so you are happy with the end result.",
     faq=[("Ceramic coating", FAQ_CERAMIC, "ceramic")], select="Ceramic Coating"),
  "paint-correction": dict(
     sub="Machine polishing removes swirls, scratches and water spots to restore deep, true gloss to your paint.",
@@ -482,9 +482,13 @@ EXTRA = {
     hl_h="Why get ceramic coating.",
     hl_p="Divine Detailers provides ceramic coating installation in Miami for drivers who want lasting shine and easy exterior maintenance. The coating bonds to the paint and forms a slick surface that releases water, dirt and more during routine washing. The refined finish gives your vehicle a strong defensive layer against UV exposure and everyday buildup.",
     hl=[("Maximum protection", "Lasting UV protection", "Keeping your car cleaner for longer"), ("Long-lasting durability", "Superior UV protection", "Clean and vibrant longer"), ("Hydrophobic coating", "Advanced nanotechnology", "Reducing stains and buildup"), ("Glossy finish that turns heads", "Enhances your vehicle&rsquo;s finish", "Effortlessly polished look")],
-    rows=[("Gloss", "Deeper shine that lasts", "A ceramic coating bonds to your clear coat and adds depth, clarity and reflections that wax can't match, and it keeps that look far longer.", "Prep and correction come first, because the coating locks in whatever is under it.", "ceramic"),
-          ("Protect", "Shrugs off dirt, water and sun", "The slick, hydrophobic surface helps resist dirt, road grime, bird droppings, water spots and UV fading. Less sticks, and what does comes off easily.", "It does not replace washing, but it makes every wash faster and keeps the car cleaner in between.", "polish"),
-          ("Maintain", "Easier care, year after year", "With gentle washing and an occasional maintenance spray, a good coating keeps performing for years of daily driving and Miami weather.", "We will walk you through care tips so you get the most from it.", "wheel")]),
+    rows=[("Ceramic coating", "What it protects against", "Ceramic coating helps resist dirt, road grime, bird droppings, water spots and environmental fallout. This reduces staining and surface damage that normally affects unprotected paint.", "", "foam"),
+          ("Ceramic coating", "How it improves appearance", "The coating enhances gloss and adds noticeable depth to your paint&rsquo;s color and reflections. Your vehicle keeps a freshly detailed look for much longer.", "", "wash"),
+          ("Ceramic coating", "Maintenance becomes easier", "Water, mud and debris have a harder time sticking to the coated surface. This makes washing faster and keeps the vehicle cleaner between washes.", "", "wheel"),
+          ("Ceramic coating", "How long it lasts", "With proper care, ceramic coating provides long-term protection that holds up against daily driving and weather exposure. It is designed to maintain its performance and appearance for years.", "", "gwagon")],
+    proc_h="Our ceramic coating process",
+    proc_p="In our shop, we wash, decontaminate and evaluate the paint before any coating goes on. This step removes surface buildup and gives the coating a clean foundation. Our installers then apply the coating in controlled sections to support even coverage and a smooth finish.",
+    proc=[("Surface preparation", "We fully clean and decontaminate the paint to remove anything that could prevent proper bonding."), ("Paint correction", "Swirl marks and light imperfections are polished out to create a flawless surface before coating."), ("Coating application", "The ceramic is applied evenly in controlled sections for complete and consistent coverage."), ("Final inspection", "We inspect the entire vehicle under professional lighting to make sure the finish is perfect.")]),
  "paint-correction": dict(
     hl_h="Real defects removed, not filled.",
     hl=[("Inspect", "Measure paint and check under lights", "We find what is really there"), ("Cut", "Remove swirls, scratches and etching", "Only as much as the paint needs"), ("Refine", "Polish to a deep, clear finish", "Maximum gloss and clarity"), ("Protect", "Finish with sealant, coating or film", "Keep the result looking new")],
@@ -540,6 +544,10 @@ def build_service(slug, title, short):
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     hl_intro = '<p class="hl-intro">' + x["hl_p"] + '</p>' if x.get("hl_p") else ""
+    process = ''
+    if x.get('proc'):
+        pc = ''.join(f'<div class="hl"><h3>{t}</h3><p>{c}</p></div>' for t, c in x['proc'])
+        process = f'<section class="sec hl-sec proc-sec"><div class="wrap"><h2 class="center">{x["proc_h"]}</h2><p class="hl-intro">{x["proc_p"]}</p><div class="hls">{pc}</div></div></section>'
     rows = ""
     for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
         rev = " rev" if i % 2 else ""
@@ -578,11 +586,11 @@ SERVICE_PAGES = {
     sub="Ceramic coating is not just about gloss. It is a long-term protective layer that keeps your vehicle looking newer, cleaner and easier to maintain.",
     pk_title="Coating options", pk_sub="Prep, correction and coating matched to your paint.",
     packages=[("Prep + coat", ["Decontamination wash", "Clay + iron removal", "Panel wipe", "Ceramic coating"]), ("Correct + coat", ["Single-stage polish", "Light defect removal", "Ceramic coating", "Gloss boost"]), ("Full correction", ["Multi-stage correction", "Deep defect removal", "Ceramic coating", "Maximum clarity"]), ("Add-ons", ["Glass coating", "Wheel coating", "Trim coating", "Over PPF"])],
-    impact_kick="The impact", impact_h="Deeper gloss. Easier washes.",
-    impact_p="A ceramic coating bonds to your clear coat and forms a slick, hydrophobic layer. Water, dirt and bird droppings have a hard time sticking, and washing takes a fraction of the time.",
-    nums=[("2-5", "Years of protection from a quality coating"), ("1-2", "Days for a typical full install")],
+    impact_kick="The impact", impact_h="Professional ceramic coating for long-term protection",
+    impact_p="At Divine Detailers, we know that paint condition decides how well a coating bonds and how good the final gloss looks. Our installers carefully inspect the vehicle, prepare the surface and apply the ceramic coating for long-lasting protection built for Miami&rsquo;s sun, rain and humidity.",
+    nums=[("90%", "Ceramic coating helps block most dirt, grime and environmental fallout from bonding to your paint."), ("80%", "The coating reduces the sun exposure that causes fading and oxidation over time.")],
     tiles=[("Gloss", "Deep shine", "Adds depth and clarity that wax cannot match."), ("Hydrophobic", "Sheds water", "Water beads and rolls off, carrying dirt with it."), ("Protection", "UV and chemicals", "Resists fading, oxidation and acid rain."), ("Easy care", "Faster washes", "Contaminants release easily so the paint stays cleaner.")],
-    why_h="Why trust Divine Detailers", why_p="Prep is where most of the quality comes from. We decontaminate, correct the paint to the level it needs and wipe every panel before the coating goes on. Coatings carry a manufacturer warranty and we back our application.",
+    why_h="Why ceramic coating is worth it", why_p="A ceramic coating doesn&rsquo;t replace regular washing. It makes routine care easier and helps your vehicle keep a sleek look between washes. For ceramic coating installation, book an appointment with Divine Detailers in Miami. We combine careful prep and premium products with workmanship we stand behind, so you are happy with the end result.",
     faq=[("Ceramic coating", FAQ_CERAMIC, "ceramic")], select="Ceramic Coating"),
  "paint-correction": dict(
     sub="Machine polishing removes swirls, scratches and water spots to restore deep, true gloss to your paint.",
@@ -634,9 +642,13 @@ EXTRA = {
     hl_h="Why get ceramic coating.",
     hl_p="Divine Detailers provides ceramic coating installation in Miami for drivers who want lasting shine and easy exterior maintenance. The coating bonds to the paint and forms a slick surface that releases water, dirt and more during routine washing. The refined finish gives your vehicle a strong defensive layer against UV exposure and everyday buildup.",
     hl=[("Maximum protection", "Lasting UV protection", "Keeping your car cleaner for longer"), ("Long-lasting durability", "Superior UV protection", "Clean and vibrant longer"), ("Hydrophobic coating", "Advanced nanotechnology", "Reducing stains and buildup"), ("Glossy finish that turns heads", "Enhances your vehicle&rsquo;s finish", "Effortlessly polished look")],
-    rows=[("Gloss", "Deeper shine that lasts", "A ceramic coating bonds to your clear coat and adds depth, clarity and reflections that wax can't match, and it keeps that look far longer.", "Prep and correction come first, because the coating locks in whatever is under it.", "ceramic"),
-          ("Protect", "Shrugs off dirt, water and sun", "The slick, hydrophobic surface helps resist dirt, road grime, bird droppings, water spots and UV fading. Less sticks, and what does comes off easily.", "It does not replace washing, but it makes every wash faster and keeps the car cleaner in between.", "polish"),
-          ("Maintain", "Easier care, year after year", "With gentle washing and an occasional maintenance spray, a good coating keeps performing for years of daily driving and Miami weather.", "We will walk you through care tips so you get the most from it.", "wheel")]),
+    rows=[("Ceramic coating", "What it protects against", "Ceramic coating helps resist dirt, road grime, bird droppings, water spots and environmental fallout. This reduces staining and surface damage that normally affects unprotected paint.", "", "foam"),
+          ("Ceramic coating", "How it improves appearance", "The coating enhances gloss and adds noticeable depth to your paint&rsquo;s color and reflections. Your vehicle keeps a freshly detailed look for much longer.", "", "wash"),
+          ("Ceramic coating", "Maintenance becomes easier", "Water, mud and debris have a harder time sticking to the coated surface. This makes washing faster and keeps the vehicle cleaner between washes.", "", "wheel"),
+          ("Ceramic coating", "How long it lasts", "With proper care, ceramic coating provides long-term protection that holds up against daily driving and weather exposure. It is designed to maintain its performance and appearance for years.", "", "gwagon")],
+    proc_h="Our ceramic coating process",
+    proc_p="In our shop, we wash, decontaminate and evaluate the paint before any coating goes on. This step removes surface buildup and gives the coating a clean foundation. Our installers then apply the coating in controlled sections to support even coverage and a smooth finish.",
+    proc=[("Surface preparation", "We fully clean and decontaminate the paint to remove anything that could prevent proper bonding."), ("Paint correction", "Swirl marks and light imperfections are polished out to create a flawless surface before coating."), ("Coating application", "The ceramic is applied evenly in controlled sections for complete and consistent coverage."), ("Final inspection", "We inspect the entire vehicle under professional lighting to make sure the finish is perfect.")]),
  "paint-correction": dict(
     hl_h="Real defects removed, not filled.",
     hl=[("Inspect", "Measure paint and check under lights", "We find what is really there"), ("Cut", "Remove swirls, scratches and etching", "Only as much as the paint needs"), ("Refine", "Polish to a deep, clear finish", "Maximum gloss and clarity"), ("Protect", "Finish with sealant, coating or film", "Keep the result looking new")],
@@ -696,6 +708,10 @@ def build_service(slug, title, short):
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     hl_intro = '<p class="hl-intro">' + x["hl_p"] + '</p>' if x.get("hl_p") else ""
+    process = ''
+    if x.get('proc'):
+        pc = ''.join(f'<div class="hl"><h3>{t}</h3><p>{c}</p></div>' for t, c in x['proc'])
+        process = f'<section class="sec hl-sec proc-sec"><div class="wrap"><h2 class="center">{x["proc_h"]}</h2><p class="hl-intro">{x["proc_p"]}</p><div class="hls">{pc}</div></div></section>'
     rows = ""
     for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
         rev = " rev" if i % 2 else ""
@@ -710,7 +726,7 @@ def build_service(slug, title, short):
 <section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
 <section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
-{benefits}
+{process}{benefits}
 <section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
 {rows}{portfolio}{faq}{cta_banner()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
