@@ -92,6 +92,7 @@ PHOTOS = {
     "c4": ("cc-g63-wipe", "Technician wiping the hood of a green Mercedes G-Class after ceramic coating", "35% 50%"),
     "c5": ("cc-applicator-pour", "Technician pouring ceramic coating onto an applicator pad beside a green Mercedes G-Class", "40% 45%"),
     "fvan": ("ferrari-van", "Matte black Ferrari parked in front of the Divine Detailers mobile detailing van", "50% 100%"),
+    "svan": ("s550-van", "Gray Mercedes S-Class at night in front of the Divine Detailers mobile detailing van", "28% 50%"),
     "tspray": ("ppf-install", "Technician spraying slip solution on a car window before installing window tint", "45% 50%"),
     "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
     "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
@@ -761,7 +762,7 @@ def build_projects():
 def build_about():
     body = inner_hero("About <em>us</em>", f"{SITE['name']} is a Miami vehicle protection and detailing shop built on craft and customer care.", ['<a href="index.html">Home</a>', "About us"], form=False)
     body += f'''{stripes()}
-<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>Placeholder copy. Tell the story of {SITE['name']}: who started it, why, and what makes your shop different. Mention your experience, certifications and the kind of vehicles you love working on.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div>{photo_box("heat", pos="50% 30%")}</div></div></section>
+<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>Placeholder copy. Tell the story of {SITE['name']}: who started it, why, and what makes your shop different. Mention your experience, certifications and the kind of vehicles you love working on.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div>{photo_box("svan")}</div></div></section>
 <section class="stats"><div class="stat"><b>000+</b><span>Vehicles completed</span></div><div class="stat"><b>00</b><span>Years of experience</span></div><div class="stat"><b>0.0★</b><span>Google rating</span></div></section>
 <section class="feat"><div class="txt"><span class="kick">Our mission</span><h2>Correction, protection, reflection</h2><p>Placeholder copy. Describe your mission and values, and what customers can expect every time they bring a car in.</p></div>{photo_box("polish", pos="40% 45%")}</section>
 <section class="sec"><div class="wrap center"><span class="chip">Meet the team</span><h2>The people behind <em>the work</em></h2><div class="grid3">{"".join('<div class="ph-box">Team member</div>' for _ in range(3))}</div></div></section>{cta_banner()}'''
