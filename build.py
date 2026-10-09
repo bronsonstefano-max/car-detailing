@@ -354,7 +354,7 @@ def build_home():
 {stripes()}
 <section class="sec" style="padding-bottom:0">
   <div class="wrap center"><span class="chip">Our Achievements</span></div>
-  <div class="stats"><div class="stat"><b>000+</b><span>Vehicles completed</span></div><div class="stat"><b>0.0★</b><span>Google rating</span></div><div class="stat"><b>00</b><span>Years of experience</span></div></div>
+  <div class="stats"><div class="stat"><b>5000+</b><span>Vehicles completed</span></div><div class="stat"><b>4.9★</b><span>Google rating</span></div><div class="stat"><b>20+</b><span>Years of experience</span></div></div>
   <div class="wrap center" style="padding:70px 0 70px"><span class="chip">Social Media Following</span>
   <div class="social-ico">{socials}</div>
   <p class="followers"><b>15K+</b> Followers across platforms</p>
@@ -763,7 +763,7 @@ def build_about():
     body = inner_hero("About <em>us</em>", f"{SITE['name']} is a Miami vehicle protection and detailing shop built on craft and customer care.", ['<a href="index.html">Home</a>', "About us"], form=False)
     body += f'''{stripes()}
 <section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>Placeholder copy. Tell the story of {SITE['name']}: who started it, why, and what makes your shop different. Mention your experience, certifications and the kind of vehicles you love working on.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div>{photo_box("svan")}</div></div></section>
-<section class="stats"><div class="stat"><b>000+</b><span>Vehicles completed</span></div><div class="stat"><b>00</b><span>Years of experience</span></div><div class="stat"><b>0.0★</b><span>Google rating</span></div></section>
+<section class="stats"><div class="stat"><b>5000+</b><span>Vehicles completed</span></div><div class="stat"><b>20+</b><span>Years of experience</span></div><div class="stat"><b>4.9★</b><span>Google rating</span></div></section>
 <section class="feat"><div class="txt"><span class="kick">Our mission</span><h2>Correction, protection, reflection</h2><p>Placeholder copy. Describe your mission and values, and what customers can expect every time they bring a car in.</p></div>{photo_box("polish", pos="40% 45%")}</section>
 <section class="sec"><div class="wrap center"><span class="chip">Meet the team</span><h2>The people behind <em>the work</em></h2><div class="grid3">{"".join('<div class="ph-box">Team member</div>' for _ in range(3))}</div></div></section>{cta_banner()}'''
     page("about-us.html", f"About Us | {SITE['name']}", f"Learn about {SITE['name']}, a Miami vehicle protection and detailing shop.", body, "about")
