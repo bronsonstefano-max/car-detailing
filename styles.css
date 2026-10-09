@@ -650,3 +650,4 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 }
 @media(prefers-reduced-motion:reduce){.callfab svg{animation:none}.callfab{transition:none}}
 
+.hl-intro{max-width:880px;margin:-14px auto 36px;text-align:center;color:var(--muted);font-size:1.02rem;line-height:1.7}

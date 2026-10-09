@@ -480,7 +480,8 @@ EXTRA = {
           ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "q3")]),
  "ceramic-coating": dict(
     hl_h="Why get ceramic coating.",
-    hl=[("Prep", "Full wash, decon and clay treatment", "A clean base for proper bonding"), ("Correction", "Polish out swirls and light defects", "So the gloss you see is clean paint"), ("Application", "Applied panel by panel", "Even, consistent coverage"), ("Inspection", "Checked under proper lighting", "Nothing leaves until it is right")],
+    hl_p="Divine Detailers provides ceramic coating installation in Miami for drivers who want lasting shine and easy exterior maintenance. The coating bonds to the paint and forms a slick surface that releases water, dirt and more during routine washing. The refined finish gives your vehicle a strong defensive layer against UV exposure and everyday buildup.",
+    hl=[("Maximum protection", "Lasting UV protection", "Keeping your car cleaner for longer"), ("Long-lasting durability", "Superior UV protection", "Clean and vibrant longer"), ("Hydrophobic coating", "Advanced nanotechnology", "Reducing stains and buildup"), ("Glossy finish that turns heads", "Enhances your vehicle&rsquo;s finish", "Effortlessly polished look")],
     rows=[("Gloss", "Deeper shine that lasts", "A ceramic coating bonds to your clear coat and adds depth, clarity and reflections that wax can't match, and it keeps that look far longer.", "Prep and correction come first, because the coating locks in whatever is under it.", "ceramic"),
           ("Protect", "Shrugs off dirt, water and sun", "The slick, hydrophobic surface helps resist dirt, road grime, bird droppings, water spots and UV fading. Less sticks, and what does comes off easily.", "It does not replace washing, but it makes every wash faster and keeps the car cleaner in between.", "polish"),
           ("Maintain", "Easier care, year after year", "With gentle washing and an occasional maintenance spray, a good coating keeps performing for years of daily driving and Miami weather.", "We will walk you through care tips so you get the most from it.", "wheel")]),
@@ -538,6 +539,7 @@ def build_service(slug, title, short):
     body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
+    hl_intro = '<p class="hl-intro">' + x["hl_p"] + '</p>' if x.get("hl_p") else ""
     rows = ""
     for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
         rev = " rev" if i % 2 else ""
@@ -630,7 +632,8 @@ EXTRA = {
           ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "q3")]),
  "ceramic-coating": dict(
     hl_h="Why get ceramic coating.",
-    hl=[("Prep", "Full wash, decon and clay treatment", "A clean base for proper bonding"), ("Correction", "Polish out swirls and light defects", "So the gloss you see is clean paint"), ("Application", "Applied panel by panel", "Even, consistent coverage"), ("Inspection", "Checked under proper lighting", "Nothing leaves until it is right")],
+    hl_p="Divine Detailers provides ceramic coating installation in Miami for drivers who want lasting shine and easy exterior maintenance. The coating bonds to the paint and forms a slick surface that releases water, dirt and more during routine washing. The refined finish gives your vehicle a strong defensive layer against UV exposure and everyday buildup.",
+    hl=[("Maximum protection", "Lasting UV protection", "Keeping your car cleaner for longer"), ("Long-lasting durability", "Superior UV protection", "Clean and vibrant longer"), ("Hydrophobic coating", "Advanced nanotechnology", "Reducing stains and buildup"), ("Glossy finish that turns heads", "Enhances your vehicle&rsquo;s finish", "Effortlessly polished look")],
     rows=[("Gloss", "Deeper shine that lasts", "A ceramic coating bonds to your clear coat and adds depth, clarity and reflections that wax can't match, and it keeps that look far longer.", "Prep and correction come first, because the coating locks in whatever is under it.", "ceramic"),
           ("Protect", "Shrugs off dirt, water and sun", "The slick, hydrophobic surface helps resist dirt, road grime, bird droppings, water spots and UV fading. Less sticks, and what does comes off easily.", "It does not replace washing, but it makes every wash faster and keeps the car cleaner in between.", "polish"),
           ("Maintain", "Easier care, year after year", "With gentle washing and an occasional maintenance spray, a good coating keeps performing for years of daily driving and Miami weather.", "We will walk you through care tips so you get the most from it.", "wheel")]),
@@ -688,10 +691,11 @@ def build_service(slug, title, short):
     if slug == "window-tinting":
         feats = "".join(f'<div class="cf"><h3>{h}</h3><p>{p}</p></div>' for _, h, p in d["tiles"])
         band = f'''<section class="cpp"><div class="cpp-img">{photo("tdoor", 1600, "50% 45%", alt=True)}</div><div class="cpp-txt"><h2>Comfort, privacy, and protection</h2><p>We install premium ceramic window film that rejects heat, cuts glare and blocks harmful UV rays, so every drive in Miami&rsquo;s sun feels cooler and more comfortable.</p><div class="cfs">{feats}</div></div></section>'''
-    benefits = "" if slug == "window-tinting" else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
+    benefits = "" if slug in ("window-tinting", "ceramic-coating") else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
     body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
+    hl_intro = '<p class="hl-intro">' + x["hl_p"] + '</p>' if x.get("hl_p") else ""
     rows = ""
     for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
         rev = " rev" if i % 2 else ""
@@ -702,7 +706,7 @@ def build_service(slug, title, short):
     if slug == "window-tinting":
         video = f'''<section class="sec vid-sec"><div class="wrap"><div class="split"><div><span class="chip">Watch it done</span><h2>See a tint install <em>start to finish</em></h2><p>Every film is cut to fit, applied wet and squeegeed flat in a clean bay. Watch how our installers handle the glass on a real car.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div><div class="vid"><video controls playsinline preload="none" poster="assets/video/tint-install-poster.webp" width="540" height="960"><source src="assets/video/tint-install.mp4" type="video/mp4"></video></div></div></div></section>'''
     body += f'''{stripes()}{partners()}
-<section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2><div class="hls">{hl}</div></div></section>
+<section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2>{hl_intro}<div class="hls">{hl}</div></div></section>
 <section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
 <section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
