@@ -187,3 +187,28 @@ if (yr) yr.textContent = new Date().getFullYear();
   };
   requestAnimationFrame(tick);
 })();
+
+// Projects: video tiles (play while on screen, tap for full view with sound)
+(() => {
+  const tiles = [...document.querySelectorAll('.vtile')];
+  if (!tiles.length) return;
+  const modal = document.getElementById('vmodal'), mv = document.getElementById('vmodalVid');
+  const slow = (navigator.connection && (navigator.connection.saveData || /2g/.test(navigator.connection.effectiveType || ''))) || matchMedia('(prefers-reduced-motion:reduce)').matches;
+  if (!slow && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver(es => es.forEach(e => {
+      const t = e.target, v = t.querySelector('video');
+      if (e.isIntersecting && !t.hidden) {
+        if (!v.src) v.src = t.dataset.src;
+        v.play().then(() => t.classList.add('playing')).catch(() => {});
+      } else { v.pause(); t.classList.remove('playing'); }
+    }), { threshold: 0.6 });
+    tiles.forEach(t => io.observe(t));
+  }
+  const close = () => { modal.hidden = true; mv.pause(); mv.removeAttribute('src'); mv.load(); document.body.style.overflow = ''; };
+  tiles.forEach(t => t.addEventListener('click', () => {
+    mv.src = t.dataset.src; modal.hidden = false; document.body.style.overflow = 'hidden';
+    mv.muted = false; mv.play().catch(() => { mv.muted = true; mv.play().catch(() => {}); });
+  }));
+  modal.addEventListener('click', e => { if (e.target === modal || e.target.classList.contains('vclose')) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) close(); });
+})();

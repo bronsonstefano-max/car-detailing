@@ -761,14 +761,22 @@ def build_brands():
 def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
-    items = [("PPF", "ppf"), ("Tint", "heat"), ("Ceramic", "ceramic"), ("Tint", "tint"), ("Correction", "polish"), ("Tint", "spray"),
-             ("Tint", "rolls"), ("Detailing", "foam"), ("Detailing", "wheel"), ("Detailing", "wash"), ("Wraps", "q3"), ("PPF", "q1"), ("Tint", "tdoor"), ("Tint", "tmirror"), ("Tint", "tgarage"), ("PPF", "q4"), ("PPF", "q5")]
+    # (category, file stem in assets/projects, title, alt)
+    vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin gray wrap on a Lamborghini Urus"),
+            ("PPF", "ppf-install", "Paint protection film install", "Technician installing clear paint protection film on the front end of a black SUV"),
+            ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black"),
+            ("Tint", "porsche-tint", "Porsche window tint", "Technician tinting the windows of a red Porsche 718 GT4"),
+            ("PPF", "m3-ppf", "BMW M3 Competition PPF", "Technicians applying paint protection film to a BMW M3 Competition")]
     grid = "".join(
-        (f'<div class="ph-box has-img" data-cat="{c}">{photo(k)}</div>' if k else f'<div class="ph-box" data-cat="{c}">Add photo · {c}</div>')
-        for c, k in items)
+        f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-title="{t}" aria-label="Play video: {t}">'
+        f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
+        f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
+        f'<span class="vplay" aria-hidden="true"></span><span class="vcap"><i>{c}</i>{t}</span></button>'
+        for c, n, t, a in vids)
+    grid += '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
     body = inner_hero("Our recent <em>projects</em>", "Explore real vehicles completed in our shop featuring paint protection film, vinyl wraps, ceramic coating, tint and detailing.", ['<a href="index.html">Home</a>', "Projects"], form=True)
     body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Explore more of our projects</span><h2>Vehicles we&rsquo;ve <em>completed</em></h2>
-<div class="filters" role="group" aria-label="Filter projects">{f}</div><div class="grid3" id="projectGrid">{grid}</div></div></section>{cta_banner()}'''
+<div class="filters" role="group" aria-label="Filter projects">{f}</div><div class="vgrid" id="projectGrid">{grid}</div></div></section>{cta_banner()}'''
     page("projects.html", f"Our Projects | {SITE['name']}", "Recent vehicles completed by Divine Detailers in Miami.", body, "projects")
 
 def build_about():
