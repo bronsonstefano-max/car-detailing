@@ -29,3 +29,9 @@ The quote and newsletter forms work on Netlify out of the box. To use any other 
 3. Run `python3 build.py`, commit and push.
 
 With a key set, submissions are emailed to you and the visitor lands on `thanks.html`. With no key, the forms use Netlify Forms.
+
+## Speed notes
+
+- `python3 build.py` also writes `styles.min.css` and `script.min.js` (minified, with a content hash in the link so they can be cached for a year). Edit `styles.css` / `script.js`, never the `.min` files. For minifying, run `pip install rcssmin rjsmin` once.
+- `_headers` sets cache rules for Cloudflare/Netlify. `.assetsignore` keeps source files off the public site.
+- Wide photos ship at 720 / 1000 / 1600 px and phones pick the smallest that fits.

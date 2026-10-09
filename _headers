@@ -1,0 +1,16 @@
+# Cloudflare static asset headers (also understood by Netlify)
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+# minified css/js are named with a content hash (?v=...), so they can be cached for a year
+/styles.min.css
+  Cache-Control: public, max-age=31536000, immutable
+/script.min.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/*
+  Cache-Control: public, max-age=2592000
+/assets/video/*
+  Cache-Control: public, max-age=604800

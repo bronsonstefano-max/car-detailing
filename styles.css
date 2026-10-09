@@ -446,9 +446,11 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .logo-run .brand.has-logo{border:0;background:transparent}
 
 /* pulsing live-status dot */
-.dot{animation:dotpulse 1.8s ease-out infinite}
-@keyframes dotpulse{0%{box-shadow:0 0 0 0 rgba(0,232,135,.7)}70%{box-shadow:0 0 0 12px rgba(0,232,135,0)}100%{box-shadow:0 0 0 0 rgba(0,232,135,0)}}
-@media(prefers-reduced-motion:reduce){.dot{animation:none}}
+/* pulse on the compositor (transform + opacity) so it never repaints */
+.dot{position:relative}
+.dot::after{content:"";position:absolute;inset:0;border-radius:50%;background:rgba(0,232,135,.7);animation:dotpulse 1.8s ease-out infinite;will-change:transform,opacity}
+@keyframes dotpulse{0%{transform:scale(1);opacity:.7}70%,100%{transform:scale(2.6);opacity:0}}
+@media(prefers-reduced-motion:reduce){.dot::after{animation:none;opacity:0}}
 
 /* services slider (phones): one card at a time with side arrows */
 .svc-slider{position:relative}

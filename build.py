@@ -90,8 +90,11 @@ BAND_POS = {"tdoor": "50% 42%", "wheel": "40% 52%", "wash": "55% 60%", "spray": 
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
-    return (f'<img class="{cls}" src="assets/photos/{f}-{size}.webp" alt="{a if alt else ""}" '
-            f'style="object-position:{pos or p}" loading="{"eager" if eager else "lazy"}" decoding="async">')
+    # wide (1600) images ship a 720 version too, so phones never download the big file
+    srcset = f' srcset="assets/photos/{f}-720.webp 720w, assets/photos/{f}-1000.webp 1000w, assets/photos/{f}-1600.webp 1600w" sizes="100vw"' if size == 1600 else ""
+    prio = ' fetchpriority="high"' if eager else ""
+    return (f'<img class="{cls}" src="assets/photos/{f}-{size}.webp"{srcset} alt="{a if alt else ""}" '
+            f'style="object-position:{pos or p}" loading="{"eager" if eager else "lazy"}"{prio} decoding="async">')
 
 def photo_box(key, label="Photo", pos=None, size=720):
     if key:
@@ -116,7 +119,7 @@ def header(active):
     cur = lambda s: ' aria-current="page"' if active == s else ""
     return f'''<header class="site-header">
   <div class="hdr">
-    <a class="logo-img" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo: It's time to shine" width="168" height="96"></a>
+    <a class="logo-img" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo-340.webp" alt="{SITE['name']} logo: It's time to shine" width="168" height="96"></a>
     <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="nav">&#9776;</button>
     <nav class="nav" id="nav">
       <div class="has-dd"><button class="dd-btn" aria-expanded="false">Services <i>+</i></button><div class="dd"><a href="services.html">All services</a>{dd}</div></div>
@@ -165,7 +168,14 @@ def brand_tile(slug, name, sub):
     import os
     for ext in ("svg", "png", "webp"):
         if os.path.exists(f"assets/brands/{slug}.{ext}"):
-            return f'<div class="brand has-logo" title="{name}"><img src="assets/brands/{slug}.{ext}" alt="{name}" loading="lazy"></div>'
+            dims = ""
+            try:
+                from PIL import Image
+                w, h = Image.open(f"assets/brands/{slug}.{ext}").size
+                dims = f' width="{w}" height="{h}"'
+            except Exception:
+                pass
+            return f'<div class="brand has-logo" title="{name}"><img src="assets/brands/{slug}.{ext}" alt="{name}"{dims} loading="lazy" decoding="async"></div>'
     s = f"<small>{sub}</small>" if sub else ""
     return f'<div class="brand"><b>{name}</b>{s}</div>'
 
@@ -177,7 +187,7 @@ def partners():
 
 def cta_banner():
     return f'''<section class="banner center">
-  <div class="wrap"><a class="foot-logo banner-logo" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo.webp" alt="{SITE['name']} logo" width="240" height="138" loading="lazy"></a>
+  <div class="wrap"><a class="foot-logo banner-logo" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo-340.webp" alt="{SITE['name']} logo" width="240" height="138" loading="lazy"></a>
   <h2>We don&rsquo;t just detail cars, <span class="dim">we perfect them.</span></h2>
   <p>Reach out and let&rsquo;s talk about what your car needs next.</p>
   <a class="btn" href="contact.html#quote"><span class="dot"></span>Contact us</a></div></section>'''
@@ -197,7 +207,35 @@ def footer():
   <div class="copy">&copy; <span id="yr">2026</span> {SITE['name']}. All rights reserved.</div>
 </footer>'''
 
+FONT_URL = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Special+Gothic+Expanded+One&display=swap"
+CSS_URL, JS_URL = "styles.css", "script.js"
+
+def build_assets():
+    """Minify styles.css / script.js into hashed files so they can be cached for a year."""
+    global CSS_URL, JS_URL
+    import hashlib
+    for src, out, kind in (("styles.css", "styles.min.css", "css"), ("script.js", "script.min.js", "js")):
+        text = open(src).read()
+        try:
+            if kind == "css":
+                import rcssmin
+                text = rcssmin.cssmin(text)
+            else:
+                import rjsmin
+                text = rjsmin.jsmin(text)
+        except ImportError:
+            pass   # pip install rcssmin rjsmin for smaller files; unminified still works
+        open(out, "w").write(text)
+        v = hashlib.md5(text.encode()).hexdigest()[:8]
+        if kind == "css": CSS_URL = f"{out}?v={v}"
+        else: JS_URL = f"{out}?v={v}"
+
 def page(fname, title, desc, body, active=None):
+    preload = ""
+    m = re.search(r'<img [^>]*src="([^"]+)"( srcset="([^"]+)" sizes="([^"]+)")?[^>]*fetchpriority="high"', body)
+    if m:
+        preload = (f'<link rel="preload" as="image" fetchpriority="high" imagesrcset="{m.group(3)}" imagesizes="{m.group(4)}">\n' if m.group(2)
+                   else f'<link rel="preload" as="image" fetchpriority="high" href="{m.group(1)}">\n')
     html = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -207,10 +245,11 @@ def page(fname, title, desc, body, active=None):
 <meta name="description" content="{esc(desc)}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="{FONT_URL}" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="{FONT_URL}"></noscript>
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=20261009d">
+{preload}<link rel="stylesheet" href="{CSS_URL}">
 </head>
 <body>
 {header(active)}
@@ -219,7 +258,7 @@ def page(fname, title, desc, body, active=None):
 {footer()}
 </main>
 <a class="callfab" href="tel:{SITE['tel']}" aria-label="Call {SITE['name']} at {SITE['phone']}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span>Call Now<small>{SITE['phone']}</small></span></a>
-<script src="script.js?v=20261009d"></script>
+<script src="{JS_URL}" defer></script>
 </body>
 </html>
 '''
@@ -767,6 +806,7 @@ def build_thanks():
     page("thanks.html", f"Thank You | {SITE['name']}", "Thanks for contacting Divine Detailers.", body)
 
 if __name__ == "__main__":
+    build_assets()
     build_home(); build_services_hub()
     for s, t, d in SERVICES:
         build_service(s, t, d)

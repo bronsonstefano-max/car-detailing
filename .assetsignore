@@ -10,3 +10,5 @@ wrangler.jsonc
 __pycache__
 *.py
 *.pyc
+styles.css
+script.js
