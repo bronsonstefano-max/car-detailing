@@ -762,22 +762,28 @@ def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
     # (category, file stem in assets/projects, title, alt)
-    vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin gray wrap on a Lamborghini Urus"),
-            ("PPF", "ppf-install", "Paint protection film install", "Technician installing clear paint protection film on the front end of a black SUV"),
-            ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4"),
-            ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black"),
-            ("Tint", "porsche-tint", "Porsche window tint", "Technician tinting the windows of a red Porsche 718 GT4"),
-            ("Detailing", "m3-prep", "BMW M3 paint prep and decon", "Technicians claying and prepping a white BMW M3 before protection"),
-            ("PPF", "m3-ppf", "BMW M3 Competition PPF", "Technicians applying paint protection film to a BMW M3 Competition"),
-            ("PPF", "p911-ppf", "Porsche 911 PPF install", "Technicians installing paint protection film on a black Porsche 911 cabriolet"),
-            ("PPF", "p911-front-ppf", "Porsche 911 full-front PPF", "Technician explaining full-front paint protection film on a light blue Porsche 911"),
-            ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3")]
+    # (category, file stem, title, alt, talking)  talking=True -> narrated clip, tile shows a "sound" badge
+    vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin gray wrap on a Lamborghini Urus", False),
+            ("PPF", "f150-ppf", "Ford F-150 PPF install", "Technicians installing paint protection film on a white Ford F-150", False),
+            ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
+            ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
+            ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black", False),
+            ("PPF", "black-ppf", "Black sports car PPF install", "Technicians installing paint protection film on a black sports car", False),
+            ("Detailing", "mobile-detail", "Mobile detailing: Porsche 911", "Divine Detailers explaining mobile detailing on a Porsche 911", True),
+            ("Tint", "porsche-tint", "Porsche window tint", "Technician tinting the windows of a red Porsche 718 GT4", False),
+            ("PPF", "golf-ppf", "VW Golf R PPF", "Divine Detailers explaining paint protection film on a VW Golf R", True),
+            ("Detailing", "m3-prep", "BMW M3 paint prep and decon", "Technicians claying and prepping a white BMW M3 before protection", False),
+            ("PPF", "m3-ppf", "BMW M3 Competition PPF", "Technicians applying paint protection film to a BMW M3 Competition", False),
+            ("PPF", "p911-front-ppf", "Porsche 911 full-front PPF", "Technician explaining full-front paint protection film on a light blue Porsche 911", True),
+            ("PPF", "p911-ppf", "Porsche 911 PPF install", "Technicians installing paint protection film on a black Porsche 911 cabriolet", False),
+            ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
+            ("PPF", "ppf-install", "Paint protection film install", "Technician installing clear paint protection film on the front end of a black SUV", False)]
     grid = "".join(
         f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
         f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
         f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
-        f'<span class="vplay" aria-hidden="true"></span><span class="vcap"><i>{c}</i>{t}</span></button>'
-        for c, n, t, a in vids)
+        f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c}</i>{t}</span></button>'
+        for c, n, t, a, talk in vids)
     grid += '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
     body = inner_hero("Our recent <em>projects</em>", "Explore real vehicles completed in our shop featuring paint protection film, vinyl wraps, ceramic coating, tint and detailing.", ['<a href="index.html">Home</a>', "Projects"], form=True)
     body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Explore more of our projects</span><h2>Vehicles we&rsquo;ve <em>completed</em></h2>
