@@ -1,0 +1,12 @@
+# files that should not be published as part of the website
+build.py
+content_faq.py
+README.md
+wrangler.jsonc
+.assetsignore
+.gitignore
+.git
+.github
+__pycache__
+*.py
+*.pyc
