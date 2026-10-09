@@ -86,6 +86,11 @@ PHOTOS = {
     "q4": ("m3-xpel-fender", "Technician finishing film on the pink fender of a BMW M3 next to an XPEL wheel cover", "50% 50%"),
     "q5": ("porsche-968-spoiler", "Technician applying paint protection film to the rear spoiler of a red Porsche 968", "40% 50%"),
     "q6": ("porsche-968-spoiler-close", "Hands lifting paint protection film along the edge of a red Porsche 968 rear spoiler", "50% 50%"),
+    "c1": ("cc-red-roof", "Gloved hand applying ceramic coating along the roof edge of a red car", "50% 50%"),
+    "c2": ("cc-applicator-red", "Ceramic coating dripping onto a red applicator pad", "50% 55%"),
+    "c3": ("cc-g63-hood", "Technician buffing ceramic coating on the hood of a green Mercedes G-Class", "40% 55%"),
+    "c4": ("cc-g63-wipe", "Technician wiping the hood of a green Mercedes G-Class after ceramic coating", "35% 50%"),
+    "c5": ("cc-applicator-pour", "Technician pouring ceramic coating onto an applicator pad beside a green Mercedes G-Class", "40% 45%"),
     "tspray": ("ppf-install", "Technician spraying slip solution on a car window before installing window tint", "45% 50%"),
     "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
     "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
@@ -94,9 +99,9 @@ PHOTOS = {
 }
 CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "foam"}
 HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
-SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p3", "p1"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
-WHY_PHOTO = {"window-tinting": "tspray", "paint-protection-film": "q6"}
-BAND_POS = {"p3": "50% 42%", "p1": "50% 74%", "tdoor": "50% 42%", "wheel": "40% 52%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p3", "p1"), "ceramic-coating": ("c5", "ceramic"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
+WHY_PHOTO = {"window-tinting": "tspray", "ceramic-coating": "polish", "paint-protection-film": "q6"}
+BAND_POS = {"c3": "45% 48%", "c4": "50% 40%", "c5": "50% 45%", "p3": "50% 42%", "p1": "50% 74%", "tdoor": "50% 42%", "wheel": "40% 52%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
@@ -482,10 +487,10 @@ EXTRA = {
     hl_h="Why get ceramic coating.",
     hl_p="Divine Detailers provides ceramic coating installation in Miami for drivers who want lasting shine and easy exterior maintenance. The coating bonds to the paint and forms a slick surface that releases water, dirt and more during routine washing. The refined finish gives your vehicle a strong defensive layer against UV exposure and everyday buildup.",
     hl=[("Maximum protection", "Lasting UV protection", "Keeping your car cleaner for longer"), ("Long-lasting durability", "Superior UV protection", "Clean and vibrant longer"), ("Hydrophobic coating", "Advanced nanotechnology", "Reducing stains and buildup"), ("Glossy finish that turns heads", "Enhances your vehicle&rsquo;s finish", "Effortlessly polished look")],
-    rows=[("Ceramic coating", "What it protects against", "Ceramic coating helps resist dirt, road grime, bird droppings, water spots and environmental fallout. This reduces staining and surface damage that normally affects unprotected paint.", "", "foam"),
-          ("Ceramic coating", "How it improves appearance", "The coating enhances gloss and adds noticeable depth to your paint&rsquo;s color and reflections. Your vehicle keeps a freshly detailed look for much longer.", "", "wash"),
-          ("Ceramic coating", "Maintenance becomes easier", "Water, mud and debris have a harder time sticking to the coated surface. This makes washing faster and keeps the vehicle cleaner between washes.", "", "wheel"),
-          ("Ceramic coating", "How long it lasts", "With proper care, ceramic coating provides long-term protection that holds up against daily driving and weather exposure. It is designed to maintain its performance and appearance for years.", "", "gwagon")],
+    rows=[("Ceramic coating", "What it protects against", "Ceramic coating helps resist dirt, road grime, bird droppings, water spots and environmental fallout. This reduces staining and surface damage that normally affects unprotected paint.", "", "c1"),
+          ("Ceramic coating", "How it improves appearance", "The coating enhances gloss and adds noticeable depth to your paint&rsquo;s color and reflections. Your vehicle keeps a freshly detailed look for much longer.", "", "c2"),
+          ("Ceramic coating", "Maintenance becomes easier", "Water, mud and debris have a harder time sticking to the coated surface. This makes washing faster and keeps the vehicle cleaner between washes.", "", "c4"),
+          ("Ceramic coating", "How long it lasts", "With proper care, ceramic coating provides long-term protection that holds up against daily driving and weather exposure. It is designed to maintain its performance and appearance for years.", "", "c3")],
     proc_h="Our ceramic coating process",
     proc_p="In our shop, we wash, decontaminate and evaluate the paint before any coating goes on. This step removes surface buildup and gives the coating a clean foundation. Our installers then apply the coating in controlled sections to support even coverage and a smooth finish.",
     proc=[("Surface preparation", "We fully clean and decontaminate the paint to remove anything that could prevent proper bonding."), ("Paint correction", "Swirl marks and light imperfections are polished out to create a flawless surface before coating."), ("Coating application", "The ceramic is applied evenly in controlled sections for complete and consistent coverage."), ("Final inspection", "We inspect the entire vehicle under professional lighting to make sure the finish is perfect.")]),
@@ -642,10 +647,10 @@ EXTRA = {
     hl_h="Why get ceramic coating.",
     hl_p="Divine Detailers provides ceramic coating installation in Miami for drivers who want lasting shine and easy exterior maintenance. The coating bonds to the paint and forms a slick surface that releases water, dirt and more during routine washing. The refined finish gives your vehicle a strong defensive layer against UV exposure and everyday buildup.",
     hl=[("Maximum protection", "Lasting UV protection", "Keeping your car cleaner for longer"), ("Long-lasting durability", "Superior UV protection", "Clean and vibrant longer"), ("Hydrophobic coating", "Advanced nanotechnology", "Reducing stains and buildup"), ("Glossy finish that turns heads", "Enhances your vehicle&rsquo;s finish", "Effortlessly polished look")],
-    rows=[("Ceramic coating", "What it protects against", "Ceramic coating helps resist dirt, road grime, bird droppings, water spots and environmental fallout. This reduces staining and surface damage that normally affects unprotected paint.", "", "foam"),
-          ("Ceramic coating", "How it improves appearance", "The coating enhances gloss and adds noticeable depth to your paint&rsquo;s color and reflections. Your vehicle keeps a freshly detailed look for much longer.", "", "wash"),
-          ("Ceramic coating", "Maintenance becomes easier", "Water, mud and debris have a harder time sticking to the coated surface. This makes washing faster and keeps the vehicle cleaner between washes.", "", "wheel"),
-          ("Ceramic coating", "How long it lasts", "With proper care, ceramic coating provides long-term protection that holds up against daily driving and weather exposure. It is designed to maintain its performance and appearance for years.", "", "gwagon")],
+    rows=[("Ceramic coating", "What it protects against", "Ceramic coating helps resist dirt, road grime, bird droppings, water spots and environmental fallout. This reduces staining and surface damage that normally affects unprotected paint.", "", "c1"),
+          ("Ceramic coating", "How it improves appearance", "The coating enhances gloss and adds noticeable depth to your paint&rsquo;s color and reflections. Your vehicle keeps a freshly detailed look for much longer.", "", "c2"),
+          ("Ceramic coating", "Maintenance becomes easier", "Water, mud and debris have a harder time sticking to the coated surface. This makes washing faster and keeps the vehicle cleaner between washes.", "", "c4"),
+          ("Ceramic coating", "How long it lasts", "With proper care, ceramic coating provides long-term protection that holds up against daily driving and weather exposure. It is designed to maintain its performance and appearance for years.", "", "c3")],
     proc_h="Our ceramic coating process",
     proc_p="In our shop, we wash, decontaminate and evaluate the paint before any coating goes on. This step removes surface buildup and gives the coating a clean foundation. Our installers then apply the coating in controlled sections to support even coverage and a smooth finish.",
     proc=[("Surface preparation", "We fully clean and decontaminate the paint to remove anything that could prevent proper bonding."), ("Paint correction", "Swirl marks and light imperfections are polished out to create a flawless surface before coating."), ("Coating application", "The ceramic is applied evenly in controlled sections for complete and consistent coverage."), ("Final inspection", "We inspect the entire vehicle under professional lighting to make sure the finish is perfect.")]),
