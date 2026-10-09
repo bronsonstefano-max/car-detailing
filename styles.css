@@ -651,3 +651,14 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 @media(prefers-reduced-motion:reduce){.callfab svg{animation:none}.callfab{transition:none}}
 
 .hl-intro{max-width:880px;margin:-14px auto 36px;text-align:center;color:var(--muted);font-size:1.02rem;line-height:1.7}
+
+/* desktop: portrait photo crops instead of wide landscape strips */
+@media(min-width:861px){
+  .band,.band+.stripes{display:none}
+  .grid3 .ph-box,.post .ph-box{aspect-ratio:4/5}
+  .split>.ph-box{aspect-ratio:4/5;width:min(100%,460px);justify-self:center}
+  .feat{grid-template-columns:1.28fr .72fr}
+  .feat.rev{grid-template-columns:.72fr 1.28fr}
+  .feat .ph-box,.feat .ph-box.has-img{min-height:640px}
+  .cpp{grid-template-columns:.72fr 1.28fr;min-height:640px}
+}
