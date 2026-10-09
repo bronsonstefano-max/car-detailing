@@ -711,6 +711,8 @@ def build_service(slug, title, short):
         feats = "".join(f'<div class="cf"><h3>{h}</h3><p>{p}</p></div>' for _, h, p in d["tiles"])
         band = f'''<section class="cpp"><div class="cpp-img">{photo("tdoor", 1600, "50% 45%", alt=True)}</div><div class="cpp-txt"><h2>Comfort, privacy, and protection</h2><p>We install premium ceramic window film that rejects heat, cuts glare and blocks harmful UV rays, so every drive in Miami&rsquo;s sun feels cooler and more comfortable.</p><div class="cfs">{feats}</div></div></section>'''
     benefits = "" if slug in ("window-tinting", "ceramic-coating") else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
+    pk_section = "" if slug == "ceramic-coating" else f'''<section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
+<div class="pkgs">{pk}</div>{sim}</section>'''
     body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
@@ -730,8 +732,7 @@ def build_service(slug, title, short):
         video = f'''<section class="sec vid-sec"><div class="wrap"><div class="split"><div><span class="chip">Watch it done</span><h2>See a tint install <em>start to finish</em></h2><p>Every film is cut to fit, applied wet and squeegeed flat in a clean bay. Watch how our installers handle the glass on a real car.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div><div class="vid"><video controls playsinline preload="none" poster="assets/video/tint-install-poster.webp" width="540" height="960"><source src="assets/video/tint-install.mp4" type="video/mp4"></video></div></div></div></section>'''
     body += f'''{stripes()}{partners()}
 <section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2>{hl_intro}<div class="hls">{hl}</div></div></section>
-<section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
-<div class="pkgs">{pk}</div>{sim}</section>{stripes()}{band}{stripes()}
+{pk_section}{stripes()}{band}{stripes()}
 <section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
 {process}{benefits}
 <section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
