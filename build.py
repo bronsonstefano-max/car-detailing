@@ -81,7 +81,7 @@ PHOTOS = {
     "tgarage": ("tint-garage-squeegee", "Technician squeegeeing window tint inside the open door of a gray SUV", "55% 40%"),
     "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
 }
-CARD_PHOTO = {"window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "foam"}
+CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "foam"}
 HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
 SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
 WHY_PHOTO = {"window-tinting": "tspray"}
@@ -199,7 +199,7 @@ def page(fname, title, desc, body, active=None):
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=20261009b">
+<link rel="stylesheet" href="styles.css?v=20261009c">
 </head>
 <body>
 {header(active)}
@@ -208,7 +208,7 @@ def page(fname, title, desc, body, active=None):
 {footer()}
 </main>
 <a class="callfab" href="tel:{SITE['tel']}" aria-label="Call {SITE['name']} at {SITE['phone']}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span>Call Now<small>{SITE['phone']}</small></span></a>
-<script src="script.js?v=20261009b"></script>
+<script src="script.js?v=20261009c"></script>
 </body>
 </html>
 '''
