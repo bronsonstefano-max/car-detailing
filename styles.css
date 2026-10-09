@@ -686,3 +686,5 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .nav-cta .callnow{display:none}
 }
 @media(max-width:860px){.scard-img[src*="s550-van"],.scard.has-img:hover .scard-img[src*="s550-van"]{transform-origin:50% 100%;transform:translateY(-17%) scale(1.12)}}
+.hero-btns .btn.gray,.btn-row .btn.gray{background:transparent;color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-weight:600}
+.hero-btns .btn.gray:hover,.btn-row .btn.gray:hover{background:rgba(255,255,255,.1);color:#fff;border-color:#fff}
