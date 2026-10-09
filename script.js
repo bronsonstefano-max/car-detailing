@@ -94,8 +94,17 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
-    const res = await fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(f)).toString() });
-    if (!res.ok) throw new Error('not ok');
+    const endpoint = f.dataset.endpoint;
+    if (endpoint) {
+      // Web3Forms (works on any host): emails the submission to the address tied to the access key
+      const data = Object.fromEntries(new FormData(f));
+      const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(data) });
+      const out = await res.json();
+      if (!out.success) throw new Error('not ok');
+    } else {
+      const res = await fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(f)).toString() });
+      if (!res.ok) throw new Error('not ok');
+    }
     window.location.href = 'thanks.html';
   } catch (err) {
     btn.textContent = 'Not connected here. Works once the site is live on Netlify.';

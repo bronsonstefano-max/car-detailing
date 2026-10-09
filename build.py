@@ -18,6 +18,7 @@ SITE = dict(
     instagram="https://www.instagram.com/divinedetailer", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
     map_embed="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus",   # Google "Share > Embed a map" URL for the business listing
+    form_key="",   # free Web3Forms access key (web3forms.com) so form submissions are emailed to you on any host. Empty = Netlify Forms
     gmaps_key="",   # paste a Google Maps Embed API key here to show the live map with pin (see README)
 )
 
@@ -133,8 +134,8 @@ STATUS = '<div class="status"><span class="dot"></span>Estimated Wait Time: 30 M
 def quote_form(fid=None, select_default=None, extra="", status=True):
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
     idattr = f' id="{fid}"' if fid else ""
-    return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" data-netlify="true" data-form>
-  <input type="hidden" name="form-name" value="quote">
+    return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
+  {form_extra("quote")}
   {STATUS if status else ""}
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
@@ -143,6 +144,16 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
   {extra}
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
+
+def form_extra(name):
+    """Hidden fields: Netlify form name, or a Web3Forms key + spam honeypot when SITE['form_key'] is set."""
+    if SITE["form_key"]:
+        return (f'<input type="hidden" name="access_key" value="{SITE["form_key"]}"><input type="hidden" name="subject" value="New {name} request from the {SITE["name"]} website">'
+                f'<input type="hidden" name="from_name" value="{SITE["name"]} website"><input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">')
+    return f'<input type="hidden" name="form-name" value="{name}">'
+
+def form_attrs():
+    return 'data-endpoint="https://api.web3forms.com/submit"' if SITE["form_key"] else 'data-netlify="true"'
 
 def stripes():
     return '<div class="stripes" aria-hidden="true"></div>'
@@ -180,7 +191,7 @@ def footer():
     <div><h4>Services</h4><ul>{svc}</ul></div>
     <div><h4>Follow us</h4><ul>{soc}<li><a href="tel:{SITE['tel']}">{SITE['phone']}</a></li><li><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul></div>
     <div class="news"><p>Join for expert car care tips and exclusive offers on our top services.</p>
-      <form name="newsletter" method="POST" action="thanks.html" data-netlify="true" data-form><input type="hidden" name="form-name" value="newsletter"><input name="email" type="email" placeholder="Your email" required aria-label="Your email"><button class="btn" type="submit">Join Now</button></form>
+      <form name="newsletter" method="POST" action="thanks.html" {form_attrs()} data-form>{form_extra("newsletter")}<input name="email" type="email" placeholder="Your email" required aria-label="Your email"><button class="btn" type="submit">Join Now</button></form>
       <small>By subscribing, you agree to our <a href="privacy-policy.html">Privacy Policy</a> and consent to receive updates from {SITE['name']}.</small></div>
   </div>
   <div class="copy">&copy; <span id="yr">2026</span> {SITE['name']}. All rights reserved.</div>
@@ -199,7 +210,7 @@ def page(fname, title, desc, body, active=None):
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=20261009c">
+<link rel="stylesheet" href="styles.css?v=20261009d">
 </head>
 <body>
 {header(active)}
@@ -208,7 +219,7 @@ def page(fname, title, desc, body, active=None):
 {footer()}
 </main>
 <a class="callfab" href="tel:{SITE['tel']}" aria-label="Call {SITE['name']} at {SITE['phone']}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span>Call Now<small>{SITE['phone']}</small></span></a>
-<script src="script.js?v=20261009c"></script>
+<script src="script.js?v=20261009d"></script>
 </body>
 </html>
 '''

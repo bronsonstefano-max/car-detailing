@@ -19,3 +19,13 @@ If it is cleared, a "View on Google Maps" card is shown instead.
 To show the live embedded map with a pin: in Google Cloud Console create a project, enable **Maps Embed API**
 (free, no usage charge), create an API key, restrict it to your site's domain (HTTP referrers), then paste it into
 `gmaps_key` at the top of `build.py` and run `python3 build.py`.
+
+## Forms on any host (Web3Forms)
+
+The quote and newsletter forms work on Netlify out of the box. To use any other host (Cloudflare Pages, GitHub Pages, Vercel):
+
+1. Go to https://web3forms.com, enter the email that should receive leads, and copy the free access key they email you.
+2. In `build.py`, set `form_key="YOUR_KEY"` in the `SITE` dict.
+3. Run `python3 build.py`, commit and push.
+
+With a key set, submissions are emailed to you and the visitor lands on `thanks.html`. With no key, the forms use Netlify Forms.
