@@ -655,6 +655,7 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .callfab svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex:none;animation:ringfab 2.4s ease-in-out infinite}
 .callfab span{display:flex;flex-direction:column;font-weight:800;font-size:1rem;line-height:1.1}
 .callfab small{font-weight:700;font-size:.78rem;opacity:.8;margin-top:2px}
+.hdr-call .ico,.btn .ico{transform-origin:50% 50%;animation:ringfab 2.4s ease-in-out infinite}
 @keyframes ringfab{0%,70%,100%{transform:rotate(0)}74%{transform:rotate(-14deg)}78%{transform:rotate(12deg)}82%{transform:rotate(-10deg)}86%{transform:rotate(8deg)}90%{transform:rotate(0)}}
 @media(max-width:860px){
   .callfab{left:16px;right:16px;bottom:max(14px,env(safe-area-inset-bottom));justify-content:center;border-radius:14px;padding:14px 18px}
@@ -662,7 +663,7 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .callfab small{font-size:1rem;opacity:1;margin:0}
   body{padding-bottom:76px}
 }
-@media(prefers-reduced-motion:reduce){.callfab svg{animation:none}.callfab{transition:none}}
+@media(prefers-reduced-motion:reduce){.callfab svg,.hdr-call .ico,.btn .ico{animation:none}.callfab{transition:none}}
 
 .hl-intro{max-width:880px;margin:-14px auto 36px;text-align:center;color:var(--muted);font-size:1.02rem;line-height:1.7}
 
