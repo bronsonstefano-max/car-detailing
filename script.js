@@ -165,7 +165,7 @@ if (yr) yr.textContent = new Date().getFullYear();
   if (!track || !window.matchMedia('(max-width:860px)').matches) return;
   if (window.matchMedia('(prefers-reduced-motion:reduce)').matches) return;
   const run = track.querySelector('.rev-run');
-  const SPEED = 12; // px per second
+  const SPEED = 37; // px per second (matches the brand logos strip: 1302px / 35s)
   let pos = 0, last = 0, visible = false, touching = false, resumeAt = 0;
   new IntersectionObserver(e => { visible = e[0].isIntersecting; }, { threshold: 0.1 }).observe(track);
   const hold = () => { touching = true; };
