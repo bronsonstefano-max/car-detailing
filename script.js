@@ -140,11 +140,50 @@ if (yr) yr.textContent = new Date().getFullYear();
 (() => {
   const fab = document.querySelector('.callfab');
   if (!fab) return;
-  let on = false;
+  let on = false, inline = 0;
   const update = () => {
-    const show = window.scrollY > 240;
+    const show = window.scrollY > 240 && inline === 0;
     if (show !== on) { on = show; fab.classList.toggle('show', show); }
   };
+  // hide the floating bar while a call button is already on screen
+  if ('IntersectionObserver' in window) {
+    const seen = new Set();
+    const io = new IntersectionObserver(es => {
+      es.forEach(e => e.isIntersecting ? seen.add(e.target) : seen.delete(e.target));
+      inline = seen.size;
+      update();
+    });
+    document.querySelectorAll('a.btn[href^="tel:"]').forEach(a => io.observe(a));
+  }
   window.addEventListener('scroll', update, { passive: true });
   update();
+})();
+
+// Phone reviews: smooth continuous glide (JS transform; first card is recycled to the end so the layer stays small)
+(() => {
+  const track = document.querySelector('.rev-track.marquee:not(.logo-marquee)');
+  if (!track || !window.matchMedia('(max-width:860px)').matches) return;
+  if (window.matchMedia('(prefers-reduced-motion:reduce)').matches) { track.style.overflowX = 'auto'; return; }
+  const run = track.querySelector('.rev-run');
+  const SPEED = 37; // px per second (matches the brand logos strip)
+  let x = 0, last = 0, visible = false, touching = false;
+  new IntersectionObserver(e => { visible = e[0].isIntersecting; }, { threshold: 0.05 }).observe(track);
+  const hold = () => { touching = true; }, release = () => { touching = false; };
+  track.addEventListener('touchstart', hold, { passive: true });
+  track.addEventListener('touchend', release, { passive: true });
+  track.addEventListener('touchcancel', release, { passive: true });
+  const tick = t => {
+    const dt = Math.min(t - last, 64); last = t;
+    if (visible && !touching && !document.hidden) {
+      x += SPEED * dt / 1000;
+      const a = run.firstElementChild, b = a && a.nextElementSibling;
+      if (a && b) {
+        const w = b.offsetLeft - a.offsetLeft;
+        while (w > 0 && x >= w) { run.appendChild(run.firstElementChild); x -= w; }
+      }
+      run.style.transform = 'translate3d(' + (-x).toFixed(2) + 'px,0,0)';
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 })();
