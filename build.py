@@ -76,6 +76,11 @@ PHOTOS = {
     "rolls": ("rolls-tint", "Technician using a heat gun and squeegee to install window tint on the rear glass of a black luxury car", "55% 40%"),
     "gblack": ("g63-matte-black", "Matte black Mercedes-AMG G63 with carbon fiber trim parked in the Divine Detailers shop", "50% 62%"),
     "urus": ("urus-matte", "Matte silver Lamborghini Urus with carbon fiber body kit and black wheels", "50% 47%"),
+    "p1": ("ppf-porsche-wide", "Technician installing paint protection film on the front bumper of a black Porsche 911 with the front hood open", "50% 60%"),
+    "p2": ("ppf-porsche-corner", "Hands smoothing clear paint protection film around the corner marker light of a black Porsche", "50% 50%"),
+    "p3": ("ppf-porsche-spray", "Technician spraying water and lifting paint protection film around the headlight of a black Porsche", "50% 45%"),
+    "p4": ("ppf-blue-g-edge", "Hands laying paint protection film around the corner marker of a blue Mercedes G-Class fender", "50% 50%"),
+    "p5": ("ppf-blue-squeegee", "Close-up of a blue squeegee pressing paint protection film into a body-panel edge on a blue car", "50% 50%"),
     "tspray": ("ppf-install", "Technician spraying slip solution on a car window before installing window tint", "45% 50%"),
     "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
     "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
@@ -84,9 +89,9 @@ PHOTOS = {
 }
 CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "foam"}
 HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
-SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("ppf", "heat"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
-WHY_PHOTO = {"window-tinting": "tspray"}
-BAND_POS = {"tdoor": "50% 42%", "wheel": "40% 52%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
+SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p1", "p3"), "ceramic-coating": ("ceramic", "polish"), "paint-correction": ("polish", None), "vinyl-wraps": (None, None), "exterior-detailing": ("wash", "wheel")}
+WHY_PHOTO = {"window-tinting": "tspray", "paint-protection-film": "spray"}
+BAND_POS = {"p3": "50% 42%", "p1": "50% 55%", "tdoor": "50% 42%", "wheel": "40% 52%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
 
 def photo(key, size=720, pos=None, cls="", alt=True, eager=False):
     f, a, p = PHOTOS[key]
@@ -465,9 +470,9 @@ EXTRA = {
  "paint-protection-film": dict(
     hl_h="Defend your paint from day one.",
     hl=[("Chip protection", "Absorbs rock chips and road debris", "Keeps paint intact where it counts"), ("Self-healing", "Light marks fade with warmth", "Stays smooth and glossy"), ("Invisible look", "Clear, gloss or satin finishes", "Your color shows through"), ("Long-lasting", "Built for years of daily driving", "Backed by a manufacturer warranty")],
-    rows=[("Protect", "Take the hit so your paint doesn't", "Paint protection film is a thick, clear urethane that sits over your paint. Chips, scratches and stains land on the film instead of the finish.", "The most-hit areas are the front bumper, hood, fenders and mirrors, and that is where most owners start.", "ppf"),
-          ("Preserve", "Keep the factory finish like new", "Protected paint holds its gloss and color, and the car keeps stronger resale appeal. When the film's time is up, a pro can remove it and the paint underneath is untouched.", "Add a ceramic coating on top and the film is easier to wash and resists water spots.", "spray"),
-          ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "heat")]),
+    rows=[("Protect", "Take the hit so your paint doesn't", "Paint protection film is a thick, clear urethane that sits over your paint. Chips, scratches and stains land on the film instead of the finish.", "The most-hit areas are the front bumper, hood, fenders and mirrors, and that is where most owners start.", "p2"),
+          ("Preserve", "Keep the factory finish like new", "Protected paint holds its gloss and color, and the car keeps stronger resale appeal. When the film's time is up, a pro can remove it and the paint underneath is untouched.", "Add a ceramic coating on top and the film is easier to wash and resists water spots.", "p4"),
+          ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "p5")]),
  "ceramic-coating": dict(
     hl_h="Why get ceramic coating.",
     hl=[("Prep", "Full wash, decon and clay treatment", "A clean base for proper bonding"), ("Correction", "Polish out swirls and light defects", "So the gloss you see is clean paint"), ("Application", "Applied panel by panel", "Even, consistent coverage"), ("Inspection", "Checked under proper lighting", "Nothing leaves until it is right")],
@@ -615,9 +620,9 @@ EXTRA = {
  "paint-protection-film": dict(
     hl_h="Defend your paint from day one.",
     hl=[("Chip protection", "Absorbs rock chips and road debris", "Keeps paint intact where it counts"), ("Self-healing", "Light marks fade with warmth", "Stays smooth and glossy"), ("Invisible look", "Clear, gloss or satin finishes", "Your color shows through"), ("Long-lasting", "Built for years of daily driving", "Backed by a manufacturer warranty")],
-    rows=[("Protect", "Take the hit so your paint doesn't", "Paint protection film is a thick, clear urethane that sits over your paint. Chips, scratches and stains land on the film instead of the finish.", "The most-hit areas are the front bumper, hood, fenders and mirrors, and that is where most owners start.", "ppf"),
-          ("Preserve", "Keep the factory finish like new", "Protected paint holds its gloss and color, and the car keeps stronger resale appeal. When the film's time is up, a pro can remove it and the paint underneath is untouched.", "Add a ceramic coating on top and the film is easier to wash and resists water spots.", "spray"),
-          ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "heat")]),
+    rows=[("Protect", "Take the hit so your paint doesn't", "Paint protection film is a thick, clear urethane that sits over your paint. Chips, scratches and stains land on the film instead of the finish.", "The most-hit areas are the front bumper, hood, fenders and mirrors, and that is where most owners start.", "p2"),
+          ("Preserve", "Keep the factory finish like new", "Protected paint holds its gloss and color, and the car keeps stronger resale appeal. When the film's time is up, a pro can remove it and the paint underneath is untouched.", "Add a ceramic coating on top and the film is easier to wash and resists water spots.", "p4"),
+          ("Customize", "Gloss, satin or even color", "Choose a clear gloss film to keep the factory look, a satin film for a matte-style finish, or a colored film to change the look while protecting the paint.", "We will recommend the right coverage and film for your car and how you drive.", "p5")]),
  "ceramic-coating": dict(
     hl_h="Why get ceramic coating.",
     hl=[("Prep", "Full wash, decon and clay treatment", "A clean base for proper bonding"), ("Correction", "Polish out swirls and light defects", "So the gloss you see is clean paint"), ("Application", "Applied panel by panel", "Even, consistent coverage"), ("Inspection", "Checked under proper lighting", "Nothing leaves until it is right")],

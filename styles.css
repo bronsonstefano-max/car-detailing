@@ -650,5 +650,3 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 }
 @media(prefers-reduced-motion:reduce){.callfab svg{animation:none}.callfab{transition:none}}
 
-/* skip rendering work for sections that are far below the fold until they are close to the screen */
-main.page>section:not(.hero):not(.page-hero):not(.hero-top):not(:has(.marquee)):not(:has(.ticker)),main.page>footer{content-visibility:auto;contain-intrinsic-size:auto 700px}
