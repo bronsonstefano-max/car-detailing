@@ -147,7 +147,7 @@ def header(active):
     return f'''<header class="site-header">
   <div class="hdr">
     <a class="logo-img" href="index.html" aria-label="{SITE['name']} home"><img src="assets/logo-340.webp" alt="{SITE['name']} logo: It's time to shine" width="168" height="96"></a>
-    <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="nav">&#9776;</button>
+    <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><i></i><i></i><i></i></button>
     <nav class="nav" id="nav">
       <div class="has-dd"><button class="dd-btn" aria-expanded="false">Services <i>+</i></button><div class="dd"><a href="services.html">All services</a>{dd}</div></div>
       <a href="brands.html"{cur("brands")}>Brands</a>
