@@ -284,7 +284,7 @@ def hero_video(name, poster):
     return (f'<video class="hero-vid" muted loop playsinline preload="none" poster="assets/video/{poster}.webp" tabindex="-1" '
             f'data-webm="assets/video/{name}.webm" data-mp4="assets/video/{name}.mp4"></video>')
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
-HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster")}
+HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster")}
 
 def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None):
     c = " / ".join(crumbs)
