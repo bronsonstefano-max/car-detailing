@@ -762,37 +762,37 @@ def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
     # (category, file stem in assets/projects, title, alt)
-    # (category, file stem, title, alt, talking)  talking=True -> narrated clip, tile shows a "sound" badge
-    vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin gray wrap on a Lamborghini Urus", False),
-            ("PPF", "f150-ppf", "Ford F-150 PPF install", "Technicians installing paint protection film on a white Ford F-150", False),
-            ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
+    # (categories (space separated, first one is shown), file stem, title, alt, narrated)
+    vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin silver wrap on a Lamborghini Urus", False),
             ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
+            ("PPF Wraps", "f150-ppf", "Ford F-150 PPF and trim wrap", "Technicians installing paint protection film and black trim wrap on a white Ford F-150", False),
+            ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
+            ("Ceramic Correction", "correction-green", "G-Wagon polish and ceramic coating", "Technicians washing, machine polishing and ceramic coating an olive green Mercedes G-Wagon", False),
             ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black", True),
-            ("PPF", "black-ppf", "Black sports car PPF install", "Technicians installing paint protection film on a black sports car", False),
+            ("Tint", "black-ppf", "Rolls-Royce window tint", "Technicians installing window tint on a black Rolls-Royce", False),
             ("Detailing", "mobile-detail", "Mobile detailing: Porsche 911", "Divine Detailers explaining mobile detailing on a Porsche 911", True),
-            ("Tint", "porsche-tint", "Porsche window tint", "Technician tinting the windows of a red Porsche 718 GT4", False),
+            ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False),
             ("PPF", "golf-ppf", "VW Golf R PPF", "Divine Detailers explaining paint protection film on a VW Golf R", True),
-            ("Detailing", "m3-prep", "BMW M3 paint prep and decon", "Technicians claying and prepping a white BMW M3 before protection", False),
-            ("PPF", "m3-ppf", "BMW M3 Competition PPF", "Technicians applying paint protection film to a BMW M3 Competition", False),
+            ("Tint", "porsche-tint", "Porsche 718 GT4 window tint", "Technician tinting the windows of a red Porsche 718 GT4", False),
+            ("Ceramic Detailing", "m3-ppf", "BMW M3 wash and ceramic coating", "Technicians washing and applying ceramic coating to a gray BMW M3", False),
+            ("PPF Tint", "m2-ppf", "BMW M2 CS PPF and tint", "Divine Detailers explaining paint protection film and window tint on a BMW M2 CS", True),
+            ("Wraps Tint", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a matte black wrap and window tint on a Tesla Cybertruck", True),
             ("PPF", "p911-front-ppf", "Porsche 911 full-front PPF", "Technician explaining full-front paint protection film on a light blue Porsche 911", True),
-            ("PPF", "p911-ppf", "Porsche 911 PPF install", "Technicians installing paint protection film on a black Porsche 911 cabriolet", False),
-            ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
-            ("Tint", "suv-tint", "SUV window tint install", "Technicians installing dark window tint on an olive green SUV", False),
-            ("Correction", "correction-green", "Wash and paint correction", "Technicians washing a G-Wagon and machine polishing a green car with the trim taped off", False),
-            ("Detailing", "gt3-detail", "Porsche 911 GT3 detail", "Technicians washing and detailing a green Porsche 911 GT3 in a driveway", False),
-            ("PPF", "m2-ppf", "BMW M2 CS PPF", "Divine Detailers explaining paint protection film on a BMW M2 CS", True),
-            ("PPF", "blue-ppf", "Blue sports car PPF", "Divine Detailers explaining paint protection film on a blue sports car", True),
-            ("Wraps", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a black wrap and window tint on a Tesla Cybertruck", True),
-            ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film on a white sports car", True),
-            ("Detailing", "gt3rs-wash", "Porsche 911 GT3 RS wash", "Divine Detailers washing and explaining care for a white Porsche 911 GT3 RS", True),
-            ("Correction", "polish-talk", "Machine polishing explained", "Technician machine polishing a white car while explaining paint correction", True),
+            ("Correction", "polish-talk", "Machine polishing explained", "Technician machine polishing a gray car while explaining paint correction", True),
+            ("Tint", "suv-tint", "Rivian window tint", "Technicians installing dark window tint on an olive green Rivian", False),
+            ("PPF", "blue-ppf", "Dodge Charger PPF", "Divine Detailers explaining paint protection film on a blue Dodge Charger", True),
+            ("Detailing", "gt3-detail", "Porsche 911 GT3 wash and detail", "Technicians washing and detailing a green Porsche 911 GT3 in a driveway", False),
             ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True),
-            ("PPF", "ppf-install", "Paint protection film install", "Technician installing clear paint protection film on the front end of a black SUV", False)]
+            ("PPF", "ppf-install", "Jeep paint protection film install", "Technician installing clear paint protection film on the front end of a black Jeep", False),
+            ("PPF Detailing", "gt3rs-wash", "Porsche 911 GT3 RS PPF and wash", "Divine Detailers explaining paint protection film and washing a white Porsche 911 GT3 RS", True),
+            ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
+            ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
+            ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
     grid = "".join(
         f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
         f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
         f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
-        f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c}</i>{t}</span></button>'
+        f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c.replace(" "," · ")}</i>{t}</span></button>'
         for c, n, t, a, talk in vids)
     grid += '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
     body = inner_hero("Our recent <em>projects</em>", "Explore real vehicles completed in our shop featuring paint protection film, vinyl wraps, ceramic coating, tint and detailing.", ['<a href="index.html">Home</a>', "Projects"], form=True)

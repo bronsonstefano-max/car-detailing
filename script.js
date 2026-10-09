@@ -57,7 +57,7 @@ if (buildTrack) {
 document.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('on', x === b));
   const f = b.dataset.filter;
-  document.querySelectorAll('#projectGrid [data-cat]').forEach(i => { i.hidden = f !== 'All' && i.dataset.cat !== f; });
+  document.querySelectorAll('#projectGrid [data-cat]').forEach(i => { i.hidden = f !== 'All' && !i.dataset.cat.split(' ').includes(f); });
 }));
 
 // Tint simulator
