@@ -92,7 +92,7 @@ PHOTOS = {
     "c4": ("cc-g63-wipe", "Technician wiping the hood of a green Mercedes G-Class after ceramic coating", "35% 50%"),
     "c5": ("cc-applicator-pour", "Technician pouring ceramic coating onto an applicator pad beside a green Mercedes G-Class", "40% 45%"),
     "fvan": ("ferrari-van", "Matte black Ferrari parked in front of the Divine Detailers mobile detailing van", "50% 100%"),
-    "svan": ("s550-van", "Gray Mercedes S-Class at night in front of the Divine Detailers mobile detailing van", "28% 50%"),
+    "svan": ("s550-van", "Gray Mercedes S-Class at night in front of the Divine Detailers mobile detailing van", "30% 78%"),
     "tspray": ("ppf-install", "Technician spraying slip solution on a car window before installing window tint", "45% 50%"),
     "tdoor": ("tint-door-wipe", "Technician wiping the freshly tinted door glass of a black luxury coupe in the shop", "50% 52%"),
     "tmirror": ("tint-mirror-clean", "Technician cleaning around the side mirror and tinted window of an olive green SUV", "55% 48%"),
