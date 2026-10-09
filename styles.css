@@ -662,3 +662,4 @@ a.map-card:hover em{color:#fff;border-color:#fff}
   .feat .ph-box,.feat .ph-box.has-img{min-height:640px}
   .cpp{grid-template-columns:.72fr 1.28fr;min-height:640px}
 }
+.scard-img[src*="s550-van"]{object-fit:contain;object-position:50% 0!important;background:#02030a}
