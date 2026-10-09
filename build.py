@@ -782,6 +782,11 @@ def build_projects():
             ("Detailing", "gt3-detail", "Porsche 911 GT3 detail", "Technicians washing and detailing a green Porsche 911 GT3 in a driveway", False),
             ("PPF", "m2-ppf", "BMW M2 CS PPF", "Divine Detailers explaining paint protection film on a BMW M2 CS", True),
             ("PPF", "blue-ppf", "Blue sports car PPF", "Divine Detailers explaining paint protection film on a blue sports car", True),
+            ("Wraps", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a black wrap and window tint on a Tesla Cybertruck", True),
+            ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film on a white sports car", True),
+            ("Detailing", "gt3rs-wash", "Porsche 911 GT3 RS wash", "Divine Detailers washing and explaining care for a white Porsche 911 GT3 RS", True),
+            ("Correction", "polish-talk", "Machine polishing explained", "Technician machine polishing a white car while explaining paint correction", True),
+            ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True),
             ("PPF", "ppf-install", "Paint protection film install", "Technician installing clear paint protection film on the front end of a black SUV", False)]
     grid = "".join(
         f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
