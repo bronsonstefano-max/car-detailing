@@ -158,3 +158,23 @@ if (yr) yr.textContent = new Date().getFullYear();
   window.addEventListener('scroll', update, { passive: true });
   update();
 })();
+
+// Phone reviews: gentle auto-advance (swipeable; pauses after touch)
+(() => {
+  const track = document.querySelector('.rev-track.marquee:not(.logo-marquee)');
+  if (!track || !window.matchMedia('(max-width:860px)').matches) return;
+  if (window.matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  const cards = [...track.querySelectorAll('.review:not([aria-hidden=true])')];
+  if (cards.length < 2) return;
+  let visible = false, pausedUntil = 0;
+  new IntersectionObserver(e => { visible = e[0].isIntersecting; }, { threshold: 0.4 }).observe(track);
+  const pause = () => { pausedUntil = Date.now() + 12000; };
+  ['touchstart', 'pointerdown', 'wheel'].forEach(ev => track.addEventListener(ev, pause, { passive: true }));
+  setInterval(() => {
+    if (!visible || Date.now() < pausedUntil || document.hidden) return;
+    const mid = track.scrollLeft + track.clientWidth / 2;
+    let i = cards.findIndex(c => c.offsetLeft + c.offsetWidth > mid);
+    i = (i + 1) % cards.length;
+    track.scrollTo({ left: cards[i].offsetLeft - (track.clientWidth - cards[i].offsetWidth) / 2, behavior: 'smooth' });
+  }, 5500);
+})();
