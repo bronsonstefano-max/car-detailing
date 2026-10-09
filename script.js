@@ -140,11 +140,21 @@ if (yr) yr.textContent = new Date().getFullYear();
 (() => {
   const fab = document.querySelector('.callfab');
   if (!fab) return;
-  let on = false;
+  let on = false, inline = 0;
   const update = () => {
-    const show = window.scrollY > 240;
+    const show = window.scrollY > 240 && inline === 0;
     if (show !== on) { on = show; fab.classList.toggle('show', show); }
   };
+  // hide the floating bar while a call button is already on screen
+  if ('IntersectionObserver' in window) {
+    const seen = new Set();
+    const io = new IntersectionObserver(es => {
+      es.forEach(e => e.isIntersecting ? seen.add(e.target) : seen.delete(e.target));
+      inline = seen.size;
+      update();
+    });
+    document.querySelectorAll('a.btn[href^="tel:"]').forEach(a => io.observe(a));
+  }
   window.addEventListener('scroll', update, { passive: true });
   update();
 })();
