@@ -199,7 +199,7 @@ def page(fname, title, desc, body, active=None):
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=20261008c">
+<link rel="stylesheet" href="styles.css?v=20261009a">
 </head>
 <body>
 {header(active)}
@@ -207,7 +207,8 @@ def page(fname, title, desc, body, active=None):
 {body}
 {footer()}
 </main>
-<script src="script.js?v=20261008c"></script>
+<a class="callfab" href="tel:{SITE['tel']}" aria-label="Call {SITE['name']} at {SITE['phone']}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span>Call Now<small>{SITE['phone']}</small></span></a>
+<script src="script.js?v=20261009a"></script>
 </body>
 </html>
 '''

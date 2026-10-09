@@ -126,3 +126,16 @@ if (yr) yr.textContent = new Date().getFullYear();
   const go = () => ('requestIdleCallback' in window ? requestIdleCallback(start, { timeout: 2500 }) : setTimeout(start, 1200));
   if (document.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
 })();
+
+// Floating call button: appears once the visitor starts scrolling
+(() => {
+  const fab = document.querySelector('.callfab');
+  if (!fab) return;
+  let on = false;
+  const update = () => {
+    const show = window.scrollY > 240;
+    if (show !== on) { on = show; fab.classList.toggle('show', show); }
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
