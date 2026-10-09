@@ -243,10 +243,8 @@ def page(fname, title, desc, body, active=None):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preload" as="style" href="{FONT_URL}" onload="this.onload=null;this.rel='stylesheet'">
-<noscript><link rel="stylesheet" href="{FONT_URL}"></noscript>
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/special-gothic.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/manrope.woff2" crossorigin>
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 {preload}<link rel="stylesheet" href="{CSS_URL}">
