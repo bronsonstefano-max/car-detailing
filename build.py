@@ -342,10 +342,10 @@ def vtile(c, n, t, a, talk, still=False):
 
 VMODAL = '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
 
-HOME_VIDS = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin silver wrap on a Lamborghini Urus", False),
-             ("PPF", "f150-ppf", "Ford F-150 PPF and trim wrap", "Technicians installing paint protection film and black trim wrap on a white Ford F-150", False),
-             ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False),
-             ("Tint", "porsche-tint", "Porsche 718 GT4 window tint", "Technician tinting the windows of a red Porsche 718 GT4", False)]
+HOME_VIDS = [("Wraps Tint", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a matte black wrap and window tint on a Tesla Cybertruck", True),
+             ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
+             ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
+             ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True)]
 
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
