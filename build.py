@@ -333,6 +333,18 @@ def map_block(cls="map-embed"):
                  f'<span class="pin" aria-hidden="true"></span><b>{SITE["name"]}</b><span>{SITE["addr1"]}<br>{SITE["addr2"]}</span><em>View on Google Maps</em></a>')
     return frame, place, direc
 
+def vtile(c, n, t, a, talk):
+    return (f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
+            f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
+            f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
+            f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c.replace(" "," · ")}</i>{t}</span></button>')
+
+VMODAL = '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
+
+HOME_VIDS = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin silver wrap on a Lamborghini Urus", False),
+             ("PPF", "f150-ppf", "Ford F-150 PPF and trim wrap", "Technicians installing paint protection film and black trim wrap on a white Ford F-150", False),
+             ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False)]
+
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     home_map = map_block()
@@ -402,8 +414,8 @@ def build_home():
 <section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div>{photo_box("gt3", pos="50% 55%")}</section>
 <section class="sec" id="portfolio">
   <div class="wrap center"><span class="chip">Our Portfolio</span><h2>Recent vehicles <em>completed.</em></h2>
-  <div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf911")}</div>
-  <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>
+  <div class="vgrid vhome">{"".join(vtile(*v) for v in HOME_VIDS)}</div>
+  <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>{VMODAL}
 </section>
 {cta_banner()}'''
     page("index.html", f"Window Tinting, PPF & Ceramic Coating in Miami | {SITE['name']}",
@@ -809,13 +821,14 @@ def build_projects():
             ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
             ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
             ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
-    grid = "".join(
+    grid = "".join(vtile(*v) for v in vids)
+    _old = "".join(
         f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
         f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
         f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
         f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c.replace(" "," · ")}</i>{t}</span></button>'
         for c, n, t, a, talk in vids)
-    grid += '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
+    grid += VMODAL
     body = inner_hero("Our recent <em>projects</em>", "Explore real vehicles completed in our shop featuring paint protection film, vinyl wraps, ceramic coating, tint and detailing.", ['<a href="index.html">Home</a>', "Projects"], form=True)
     body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Explore more of our projects</span><h2>Vehicles we&rsquo;ve <em>completed</em></h2>
 <div class="filters" role="group" aria-label="Filter projects">{f}</div><div class="vgrid" id="projectGrid">{grid}</div></div></section>{cta_banner()}'''

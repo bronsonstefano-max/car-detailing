@@ -724,3 +724,10 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .split.noimg{grid-template-columns:1fr}
 .split.noimg>div{max-width:820px;margin-inline:auto}
 .scard-img[src*="ppf-porsche"],.scard.has-img:hover .scard-img[src*="ppf-porsche"]{transform-origin:35% 100%;transform:translateY(-14%) scale(1.22)}
+
+/* home portfolio: three video tiles */
+.vhome{grid-template-columns:repeat(3,1fr);max-width:900px;margin-inline:auto}
+.vhome .vtile{aspect-ratio:9/14}
+@media(max-width:860px){.vhome{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;margin-inline:-16px;padding:0 16px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.vhome::-webkit-scrollbar{display:none}
+.vhome .vtile{flex:0 0 70%;scroll-snap-align:center;aspect-ratio:9/14}}
