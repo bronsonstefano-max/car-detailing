@@ -163,8 +163,14 @@ def header(active):
 
 STATUS = '<div class="status"><span class="dot"></span>Estimated Wait Time: 30 Minutes or less</div>'
 
+VEHICLE_MAKES = ["Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Bugatti", "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Ferrari", "Ford", "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "Jaguar", "Jeep", "Kia", "Lamborghini", "Land Rover", "Lexus", "Lincoln", "Lotus", "Maserati", "Mazda", "McLaren", "Mercedes-Benz", "Mini", "Mitsubishi", "Nissan", "Polestar", "Porsche", "Ram", "Rivian", "Rolls-Royce", "Subaru", "Tesla", "Toyota", "Volkswagen", "Volvo", "Other"]
+
 def quote_form(fid=None, select_default=None, extra="", status=True):
+    import datetime
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
+    makes = "".join(f"<option>{m}</option>" for m in VEHICLE_MAKES)
+    y = datetime.date.today().year + 1
+    years = "".join(f"<option>{n}</option>" for n in range(y, 1989, -1)) + "<option>Older</option>"
     idattr = f' id="{fid}"' if fid else ""
     return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
   {form_extra("quote")}
@@ -173,6 +179,9 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
   <label>Phone<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel"></label>
   <label>Select Service*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <label>Vehicle make<select name="make" data-make><option value="">Select make…</option>{makes}</select></label>
+  <label>Vehicle year<select name="year"><option value="">Select year…</option>{years}</select></label>
+  <label class="vm">Vehicle model<input name="model" data-model placeholder="Pick a make, or type your model" autocomplete="off"></label>
   {extra}
   <button class="submit" type="submit">Request Quote</button>
 </form>'''

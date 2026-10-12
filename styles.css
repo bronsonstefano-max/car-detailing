@@ -761,3 +761,7 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .th-vids{max-width:1000px}
 .th-faq .faq{max-width:860px;margin:30px auto 0}
 .thanks-hero h1 em{font-style:normal;color:var(--g)}
+
+.qform .vm{grid-column:span 2}
+.contact-split .qform .vm,.qform.cs .vm{grid-column:1/-1}
+@media(max-width:860px){.qform .vm{grid-column:1/-1}}

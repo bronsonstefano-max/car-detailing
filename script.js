@@ -107,7 +107,8 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
     }
     const kind = f.getAttribute('name') === 'newsletter' ? 'newsletter' : 'quote';
     const svc = f.querySelector('[name=service]'), nm = f.querySelector('[name=name]');
-    try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '' })); } catch (_) {}
+    const veh = ['year', 'make', 'model'].map(k => { const x = f.querySelector('[name=' + k + ']'); return x ? x.value.trim() : ''; }).filter(Boolean).join(' ');
+    try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '', vehicle: typeof veh === 'string' ? veh : '' })); } catch (_) {}
     window.location.href = 'thanks.html?type=' + kind;
   } catch (err) {
     btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
@@ -241,11 +242,49 @@ if (yr) yr.textContent = new Date().getFullYear();
     } else {
       h1.textContent = first ? 'Thanks, ' + first + '.' : 'Thanks, we got it.';
       const em = document.createElement('em'); em.textContent = first ? ' We got it.' : ''; h1.appendChild(em);
-      lead_.textContent = (svc && svc !== 'Other' ? 'We received your request for ' + svc.toLowerCase() + '. ' : 'We received your request. ') + 'A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book.';
+      lead_.textContent = (svc && svc !== 'Other' ? 'We received your request for ' + svc.toLowerCase() + (lead.vehicle ? ' on your ' + lead.vehicle : '') + '. ' : 'We received your request' + (lead.vehicle ? ' for your ' + lead.vehicle : '') + '. ') + 'A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book.';
       const blocks = [...document.querySelectorAll('.th-svc')];
       const hit = blocks.find(b => b.dataset.svc === svc) || blocks.find(b => b.dataset.svc === 'Other');
       blocks.forEach(b => { b.hidden = b !== hit; });
       window.dataLayer.push({ event: 'form_lead', form: type, service: svc });
     }
   }
+})();
+
+// Quote form: make -> model suggestions (the model box still accepts anything typed)
+(() => {
+  const M = {
+    'Acura': 'ILX,Integra,MDX,RDX,TLX,NSX', 'Alfa Romeo': 'Giulia,Stelvio,4C,Tonale', 'Aston Martin': 'DB11,DB12,DBX,Vantage,DBS',
+    'Audi': 'A3,A4,A5,A6,A7,A8,Q3,Q5,Q7,Q8,R8,RS3,RS5,RS6,RS7,S4,e-tron', 'Bentley': 'Bentayga,Continental GT,Flying Spur',
+    'BMW': '1 Series,2 Series,3 Series,4 Series,5 Series,7 Series,8 Series,M2,M3,M4,M5,M8,X1,X3,X5,X6,X7,XM,i4,i7,iX,Z4',
+    'Bugatti': 'Chiron,Veyron,Divo', 'Cadillac': 'CT4,CT5,Escalade,XT4,XT5,XT6,Lyriq,CTS-V',
+    'Chevrolet': 'Blazer,Camaro,Colorado,Corvette,Equinox,Malibu,Silverado 1500,Silverado 2500,Suburban,Tahoe,Trailblazer',
+    'Chrysler': '300,Pacifica', 'Dodge': 'Challenger,Charger,Durango,Hornet,Ram 1500',
+    'Ferrari': '296 GTB,488,812,F8,Portofino,Purosangue,Roma,SF90,California,458,12Cilindri', 'Ford': 'Bronco,Edge,Escape,Expedition,Explorer,F-150,F-250,F-350,Maverick,Mustang,Ranger,Raptor',
+    'Genesis': 'G70,G80,G90,GV70,GV80', 'GMC': 'Acadia,Canyon,Sierra 1500,Sierra 2500,Terrain,Yukon,Hummer EV',
+    'Honda': 'Accord,Civic,CR-V,HR-V,Odyssey,Passport,Pilot,Ridgeline', 'Hyundai': 'Elantra,Ioniq 5,Kona,Palisade,Santa Fe,Sonata,Tucson,Veloster N',
+    'Infiniti': 'Q50,Q60,QX50,QX55,QX60,QX80', 'Jaguar': 'E-Pace,F-Pace,F-Type,I-Pace,XF', 'Jeep': 'Cherokee,Compass,Gladiator,Grand Cherokee,Renegade,Wagoneer,Wrangler',
+    'Kia': 'Carnival,EV6,Forte,K5,Seltos,Sorento,Soul,Sportage,Stinger,Telluride',
+    'Lamborghini': 'Aventador,Huracan,Revuelto,Urus,Gallardo,Murcielago', 'Land Rover': 'Defender,Discovery,Range Rover,Range Rover Sport,Range Rover Velar,Evoque',
+    'Lexus': 'ES,GX,IS,LC,LS,LX,NX,RC,RX,RZ,UX', 'Lincoln': 'Aviator,Corsair,Navigator,Nautilus', 'Lotus': 'Emira,Evora,Eletre,Elise',
+    'Maserati': 'Ghibli,GranTurismo,Grecale,Levante,MC20,Quattroporte', 'Mazda': 'CX-30,CX-5,CX-50,CX-90,Mazda3,Mazda6,MX-5 Miata',
+    'McLaren': '570S,600LT,650S,720S,765LT,Artura,GT,P1', 'Mercedes-Benz': 'A-Class,C-Class,CLA,E-Class,G-Class,GLA,GLB,GLC,GLE,GLS,S-Class,SL,AMG GT,Maybach,EQS,Sprinter',
+    'Mini': 'Clubman,Cooper,Countryman', 'Mitsubishi': 'Eclipse Cross,Lancer Evolution,Outlander,Mirage',
+    'Nissan': '370Z,Altima,Armada,Frontier,GT-R,Kicks,Maxima,Murano,Pathfinder,Rogue,Sentra,Skyline,Titan,Z',
+    'Polestar': 'Polestar 2,Polestar 3,Polestar 4', 'Porsche': '718 Boxster,718 Cayman,718 GT4,911,911 GT3,911 GT3 RS,911 Turbo,Cayenne,Macan,Panamera,Taycan,Carrera GT,918',
+    'Ram': '1500,2500,3500,TRX', 'Rivian': 'R1S,R1T', 'Rolls-Royce': 'Cullinan,Dawn,Ghost,Phantom,Spectre,Wraith',
+    'Subaru': 'BRZ,Crosstrek,Forester,Impreza,Legacy,Outback,WRX', 'Tesla': 'Cybertruck,Model 3,Model S,Model X,Model Y,Roadster',
+    'Toyota': '4Runner,86,Camry,Corolla,GR Supra,GR86,Highlander,Land Cruiser,Prius,RAV4,Sequoia,Sienna,Tacoma,Tundra',
+    'Volkswagen': 'Arteon,Atlas,Golf GTI,Golf R,ID.4,Jetta,Passat,Taos,Tiguan', 'Volvo': 'S60,S90,V60,XC40,XC60,XC90,EX30'
+  };
+  document.querySelectorAll('form[data-form]').forEach((f, i) => {
+    const mk = f.querySelector('[data-make]'), md = f.querySelector('[data-model]');
+    if (!mk || !md) return;
+    const dl = document.createElement('datalist'); dl.id = 'models' + i; md.setAttribute('list', dl.id); f.appendChild(dl);
+    mk.addEventListener('change', () => {
+      dl.innerHTML = '';
+      (M[mk.value] || '').split(',').filter(Boolean).forEach(m => { const o = document.createElement('option'); o.value = m; dl.appendChild(o); });
+      md.placeholder = mk.value && M[mk.value] ? 'Choose or type your ' + mk.value + ' model' : 'Type your model';
+    });
+  });
 })();
