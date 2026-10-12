@@ -837,7 +837,10 @@ def build_projects():
     page("projects.html", f"Our Projects | {SITE['name']}", "Recent vehicles completed by Divine Detailers in Miami.", body, "projects")
 
 def build_about():
-    body = inner_hero("About <em>us</em>", f"{SITE['name']} is a Miami vehicle protection and detailing shop built on craft, honest advice and care for every car that rolls in.", ['<a href="index.html">Home</a>', "About us"], form=False)
+    body = f'''<section class="about-hero"><div class="wrap"><span class="chip">About us</span>
+<h1><span class="dim">Crafting custom</span> automotive experiences</h1>
+<div class="ah-row"><p>At {SITE['name']}, we&rsquo;re passionate about turning your vehicle into a reflection of your unique style. With over 20 years of experience, our dedicated team specializes in window tint, paint protection film, ceramic coating, paint correction, vinyl wraps and detailing that elevate both the appearance and protection of your car.</p>
+<a class="btn" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></div></section>'''
     vals = [("Craft first", "Every film is cut, every panel is prepped and every finish is checked by hand. We take the time to do it right the first time."),
             ("Honest advice", "We tell you what your car actually needs, and what it does not. You get a clear quote before any work starts."),
             ("Protected for Miami", "Sun, salt air, storms and traffic are hard on paint and glass. We choose products and finishes built for exactly that."),

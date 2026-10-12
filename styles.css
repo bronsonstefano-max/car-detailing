@@ -736,3 +736,12 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .scard-lite:hover{border-color:var(--g);transform:translateY(-3px)}
 .scard-lite h3{font-size:1.1rem;margin-bottom:8px}.scard-lite p{color:var(--muted);font-size:.95rem}
 @media(max-width:860px){.svc-links{grid-template-columns:1fr}}
+
+/* About page hero (left-aligned, two-tone headline, CTA bottom right) */
+.about-hero{border-bottom:1px solid var(--line);padding:84px 0 56px}
+.about-hero h1{font-size:clamp(2.1rem,5.6vw,4.2rem);line-height:1.08;max-width:15em;text-transform:uppercase;margin-bottom:34px}
+.about-hero h1 .dim{color:#7d8085}
+.ah-row{display:flex;align-items:flex-end;justify-content:space-between;gap:40px}
+.ah-row p{max-width:640px;color:var(--muted);font-size:1.05rem;line-height:1.55;margin:0}
+.ah-row .btn{flex:none;width:auto;white-space:nowrap}
+@media(max-width:860px){.about-hero{padding:56px 0 40px}.ah-row{flex-direction:column;align-items:stretch;gap:26px}.ah-row .btn{width:100%;justify-content:center}}
