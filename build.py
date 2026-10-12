@@ -14,7 +14,7 @@ SITE = dict(
     email="info@divinedetailers.com",
     addr1="5181 NW 74th Ave",
     addr2="Miami, FL 33166",
-    hours=("Mon - Fri - 9:00AM - 5:00PM", "Sat - Sun - Closed"),   # placeholder hours
+    hours=("Mon - Sat - 9:00AM - 6:00PM", "Sun - Closed"),
     instagram="https://www.instagram.com/divinedetailer", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
     map_embed="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus",   # Google "Share > Embed a map" URL for the business listing
