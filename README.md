@@ -74,3 +74,6 @@ Calls tracked by CallRail show up in the same Leads list and Pipeline as web for
 2. In CallRail: Settings > Integrations > Webhooks > add a **Post-Call** webhook with the URL `https://<your site>/api/callrail?key=<CALLRAIL_KEY>` (use the main domain, not the crm. address).
 3. Every finished call creates one lead (a second webhook for the same call only refreshes duration and recording, it does not overwrite edits).
 4. Callers CallRail does not know show up as a number only. Open the lead (Details) and use **Edit contact and vehicle** to add the name, service and car. **+ Add lead** records walk-ins, texts or calls that were not tracked.
+
+### Follow-up steps
+Each pipeline stage has its own list of next steps (for example Quote sent: Invoice sent, Waiting on a decision, Accepted deposit paid, Too expensive, Not interested). After a lead moves, the dashboard offers those steps (optional, can be skipped) and an optional "follow up on" date. Some steps also move the lead (Too expensive moves it to Lost). The lists live in `FOLLOWUPS` in `src/worker.js`. Every move and step is saved in the lead's stage history.
