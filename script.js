@@ -296,3 +296,21 @@ document.querySelectorAll('form[data-form]').forEach(f => {
   const sync = () => { [...a.options].forEach(o => { o.disabled = !!o.value && o.value === m.value; }); if (a.selectedOptions[0] && a.selectedOptions[0].disabled) a.value = ''; };
   m.addEventListener('change', sync); sync();
 });
+
+// Two-step quote: the short home form only collects four fields, then opens the full form on the Contact page with them filled in
+document.querySelectorAll('form[data-step1]').forEach(f => f.addEventListener('submit', e => {
+  e.preventDefault();
+  const d = {}; ['name', 'email', 'phone', 'service'].forEach(k => { const x = f.querySelector('[name=' + k + ']'); d[k] = x ? x.value.trim() : ''; });
+  try { sessionStorage.setItem('dd_step1', JSON.stringify(d)); } catch (_) {}
+  window.dataLayer = window.dataLayer || []; window.dataLayer.push({ event: 'quote_step1', service: d.service });
+  window.location.href = 'contact.html#quote';
+}));
+(() => {
+  let d = null;
+  try { d = JSON.parse(sessionStorage.getItem('dd_step1') || 'null'); } catch (_) {}
+  const f = document.querySelector('form[data-form][name=quote]');
+  if (!d || !f) return;
+  ['name', 'email', 'phone', 'service'].forEach(k => { const x = f.querySelector('[name=' + k + ']'); if (x && d[k]) { x.value = d[k]; x.dispatchEvent(new Event('change')); } });
+  const first = ['make', 'year', 'model'].map(k => f.querySelector('[name=' + k + ']')).find(x => x && !x.value);
+  if (first && location.hash === '#quote') setTimeout(() => first.focus({ preventScroll: true }), 300);
+})();

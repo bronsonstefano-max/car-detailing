@@ -165,6 +165,19 @@ STATUS = '<div class="status"><span class="dot"></span>Estimated Wait Time: 30 M
 
 VEHICLE_MAKES = ["Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Bugatti", "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Ferrari", "Ford", "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "Jaguar", "Jeep", "Kia", "Lamborghini", "Land Rover", "Lexus", "Lincoln", "Lotus", "Maserati", "Mazda", "McLaren", "Mercedes-Benz", "Mini", "Mitsubishi", "Nissan", "Polestar", "Porsche", "Ram", "Rivian", "Rolls-Royce", "Subaru", "Tesla", "Toyota", "Volkswagen", "Volvo", "Other"]
 
+def quote_form_short(fid=None, select_default=None):
+    """Home page step 1: four inputs, then hands off to the full form on the Contact page."""
+    opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
+    idattr = f' id="{fid}"' if fid else ""
+    return f'''<form class="qform"{idattr} name="quote-step1" action="contact.html#quote" method="GET" data-step1>
+  {STATUS}
+  <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
+  <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
+  <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
+  <label>Service interested in*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <button class="submit" type="submit">Request Quote</button>
+</form>'''
+
 def quote_form(fid=None, select_default=None, extra="", status=True):
     import datetime
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
@@ -424,7 +437,7 @@ def build_home():
     <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
   </div>
   </div>
-  <div class="qwrap">{quote_form(fid="hero-quote")}</div>
+  <div class="qwrap">{quote_form_short(fid="hero-quote")}</div>
 </section>
 {stripes()}
 {partners()}
