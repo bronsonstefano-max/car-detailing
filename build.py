@@ -790,6 +790,11 @@ def build_projects():
             ("Ceramic Detailing", "cullinan-ceramic", "Rolls-Royce Cullinan interior ceramic", "Divine Detailers applying ceramic coating to the orange leather interior of a Rolls-Royce Cullinan", True),
             ("PPF Detailing", "ferrari-roma-ppf", "Ferrari Roma matte PPF care", "Divine Detailers explaining matte paint protection film care on a Ferrari Roma", True),
             ("Detailing", "aventador-wash", "Lamborghini Aventador SVJ wash", "Technician washing a gold Lamborghini Aventador SVJ in a driveway", False),
+            ("Detailing", "mobile-concept", "Mobile detailing at your door", "Divine Detailers explaining the mobile detailing service with a Lamborghini Urus and Corvette being washed", True),
+            ("Correction", "sf90-correction", "Ferrari SF90 paint correction", "Divine Detailers explaining paint correction on a red Ferrari SF90", True),
+            ("Ceramic Detailing", "superduty-ceramic", "Ford Super Duty ceramic coating wash", "Divine Detailers explaining how a ceramic coating makes a white Ford Super Duty easier to rinse", True),
+            ("Detailing", "skyline-wash", "Nissan Skyline GT-R wash", "Technicians washing and detailing a blue Nissan Skyline GT-R in a driveway", False),
+            ("Correction", "charger-correction", "Dodge Charger paint correction", "Technicians masking and machine polishing a Dodge Charger while explaining paint correction", True),
             ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
             ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
             ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
