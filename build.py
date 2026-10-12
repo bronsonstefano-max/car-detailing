@@ -65,6 +65,7 @@ ICON = {
 
 PHOTOS = {
     "spray": ("ppf-install", "Technician spraying slip solution on a dark blue car while installing film", "35% 45%"),
+    "ppf911": ("ppf-porsche-front", "Technician installing clear paint protection film on the front bumper of a black Porsche 911", "45% 55%"),
     "ppf": ("ppf-fender", "Technician smoothing clear paint protection film onto the fender of a gray car", "40% 50%"),
     "heat": ("tint-heatgun", "Technician using a heat gun and squeegee on film over a black car window", "50% 28%"),
     "ceramic": ("ceramic-apply", "Gloved hand dripping ceramic coating onto a blue applicator sponge", "50% 58%"),
@@ -109,7 +110,7 @@ PHOTOS = {
     "tgarage": ("tint-garage-squeegee", "Technician squeegeeing window tint inside the open door of a gray SUV", "55% 40%"),
     "polish": ("polishing", "Technician polishing the hood of a green Mercedes G-Class with a dual-action polisher", "40% 42%"),
 }
-CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "svan"}
+CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf911", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "svan"}
 HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
 SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p3", "p1"), "ceramic-coating": ("c3", "ceramic"), "paint-correction": ("pc2", "pc4"), "vinyl-wraps": (None, None), "exterior-detailing": ("dv", "wash")}
 WHY_PHOTO = {"paint-correction": "pc3", "window-tinting": "tspray", "ceramic-coating": "c5", "paint-protection-film": "q6"}
@@ -335,7 +336,7 @@ def map_block(cls="map-embed"):
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     home_map = map_block()
-    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf", "gwagon", "tdoor", "ceramic", "wash", "rolls", "tmirror", "polish", "foam", "tint", "tgarage", "q1", "q3", "wheel", "q4", "spray", "q5", "heat"])
+    slides = "".join(f'<div class="slide">{photo(k, 720)}</div>' for k in ["ppf911", "gwagon", "tdoor", "ceramic", "wash", "rolls", "tmirror", "polish", "foam", "tint", "tgarage", "q1", "q3", "wheel", "q4", "spray", "q5", "heat"])
     GICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>'
     revs = "".join(f'''<article class="review"><div class="rhead"><span class="gbadge">{GICON}</span><div class="rsrc"><b>GOOGLE REVIEW</b><span>{SITE['name']}</span></div><span class="rstars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div><h4>Recent Client</h4><p>{t}</p></article>''' for n, t in REVIEWS)
     revs_dup = revs.replace('<article class="review">', '<article class="review" aria-hidden="true">')
@@ -401,7 +402,7 @@ def build_home():
 <section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div>{photo_box("polish", pos="40% 45%")}</section>
 <section class="sec" id="portfolio">
   <div class="wrap center"><span class="chip">Our Portfolio</span><h2>Recent vehicles <em>completed.</em></h2>
-  <div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf")}</div>
+  <div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf911")}</div>
   <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>
 </section>
 {cta_banner()}'''
@@ -698,7 +699,7 @@ def build_service(slug, title, short):
     PIMG_ALL = {"window-tinting": ("tint", {"Two windows": "two-windows", "Full tint": "full-tint", "Windshield": "windshield", "Sunvisor strip": "sunvisor-strip"}),
                 "paint-protection-film": ("ppf", {"Partial Front": "highway", "Full Front": "full-front", "Track Package": "individual-panels", "Full Protection": "full-body"})}
     PDIR, PIMG = PIMG_ALL.get(slug, ("", {}))
-    pimg = lambda t: (f'<div class="pimg"><img src="assets/{PDIR}/{PIMG[t]}.webp" alt="{t} package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
+    pimg = lambda t: (f'<div class="pimg"><img src="assets/{PDIR}/{PIMG[t]}.webp" alt="{t} package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '')
     pk = "".join(f'<div class="pkg">{pimg(t)}<h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
     nums = "".join(f'<div><b>{n}</b><span>{l}</span></div>' for n, l in d["nums"])
     tiles = "".join(f'<div class="tile"><span class="kick">{k}</span><h3>{h}</h3><p>{p}</p></div>' for k, h, p in d["tiles"])
@@ -717,7 +718,7 @@ def build_service(slug, title, short):
         faq = '<section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to <em>know</em></h2></div><div class="faq">' + "".join(faq_block(items) for _, items, _ in d["faq"]) + "</div></div></section>"
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
-    band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
+    band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '')
     if slug == "window-tinting":
         feats = "".join(f'<div class="cf"><h3>{h}</h3><p>{p}</p></div>' for _, h, p in d["tiles"])
         band = f'''<section class="cpp"><div class="cpp-img">{photo("tdoor", 1600, "50% 45%", alt=True)}</div><div class="cpp-txt"><h2>Comfort, privacy, and protection</h2><p>We install premium ceramic window film that rejects heat, cuts glare and blocks harmful UV rays, so every drive in Miami&rsquo;s sun feels cooler and more comfortable.</p><div class="cfs">{feats}</div></div></section>'''
@@ -736,17 +737,17 @@ def build_service(slug, title, short):
     for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
         rev = " rev" if i % 2 else ""
         p2h = f"<p>{p2}</p>" if p2 else ""
-        rows += f'<section class="feat{rev}"><div class="txt"><span class="kick">{kick}</span><h2>{h2}</h2><p>{p1}</p>{p2h}</div>{photo_box(key)}</section>'
+        rows += f'<section class="feat{rev}{"" if key else " noimg"}"><div class="txt"><span class="kick">{kick}</span><h2>{h2}</h2><p>{p1}</p>{p2h}</div>{photo_box(key) if key else ""}</section>'
     portfolio = f'<section class="sec"><div class="wrap center"><span class="chip">Our Portfolio</span><h2>Real vehicles. Real work. <em>Real results.</em></h2><div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf")}</div><div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div></section>'
     video = ""
     if slug == "window-tinting":
         video = f'''<section class="sec vid-sec"><div class="wrap"><div class="split"><div><span class="chip">Watch it done</span><h2>See a tint install <em>start to finish</em></h2><p>Every film is cut to fit, applied wet and squeegeed flat in a clean bay. Watch how our installers handle the glass on a real car.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div><div class="vid"><video controls playsinline preload="none" poster="assets/video/tint-install-poster.webp" width="540" height="960"><source src="assets/video/tint-install.mp4" type="video/mp4"></video></div></div></div></section>'''
     body += f'''{stripes()}{partners()}
 <section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2>{hl_intro}<div class="hls">{hl}</div></div></section>
-{pk_section}{stripes()}{band}{stripes()}
-<section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
+{pk_section}{stripes()}{band}{stripes() if band else ""}
+<section class="sec impact-sec"><div class="wrap"><div class="split{"" if ik else " noimg"}"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik) if ik else ""}</div></div></section>
 {process}{benefits}
-<section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
+<section class="sec"><div class="wrap"><div class="split{"" if WHY_PHOTO.get(slug, wk) else " noimg"}">{photo_box(WHY_PHOTO.get(slug, wk)) if WHY_PHOTO.get(slug, wk) else ""}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
 {rows}{portfolio}{faq}{cta_banner()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
 
@@ -785,6 +786,26 @@ def build_projects():
             ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True),
             ("PPF", "ppf-install", "Jeep paint protection film install", "Technician installing clear paint protection film on the front end of a black Jeep", False),
             ("PPF Detailing", "gt3rs-wash", "Porsche 911 GT3 RS PPF and wash", "Divine Detailers explaining paint protection film and washing a white Porsche 911 GT3 RS", True),
+            ("PPF Ceramic", "p911-turbo-talk", "Porsche 911 Turbo PPF and coating", "Divine Detailers explaining paint protection film and coatings on a gray Porsche 911 Turbo", True),
+            ("PPF Correction Ceramic", "raptor-talk", "Ford F-150 Raptor R PPF, polish and ceramic", "Divine Detailers explaining PPF, paint correction and ceramic coating on a black Ford F-150 Raptor R", True),
+            ("Ceramic Detailing", "cullinan-ceramic", "Rolls-Royce Cullinan interior ceramic", "Divine Detailers applying ceramic coating to the orange leather interior of a Rolls-Royce Cullinan", True),
+            ("PPF Detailing", "ferrari-roma-ppf", "Ferrari Roma matte PPF care", "Divine Detailers explaining matte paint protection film care on a Ferrari Roma", True),
+            ("Detailing", "aventador-wash", "Lamborghini Aventador SVJ wash", "Technician washing a gold Lamborghini Aventador SVJ in a driveway", False),
+            ("Detailing", "mobile-concept", "Mobile detailing at your door", "Divine Detailers explaining the mobile detailing service with a Lamborghini Urus and Corvette being washed", True),
+            ("Correction", "sf90-correction", "Ferrari SF90 paint correction", "Divine Detailers explaining paint correction on a red Ferrari SF90", True),
+            ("Ceramic Detailing", "superduty-ceramic", "Ford Super Duty ceramic coating wash", "Divine Detailers explaining how a ceramic coating makes a white Ford Super Duty easier to rinse", True),
+            ("Detailing", "skyline-wash", "Nissan Skyline GT-R wash", "Technicians washing and detailing a blue Nissan Skyline GT-R in a driveway", False),
+            ("Correction", "charger-correction", "Dodge Charger paint correction", "Technicians masking and machine polishing a Dodge Charger while explaining paint correction", True),
+            ("Detailing", "corvette-engine", "Corvette engine bay detail", "Divine Detailers explaining how to safely wash a Corvette engine bay", True),
+            ("PPF Detailing", "m3-matte-care", "BMW M3 matte PPF care", "Divine Detailers explaining matte paint protection film care on a BMW M3", True),
+            ("Detailing", "bmw7-wash", "BMW 7 Series wash and detail", "Divine Detailers explaining the signature wash package on a white BMW 7 Series", True),
+            ("Detailing Ceramic", "tesla-wash", "Tesla signature wash and sealant", "Divine Detailers explaining the signature wash and sealant on a black Tesla", True),
+            ("Detailing", "x6-calipers", "BMW X6 M brake caliper cleaning", "Divine Detailers explaining brake caliper and wheel cleaning on a BMW X6 M", True),
+            ("Detailing", "sclass-interior", "Mercedes S-Class interior shampoo and conditioning", "Divine Detailers explaining an interior shampoo, exfoliation and leather conditioning on a Mercedes S-Class", True),
+            ("Detailing", "bugatti-wash", "Bugatti Chiron Pur Sport wash", "Technicians hand washing a purple Bugatti Chiron Pur Sport in a driveway", False),
+            ("Ceramic", "wheel-ceramic", "Ceramic coating for wheels", "Divine Detailers explaining ceramic coating on BMW wheels and rims", True),
+            ("Detailing", "mobile-showroom", "Mobile detailing: Ferrari and Lamborghini", "Divine Detailers explaining keeping a Ferrari and Lamborghini showroom clean with mobile detailing", True),
+            ("Detailing", "mobile-schedule", "Mobile detailing that fits your schedule", "Divine Detailers explaining mobile detailing at your home with a Rolls-Royce Cullinan and Porsche GT3", True),
             ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
             ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
             ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
