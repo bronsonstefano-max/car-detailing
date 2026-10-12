@@ -113,25 +113,76 @@ function authed(request, env) {
 }
 const challenge = () => new Response("Sign in", { status: 401, headers: { "www-authenticate": 'Basic realm="Divine Detailers leads", charset="UTF-8"' } });
 
+const TZ = "America/New_York";
+function when(sqlUtc) {
+  const d = new Date(sqlUtc.replace(" ", "T") + "Z");
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  const ago = mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)} hr ago` : `${Math.round(mins / 1440)} d ago`;
+  const abs = d.toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return { ago, abs };
+}
+function sourceOf(l) {
+  if (l.gclid || l.utm_medium === "cpc") return { label: "Google Ads", ad: true, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
+  if (l.utm_source) return { label: l.utm_source, ad: false, detail: l.utm_campaign || "" };
+  if (l.referrer) { try { return { label: new URL(l.referrer).hostname.replace(/^www\./, ""), ad: false, detail: "" }; } catch { /* ignore */ } }
+  return { label: "Direct", ad: false, detail: "" };
+}
+
 async function adminPage(env) {
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY id DESC LIMIT 500").all();
-  const rows = results.map(l => `<tr class="${l.contacted ? "done" : ""}">
-    <td>${esc(l.created_at)} UTC<br><small>${esc(l.type)}</small></td>
-    <td><b>${esc(l.name)}</b><br><a href="mailto:${esc(l.email)}">${esc(l.email)}</a><br>${l.phone ? `<a class="call" href="tel:${esc(l.phone)}">${esc(l.phone)}</a>` : ""}</td>
-    <td>${esc(l.service)}${l.also_interested ? `<br><small>also: ${esc(l.also_interested)}</small>` : ""}</td>
-    <td>${esc([l.year, l.make, l.model].filter(Boolean).join(" "))}</td>
-    <td class="msg">${esc(l.message)}</td>
-    <td><small>${esc(l.utm_source || (l.gclid ? "google ads" : "") || l.referrer)}<br>${esc(l.utm_campaign)}<br>${esc(l.page)}</small></td>
-    <td><button data-id="${l.id}" data-c="${l.contacted ? 0 : 1}">${l.contacted ? "Reopen" : "Mark contacted"}</button></td></tr>`).join("");
-  const open = results.filter(l => !l.contacted).length;
+  const open = results.filter(l => !l.contacted && l.type === "quote").length;
+  const ads = results.filter(l => sourceOf(l).ad).length;
+  const cards = results.map(l => {
+    const t = when(l.created_at), src = sourceOf(l);
+    const veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
+    const tel = (l.phone || "").replace(/[^\d+]/g, "");
+    return `<article class="lead ${l.contacted ? "done" : "new"}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.contacted ? "done" : "new"}" data-ad="${src.ad ? 1 : 0}">
+      <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
+        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.contacted ? '<span class="tag ok">Contacted</span>' : '<span class="tag hot">New</span>'}</div></div>
+      <div class="grid">
+        ${l.service ? `<div><label>Service</label>${esc(l.service)}${l.also_interested ? `<small>also: ${esc(l.also_interested)}</small>` : ""}</div>` : ""}
+        ${veh ? `<div><label>Vehicle</label>${esc(veh)}</div>` : ""}
+        ${src.detail ? `<div><label>Campaign</label>${esc(src.detail)}</div>` : ""}
+        ${l.page ? `<div><label>Landed on</label>${esc(l.page)}</div>` : ""}
+      </div>
+      ${l.message ? `<p class="msg">&ldquo;${esc(l.message)}&rdquo;</p>` : ""}
+      <div class="actions">${tel ? `<a class="btn call" href="tel:${esc(tel)}">Call ${esc(l.phone)}</a>` : ""}<a class="btn" href="mailto:${esc(l.email)}">Email</a>
+        <button class="btn ${l.contacted ? "ghost" : "go"}" data-id="${l.id}" data-c="${l.contacted ? 0 : 1}">${l.contacted ? "Reopen" : "Mark contacted"}</button></div>
+    </article>`;
+  }).join("");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Leads | Divine Detailers</title>
-<style>body{font:14px/1.4 system-ui,sans-serif;margin:0;background:#0b0d10;color:#e8eaed}header{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #222;position:sticky;top:0;background:#0b0d10}h1{font-size:18px;margin:0}h1 b{color:#32cd32}
-a{color:#7fe07f}.call{font-weight:700}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;border-bottom:1px solid #1d2126;text-align:left;vertical-align:top}th{color:#8a9099;font-weight:600;position:sticky;top:57px;background:#0b0d10}
-tr.done{opacity:.45}.msg{max-width:320px;white-space:pre-wrap}small{color:#8a9099}button{background:#32cd32;border:0;border-radius:8px;padding:7px 10px;font-weight:700;cursor:pointer}.wrap{overflow-x:auto}.csv{background:#222;color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none}</style></head>
-<body><header><h1>Divine Detailers <b>leads</b> &middot; ${open} to contact &middot; ${results.length} shown</h1><a class="csv" href="/admin/leads.csv">Download CSV</a></header>
-<div class="wrap"><table><thead><tr><th>Received</th><th>Contact</th><th>Service</th><th>Vehicle</th><th>Message</th><th>Source</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7">No leads yet.</td></tr>'}</tbody></table></div>
-<script>document.addEventListener('click',async e=>{const b=e.target.closest('button[data-id]');if(!b)return;b.disabled=true;await fetch('/admin/contacted',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+b.dataset.id,contacted:+b.dataset.c})});location.reload()})</script></body></html>`,
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25;position:sticky;top:0;background:rgba(7,9,12,.96);backdrop-filter:blur(6px);z-index:5}
+h1{font-size:19px;margin:0;letter-spacing:.2px}h1 b{color:#32cd32}
+.stats{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:8px 14px}.stat b{display:block;font-size:20px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.hot b{color:#32cd32}
+.tools{display:flex;gap:10px;flex-wrap:wrap;padding:14px 22px;align-items:center}
+input[type=search]{flex:1;min-width:200px;background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:11px 14px;font:inherit}
+.chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit}.chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.csv{color:#cfd3d9;text-decoration:none;border:1px solid #232932;border-radius:10px;padding:10px 14px}
+main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+.lead{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}.lead.new{border-color:#244d2a}.lead.done{opacity:.6}
+.top{display:flex;justify-content:space-between;gap:10px}h3{margin:0;font-size:17px}.when{color:#8a9099;font-size:12.5px;margin-top:2px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}.tag{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#171c23;color:#aab0b9;white-space:nowrap}
+.tag.ad{background:#14263f;color:#8ec0ff}.tag.hot{background:#32cd32;color:#04120a;font-weight:700}.tag.ok{background:#1a2a1c;color:#7fe07f}.tag.nl{background:#2b2411;color:#f0c050}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:1px}small{display:block;color:#8a9099}
+.msg{margin:0;background:#10141a;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 13px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+.btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#1d2630}.btn.ghost{color:#8a9099}
+.empty{grid-column:1/-1;color:#8a9099;padding:40px 0;text-align:center}
+@media(max-width:560px){main{grid-template-columns:1fr;padding:0 14px 40px}.tools,header{padding-left:14px;padding-right:14px}}
+</style></head>
+<body><header><h1>Divine Detailers <b>leads</b></h1>
+<div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div><div class="stat"><b>${ads}</b><span>from Google Ads</span></div></div></header>
+<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Contacted</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
+<main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
+<script>
+const list=document.getElementById('list'),q=document.getElementById('q');let f='all';
+function apply(){const t=q.value.trim().toLowerCase();list.querySelectorAll('.lead').forEach(e=>{const ok=(!t||e.dataset.q.includes(t))&&(f==='all'||(f==='ad'?e.dataset.ad==='1':e.dataset.st===f));e.hidden=!ok})}
+q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
+document.addEventListener('click',async e=>{const b=e.target.closest('button[data-id]');if(!b)return;b.disabled=true;await fetch('/admin/contacted',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+b.dataset.id,contacted:+b.dataset.c})});location.reload()});
+</script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
