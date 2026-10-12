@@ -77,3 +77,11 @@ Calls tracked by CallRail show up in the same Leads list and Pipeline as web for
 
 ### Follow-up steps
 Each pipeline stage has its own list of next steps (for example Quote sent: Invoice sent, Waiting on a decision, Accepted deposit paid, Too expensive, Not interested). After a lead moves, the dashboard offers those steps (optional, can be skipped) and an optional "follow up on" date. Some steps also move the lead (Too expensive moves it to Lost). The lists live in `FOLLOWUPS` in `src/worker.js`. Every move and step is saved in the lead's stage history.
+
+
+## Instant alerts, Today list and one-tap replies
+
+- **Alerts**: every new form lead and every missed call or voicemail emails everyone in `NOTIFY_TO` (comma separated) through Resend, with a big Call button. For texts, add the secrets `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` and set `ALERT_SMS_TO` to the numbers that should get them (comma separated).
+- **Confirmation to the customer**: set `AUTO_REPLY` to `1` (needs a verified sending domain at Resend as `NOTIFY_FROM`).
+- **Today** (the CRM home page): calls to return, new leads nobody has contacted, follow-ups due today and overdue. The tab shows how many are waiting.
+- **One-tap replies**: open a lead and pick a message, then tap Text or Email. It opens your phone's messages or mail app with the text filled in. Set `GOOGLE_REVIEW_URL` for the review request message. Each use is logged in the lead's history, and texting a brand new lead moves it to Contacted.

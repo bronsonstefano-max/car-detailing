@@ -20,6 +20,9 @@
     "CRM_HOST": "",
     // Who gets an email for every new lead (needs the RESEND_API_KEY secret). Comma separated.
     "NOTIFY_TO": "",
-    "NOTIFY_FROM": ""
+    "NOTIFY_FROM": "",
+    "ALERT_SMS_TO": "",
+    "AUTO_REPLY": "",
+    "GOOGLE_REVIEW_URL": ""
   }
 }
