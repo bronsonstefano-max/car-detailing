@@ -333,10 +333,11 @@ def map_block(cls="map-embed"):
                  f'<span class="pin" aria-hidden="true"></span><b>{SITE["name"]}</b><span>{SITE["addr1"]}<br>{SITE["addr2"]}</span><em>View on Google Maps</em></a>')
     return frame, place, direc
 
-def vtile(c, n, t, a, talk):
+def vtile(c, n, t, a, talk, still=False):
+    vid = "" if still else '<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
     return (f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
             f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
-            f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
+            f'{vid}'
             f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c.replace(" "," · ")}</i>{t}</span></button>')
 
 VMODAL = '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
@@ -414,7 +415,7 @@ def build_home():
 <section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div>{photo_box("gt3", pos="50% 55%")}</section>
 <section class="sec" id="portfolio">
   <div class="wrap center"><span class="chip">Our Portfolio</span><h2>Recent vehicles <em>completed.</em></h2>
-  <div class="vgrid vhome">{"".join(vtile(*v) for v in HOME_VIDS)}</div>
+  <div class="vgrid vhome">{"".join(vtile(*v, still=True) for v in HOME_VIDS)}</div>
   <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>{VMODAL}
 </section>
 {cta_banner()}'''
