@@ -785,6 +785,11 @@ def build_projects():
             ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True),
             ("PPF", "ppf-install", "Jeep paint protection film install", "Technician installing clear paint protection film on the front end of a black Jeep", False),
             ("PPF Detailing", "gt3rs-wash", "Porsche 911 GT3 RS PPF and wash", "Divine Detailers explaining paint protection film and washing a white Porsche 911 GT3 RS", True),
+            ("PPF Ceramic", "p911-turbo-talk", "Porsche 911 Turbo PPF and coating", "Divine Detailers explaining paint protection film and coatings on a gray Porsche 911 Turbo", True),
+            ("PPF Correction Ceramic", "raptor-talk", "Ford F-150 Raptor R PPF, polish and ceramic", "Divine Detailers explaining PPF, paint correction and ceramic coating on a black Ford F-150 Raptor R", True),
+            ("Ceramic Detailing", "cullinan-ceramic", "Rolls-Royce Cullinan interior ceramic", "Divine Detailers applying ceramic coating to the orange leather interior of a Rolls-Royce Cullinan", True),
+            ("PPF Detailing", "ferrari-roma-ppf", "Ferrari Roma matte PPF care", "Divine Detailers explaining matte paint protection film care on a Ferrari Roma", True),
+            ("Detailing", "aventador-wash", "Lamborghini Aventador SVJ wash", "Technician washing a gold Lamborghini Aventador SVJ in a driveway", False),
             ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
             ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
             ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
