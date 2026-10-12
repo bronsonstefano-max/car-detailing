@@ -35,6 +35,9 @@ async function ensureTable(db) {
       call_id TEXT, duration INTEGER, recording TEXT, answered INTEGER, tracking_number TEXT)`),
     db.prepare("CREATE INDEX IF NOT EXISTS leads_created ON leads (created_at)"),
   ]);
+  await db.prepare(`CREATE TABLE IF NOT EXISTS stage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, from_stage TEXT, to_stage TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS stage_log_lead ON stage_log (lead_id)").run();
   // upgrade tables created before the pipeline existed
   const cols = (await db.prepare("PRAGMA table_info(leads)").all()).results.map(c => c.name);
   if (!cols.includes("stage")) {
@@ -207,6 +210,32 @@ function callTag(l) {
   if (l.answered === 0) return '<span class="tag miss">Missed call</span>';
   return `<span class="tag call">Call${l.duration ? " · " + mmss(l.duration) : ""}</span>`;
 }
+
+// ---- "why did it move?" dialog shared by the leads list and the pipeline
+const SUGGEST = {
+  new: ["Customer reached out again", "Moved by mistake"],
+  contacted: ["Called and spoke to them", "Left a voicemail", "Sent a text", "Emailed them"],
+  quoted: ["Sent the quote", "Quoted over the phone", "Customer asked for pricing"],
+  booked: ["Customer accepted the quote", "Deposit paid", "Booked a drop-off date"],
+  working: ["Car dropped off", "Work started"],
+  done: ["Work finished, car picked up", "Paid in full"],
+  lost: ["Too expensive", "Went with another shop", "No response", "Not a fit"],
+};
+const REASON_CSS = `.rdlg{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(460px,94vw)}.rdlg::backdrop{background:rgba(0,0,0,.7)}
+.rdlg .rb{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px}.rdlg h3{margin:0;font-size:18px}.rdlg p{margin:0;color:#98a0aa;font-size:14px}
+.rdlg input{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:12px;font:inherit;font-size:16px;min-height:48px}
+.rdlg .sg{display:flex;flex-wrap:wrap;gap:8px}.rdlg .sg button{padding:8px 12px;border-radius:999px;border:1px solid #2a313a;background:#12171e;color:#cfd3d9;font:inherit;font-size:13.5px;cursor:pointer;min-height:38px}
+.rdlg .ra{display:flex;gap:8px;justify-content:flex-end}.rdlg .ra button{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:12px 16px;font:inherit;font-weight:700;cursor:pointer;min-height:46px}.rdlg .ra .ok{background:#32cd32;border-color:#32cd32;color:#04120a}.rdlg .ra .ok:disabled{opacity:.4;cursor:default}`;
+const REASON_HTML = `<dialog class="rdlg" id="rdlg"><div class="rb"><h3 id="rt"></h3><p id="rs"></p><input id="rr" maxlength="300" placeholder="Short reason, e.g. left a voicemail" autocomplete="off"><div class="sg" id="rg"></div><div class="ra"><button type="button" id="rc">Cancel</button><button type="button" class="ok" id="ro" disabled>Move lead</button></div></div></dialog>`;
+const REASON_JS = `
+const SUG=${JSON.stringify(SUGGEST)};
+function askReason(name,fromN,toK,toN){return new Promise(res=>{const d=document.getElementById('rdlg'),i=document.getElementById('rr'),ok=document.getElementById('ro');
+  document.getElementById('rt').textContent='Why is '+(name||'this lead')+' moving?';document.getElementById('rs').textContent=fromN+' \u2192 '+toN+'. Add a short note on what caused the move.';
+  i.value='';ok.disabled=true;const g=document.getElementById('rg');g.innerHTML='';(SUG[toK]||[]).forEach(t=>{const b=document.createElement('button');b.type='button';b.textContent=t;b.onclick=()=>{i.value=t;ok.disabled=false;i.focus()};g.appendChild(b)});
+  let done=false;const fin=v=>{if(done)return;done=true;d.close();res(v)};
+  i.oninput=()=>{ok.disabled=i.value.trim().length<2};i.onkeydown=e=>{if(e.key==='Enter'&&!ok.disabled)fin(i.value.trim())};
+  ok.onclick=()=>fin(i.value.trim());document.getElementById('rc').onclick=()=>fin(null);d.oncancel=()=>fin(null);d.showModal();setTimeout(()=>i.focus(),50)})}`;
+
 const stageName = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
 const crmPrefix = env => ""; // paths are the same on every host
 function nav(on) {
@@ -264,7 +293,7 @@ async function adminPage(env) {
       ${l.message ? `<p class="msg">&ldquo;${esc(l.message)}&rdquo;</p>` : ""}
       ${l.recording ? `<a class="rec" href="${esc(l.recording)}" target="_blank" rel="noopener">Listen to the call</a>` : ""}
       <div class="actions">${tel ? `<a class="btn call" href="tel:${esc(tel)}">Call ${esc(l.phone)}</a>` : ""}<a class="btn" href="mailto:${esc(l.email)}">Email</a>
-        <select class="btn stage" data-id="${l.id}" aria-label="Stage">${STAGES.map(([k, n]) => `<option value="${k}"${k === l.stage ? " selected" : ""}>${n}</option>`).join("")}</select></div>
+        <select class="btn stage" data-id="${l.id}" data-cur="${l.stage}" aria-label="Stage">${STAGES.map(([k, n]) => `<option value="${k}"${k === l.stage ? " selected" : ""}>${n}</option>`).join("")}</select></div>
     </article>`;
   }).join("");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Leads | Divine Detailers</title>
@@ -278,6 +307,7 @@ input[type=search]{flex:1;min-width:200px;background:#10141a;border:1px solid #2
 .chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .stage{appearance:auto;background:#151a21}
 ${BNAV_CSS}
+${REASON_CSS}
 .chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .csv{color:#cfd3d9;text-decoration:none;border:1px solid #232932;border-radius:10px;padding:10px 14px}
 main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
@@ -305,12 +335,15 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 <div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div><div class="stat"><b>${ads}</b><span>from Google Ads</span></div></div></header>
 <div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
 ${bnav("leads")}
+${REASON_HTML}
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
 <script>
 const list=document.getElementById('list'),q=document.getElementById('q');let f='all';
 function apply(){const t=q.value.trim().toLowerCase();list.querySelectorAll('.lead').forEach(e=>{const ok=(!t||e.dataset.q.includes(t))&&(f==='all'||(f==='ad'?e.dataset.ad==='1':e.dataset.st===f));e.hidden=!ok})}
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
-document.addEventListener('change',async e=>{const s=e.target.closest('select.stage');if(!s)return;s.disabled=true;await fetch('/admin/stage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+s.dataset.id,stage:s.value})});location.reload()});
+${REASON_JS}
+const SN=Object.fromEntries(${JSON.stringify(STAGES)});
+document.addEventListener('change',async e=>{const s=e.target.closest('select.stage');if(!s)return;const from=s.dataset.cur,to=s.value;const nm=(s.closest('.lead').querySelector('h3')||{}).textContent;const why=await askReason(nm,SN[from],to,SN[to]);if(why===null){s.value=from;return}s.disabled=true;const r=await fetch('/admin/stage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+s.dataset.id,stage:to,reason:why})});if(r.ok)location.reload();else{s.disabled=false;s.value=from}});
 </script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
@@ -319,7 +352,9 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 async function pipelinePage(env) {
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY id DESC LIMIT 1000").all();
-  const data = results.map(l => ({ ...l, dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
+  const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
+  const byLead = {}; for (const g of logs) (byLead[g.lead_id] = byLead[g.lead_id] || []).push(g);
+  const data = results.map(l => ({ ...l, log: (byLead[l.id] || []).map(g => ({ ...g, at: when(g.at).abs })), dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
   const payload = JSON.stringify({ stages: STAGES, leads: data }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Pipeline | Divine Detailers</title>
 <style>
@@ -344,6 +379,8 @@ dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:1
 select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit}textarea{min-height:84px;resize:vertical}
 .acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}.btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#32cd32;border-color:#32cd32;color:#04120a;margin-left:auto}
 ${BNAV_CSS}
+${REASON_CSS}
+.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}
 .tabs{display:none}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips button{padding:8px 13px;border-radius:999px;border:1px solid #2a313a;background:#12171e;color:#e8eaed;font:inherit;cursor:pointer}.chips button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 @media(max-width:700px){
@@ -366,8 +403,10 @@ ${BNAV_CSS}
 ${bnav("pipeline")}
 <div class="board" id="board"></div>
 <dialog id="dlg"></dialog>
+${REASON_HTML}
 <script type="application/json" id="data">${payload}</script>
 <script>
+${REASON_JS}
 const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.leads,board=document.getElementById('board'),dlg=document.getElementById('dlg');
 const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
 const M=window.matchMedia('(max-width:700px)');let cur='new';
@@ -391,12 +430,13 @@ function draw(){
 }
 M.addEventListener&&M.addEventListener('change',draw);
 document.getElementById('tabs').addEventListener('click',e=>{const t=e.target.closest('[data-tab]');if(t){cur=t.dataset.tab;draw();window.scrollTo({top:0})}});
+const SN=k=>(S.find(x=>x[0]===k)||[0,k])[1];
 async function save(id,patch,url){const r=await fetch(url||'/admin/lead',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({id},patch))});return r.ok}
 let dragId=null;
 board.addEventListener('dragstart',e=>{const c=e.target.closest('.card');if(!c)return;dragId=+c.dataset.id;c.classList.add('drag');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(dragId))});
 board.addEventListener('dragend',()=>{dragId=null;draw()});
 board.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(!c)return;e.preventDefault();board.querySelectorAll('.col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
-board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){l.stage=st;draw();await save(l.id,{stage:st})}else draw()});
+board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){const why=await askReason(l.name||l.phone||l.email,SN(l.stage),st,SN(st));if(why===null){draw();return}const ok=await save(l.id,{stage:st,reason:why});if(ok){l.log=[{from_stage:l.stage,to_stage:st,reason:why,at:'now'}].concat(l.log||[]);l.stage=st}draw()}else draw()});
 board.addEventListener('click',e=>{if(e.target.closest('[data-stop]'))return;const d=e.target.closest('[data-open]');if(d){open(+d.dataset.open);return}const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
 const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction','Vinyl Wraps','Exterior Detailing','Other'];
 function open(id){const l=L.find(x=>x.id===id);if(!l)return;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
@@ -409,10 +449,11 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;const tel=(l.phone||
   ed+
   '<div><label>Stage</label><div class="chips" id="fchips">'+S.map(([k,n])=>'<button type="button" data-k="'+k+'" class="'+(k===l.stage?'on':'')+'">'+n+'</button>').join('')+'</div></div><div class="g2"><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
+  ((l.log&&l.log.length)?'<div><label>Stage history</label><ul class="hist">'+l.log.map(h=>'<li><b>'+$(SN(h.from_stage))+' \u2192 '+$(SN(h.to_stage))+'</b>: '+$(h.reason)+'<small>'+$(h.at==='now'?'just now':h.at)+'</small></li>').join('')+'</ul></div>':'')+
   '<div class="acts"><button class="btn go" id="fsave">Save</button></div></div>';
   dlg.showModal();
   let stg=l.stage;document.getElementById('fchips').onclick=e=>{const b=e.target.closest('button[data-k]');if(!b)return;stg=b.dataset.k;document.querySelectorAll('#fchips button').forEach(x=>x.classList.toggle('on',x===b))};
-  document.getElementById('fsave').onclick=async()=>{const g=i=>document.getElementById(i).value.trim();const p={stage:stg,name:g('en'),phone:g('ep'),email:g('ee'),service:g('es'),make:g('em'),model:g('ed2'),year:g('ey'),value:Math.max(0,parseInt(document.getElementById('fv').value||'0',10)||0),notes:document.getElementById('fn').value};if(await save(l.id,p)){Object.assign(l,p);dlg.close();draw()}}}
+  document.getElementById('fsave').onclick=async()=>{const g=i=>document.getElementById(i).value.trim();let why;if(stg!==l.stage){why=await askReason(l.name||l.phone||l.email,SN(l.stage),stg,SN(stg));if(why===null)return}const p={stage:stg,reason:why,name:g('en'),phone:g('ep'),email:g('ee'),service:g('es'),make:g('em'),model:g('ed2'),year:g('ey'),value:Math.max(0,parseInt(document.getElementById('fv').value||'0',10)||0),notes:document.getElementById('fn').value};if(await save(l.id,p)){if(why){l.log=[{from_stage:l.stage,to_stage:stg,reason:why,at:'now'}].concat(l.log||[])}delete p.reason;Object.assign(l,p);dlg.close();draw()}}}
 const SRCS=['Phone call','Walk-in','Text / DM','Referral','Other'];
 function openAdd(){dlg.innerHTML='<div class="dh"><h3>Add a lead</h3><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db"><div class="g2"><div><label>Name</label><input id="an" autocomplete="off"></div><div><label>Phone</label><input id="ap" type="tel" inputmode="tel"></div><div><label>Email</label><input id="ae" type="email"></div><div><label>How they reached you</label><select id="as">'+SRCS.map(x=>'<option>'+x+'</option>').join('')+'</select></div><div><label>Service</label><select id="av"><option value="">Not set</option>'+SVC.map(x=>'<option>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="am"></div><div><label>Model</label><input id="ad"></div><div><label>Year</label><input id="ay" inputmode="numeric"></div></div><div><label>Notes</label><textarea id="ano"></textarea></div><div class="acts"><button class="btn go" id="asave">Add lead</button></div></div>';dlg.showModal();
   document.getElementById('asave').onclick=async()=>{const g=i=>document.getElementById(i).value.trim();const r=await fetch('/admin/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:g('an'),phone:g('ap'),email:g('ae'),source:g('as'),service:g('av'),make:g('am'),model:g('ad'),year:g('ay'),notes:g('ano')})});if(r.ok)location.reload();else document.getElementById('asave').textContent='Add a name or phone'}}
@@ -484,7 +525,17 @@ async function adminRoute(p, request, env) {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id)) return json({ success: false }, 400);
     const sets = [], vals = [];
-    if (typeof b.stage === "string" && STAGE_KEYS.includes(b.stage)) { sets.push("stage = ?", "contacted = ?", "stage_changed_at = datetime('now')"); vals.push(b.stage, b.stage === "new" ? 0 : 1); }
+    let logIt = null;
+    if (typeof b.stage === "string" && STAGE_KEYS.includes(b.stage)) {
+      const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(b.id).first();
+      if (!cur) return json({ success: false }, 404);
+      if (cur.stage !== b.stage) {
+        const reason = clean(b.reason, 300);
+        if (reason.length < 2) return json({ success: false, message: "Please add a short reason for the move" }, 422);
+        logIt = { from: cur.stage, to: b.stage, reason };
+        sets.push("stage = ?", "contacted = ?", "stage_changed_at = datetime('now')"); vals.push(b.stage, b.stage === "new" ? 0 : 1);
+      }
+    }
     if (p === "/admin/lead") {
       if (Number.isFinite(b.value)) { sets.push("value = ?"); vals.push(Math.max(0, Math.min(10000000, Math.floor(b.value)))); }
       if (typeof b.notes === "string") { sets.push("notes = ?"); vals.push(b.notes.slice(0, 4000)); }
@@ -492,8 +543,10 @@ async function adminRoute(p, request, env) {
         if (typeof b[f] === "string") { sets.push(`${f} = ?`); vals.push(clean(b[f], f === "email" ? 200 : 120)); }
       }
     }
-    if (!sets.length) return json({ success: false }, 400);
-    await env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id).run();
+    if (!sets.length) return json({ success: true, unchanged: true });
+    const stmts = [env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id)];
+    if (logIt) stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason) VALUES (?,?,?,?)").bind(b.id, logIt.from, logIt.to, logIt.reason));
+    await env.DB.batch(stmts);
     return json({ success: true });
   }
   return new Response("Not found", { status: 404 });
