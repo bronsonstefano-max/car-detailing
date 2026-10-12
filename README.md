@@ -54,7 +54,7 @@ Everything else is served as static files. Set `lead_endpoint=""` in `build.py` 
 
 One-time setup (Cloudflare dashboard, Workers & Pages > divine-detailers > Settings):
 1. **Database**: created automatically on the first deploy (binding `DB`, name `divine-detailers-leads`). If the build says it cannot create it, create a D1 database with that name in the dashboard, then bind it to the worker as `DB`.
-2. **ADMIN_PASSWORD** (secret, required): password for `https://<site>/admin` (user name is `admin`). Shows all leads, lets you mark them contacted and download a CSV.
+2. **ADMIN_PASSWORD** (secret, required): password for `https://<site>/admin` (user name is `admin`). Shows all leads (search, filters, CSV download) and a drag-and-drop **Pipeline** board (New lead, Contacted, Quote sent, Booked, In the shop, Completed, Lost) where you can set each job's value and add notes.
 3. **Email each lead** (optional): create a free account at resend.com, add the key as the secret `RESEND_API_KEY`, and set the `NOTIFY_TO` variable (comma separated emails). For a branded sender, verify your domain at Resend and set `NOTIFY_FROM`.
 4. **CRM / Zapier / Slack** (optional): add the secret `LEAD_WEBHOOK_URL`. Every lead is POSTed to it as JSON.
 

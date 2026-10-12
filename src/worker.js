@@ -18,6 +18,9 @@ const MAX = { default: 300, message: 4000 };
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+const STAGES = [["new", "New lead"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["lost", "Lost"]];
+const STAGE_KEYS = STAGES.map(x => x[0]);
+
 async function ensureTable(db) {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS leads (
@@ -27,9 +30,20 @@ async function ensureTable(db) {
       name TEXT, email TEXT, phone TEXT, service TEXT, also_interested TEXT,
       make TEXT, year TEXT, model TEXT, message TEXT,
       page TEXT, referrer TEXT, gclid TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_term TEXT,
-      ip TEXT, user_agent TEXT, contacted INTEGER NOT NULL DEFAULT 0, notes TEXT)`),
+      ip TEXT, user_agent TEXT, contacted INTEGER NOT NULL DEFAULT 0, notes TEXT,
+      stage TEXT NOT NULL DEFAULT 'new', value INTEGER NOT NULL DEFAULT 0, stage_changed_at TEXT)`),
     db.prepare("CREATE INDEX IF NOT EXISTS leads_created ON leads (created_at)"),
   ]);
+  // upgrade tables created before the pipeline existed
+  const cols = (await db.prepare("PRAGMA table_info(leads)").all()).results.map(c => c.name);
+  if (!cols.includes("stage")) {
+    await db.batch([
+      db.prepare("ALTER TABLE leads ADD COLUMN stage TEXT NOT NULL DEFAULT 'new'"),
+      db.prepare("ALTER TABLE leads ADD COLUMN value INTEGER NOT NULL DEFAULT 0"),
+      db.prepare("ALTER TABLE leads ADD COLUMN stage_changed_at TEXT"),
+      db.prepare("UPDATE leads SET stage = 'contacted' WHERE contacted = 1"),
+    ]);
+  }
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
@@ -113,6 +127,11 @@ function authed(request, env) {
 }
 const challenge = () => new Response("Sign in", { status: 401, headers: { "www-authenticate": 'Basic realm="Divine Detailers leads", charset="UTF-8"' } });
 
+const stageName = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
+const crmPrefix = env => ""; // paths are the same on every host
+function nav(on) {
+  return `<nav class="navtabs"><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a></nav>`;
+}
 const TZ = "America/New_York";
 function when(sqlUtc) {
   const d = new Date(sqlUtc.replace(" ", "T") + "Z");
@@ -131,15 +150,15 @@ function sourceOf(l) {
 async function adminPage(env) {
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY id DESC LIMIT 500").all();
-  const open = results.filter(l => !l.contacted && l.type === "quote").length;
+  const open = results.filter(l => l.stage === "new" && l.type === "quote").length;
   const ads = results.filter(l => sourceOf(l).ad).length;
   const cards = results.map(l => {
     const t = when(l.created_at), src = sourceOf(l);
     const veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
-    return `<article class="lead ${l.contacted ? "done" : "new"}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.contacted ? "done" : "new"}" data-ad="${src.ad ? 1 : 0}">
+    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : l.stage === "new" ? "new" : ""}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.stage === "new" ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
       <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
-        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.contacted ? '<span class="tag ok">Contacted</span>' : '<span class="tag hot">New</span>'}</div></div>
+        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}</div></div>
       <div class="grid">
         ${l.service ? `<div><label>Service</label>${esc(l.service)}${l.also_interested ? `<small>also: ${esc(l.also_interested)}</small>` : ""}</div>` : ""}
         ${veh ? `<div><label>Vehicle</label>${esc(veh)}</div>` : ""}
@@ -148,7 +167,7 @@ async function adminPage(env) {
       </div>
       ${l.message ? `<p class="msg">&ldquo;${esc(l.message)}&rdquo;</p>` : ""}
       <div class="actions">${tel ? `<a class="btn call" href="tel:${esc(tel)}">Call ${esc(l.phone)}</a>` : ""}<a class="btn" href="mailto:${esc(l.email)}">Email</a>
-        <button class="btn ${l.contacted ? "ghost" : "go"}" data-id="${l.id}" data-c="${l.contacted ? 0 : 1}">${l.contacted ? "Reopen" : "Mark contacted"}</button></div>
+        <select class="btn stage" data-id="${l.id}" aria-label="Stage">${STAGES.map(([k, n]) => `<option value="${k}"${k === l.stage ? " selected" : ""}>${n}</option>`).join("")}</select></div>
     </article>`;
   }).join("");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Leads | Divine Detailers</title>
@@ -159,7 +178,9 @@ h1{font-size:19px;margin:0;letter-spacing:.2px}h1 b{color:#32cd32}
 .stats{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:8px 14px}.stat b{display:block;font-size:20px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.hot b{color:#32cd32}
 .tools{display:flex;gap:10px;flex-wrap:wrap;padding:14px 22px;align-items:center}
 input[type=search]{flex:1;min-width:200px;background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:11px 14px;font:inherit}
-.chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit}.chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.stage{appearance:auto;background:#151a21}
+.chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .csv{color:#cfd3d9;text-decoration:none;border:1px solid #232932;border-radius:10px;padding:10px 14px}
 main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
 .lead{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}.lead.new{border-color:#244d2a}.lead.done{opacity:.6}
@@ -173,15 +194,81 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 .empty{grid-column:1/-1;color:#8a9099;padding:40px 0;text-align:center}
 @media(max-width:560px){main{grid-template-columns:1fr;padding:0 14px 40px}.tools,header{padding-left:14px;padding-right:14px}}
 </style></head>
-<body><header><h1>Divine Detailers <b>leads</b></h1>
+<body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads")}
 <div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div><div class="stat"><b>${ads}</b><span>from Google Ads</span></div></div></header>
-<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Contacted</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
+<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
 <script>
 const list=document.getElementById('list'),q=document.getElementById('q');let f='all';
 function apply(){const t=q.value.trim().toLowerCase();list.querySelectorAll('.lead').forEach(e=>{const ok=(!t||e.dataset.q.includes(t))&&(f==='all'||(f==='ad'?e.dataset.ad==='1':e.dataset.st===f));e.hidden=!ok})}
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
-document.addEventListener('click',async e=>{const b=e.target.closest('button[data-id]');if(!b)return;b.disabled=true;await fetch('/admin/contacted',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+b.dataset.id,contacted:+b.dataset.c})});location.reload()});
+document.addEventListener('change',async e=>{const s=e.target.closest('select.stage');if(!s)return;s.disabled=true;await fetch('/admin/stage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+s.dataset.id,stage:s.value})});location.reload()});
+</script></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+
+async function pipelinePage(env) {
+  await ensureTable(env.DB);
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at FROM leads WHERE type = 'quote' ORDER BY id DESC LIMIT 1000").all();
+  const data = results.map(l => ({ ...l, ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
+  const payload = JSON.stringify({ stages: STAGES, leads: data }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Pipeline | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed;height:100vh;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.sum{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:7px 13px}.stat b{display:block;font-size:19px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.g b{color:#32cd32}
+.board{flex:1;display:flex;gap:12px;padding:14px 22px 22px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
+.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
+.col.over{border-color:#32cd32;background:#0d140f}.col h2{font-size:13px;margin:0;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;text-transform:uppercase;letter-spacing:.7px;color:#c3c8cf}
+.col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-done h2{color:#7fe07f}
+.cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
+.card{background:#12171e;border:1px solid #232a33;border-radius:11px;padding:11px 12px;cursor:grab}.card:hover{border-color:#3a4552}.card.drag{opacity:.4}
+.card b{display:block;font-size:15px}.card .meta{color:#98a0aa;font-size:13px;margin-top:2px}.card .row span:first-child{white-space:nowrap}.card .row{display:flex;justify-content:space-between;gap:8px;margin-top:8px;align-items:center;color:#7c838d;font-size:12px}
+.pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#171c23;color:#aab0b9}.pill.ad{background:#14263f;color:#8ec0ff}.pill.val{background:#16301a;color:#7fe07f;font-weight:700}
+.empty{color:#586069;font-size:13px;text-align:center;padding:14px 0}
+dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(520px,94vw);max-height:92vh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.65)}
+.dh{display:flex;justify-content:space-between;gap:10px;padding:18px 20px 6px}.dh h3{margin:0;font-size:20px}.x{background:none;border:0;color:#8a9099;font-size:26px;cursor:pointer;line-height:1}
+.db{padding:6px 20px 20px;display:flex;flex-direction:column;gap:12px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:2px}
+.msg{margin:0;background:#12171e;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de}
+select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit}textarea{min-height:84px;resize:vertical}
+.acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}.btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#32cd32;border-color:#32cd32;color:#04120a;margin-left:auto}
+@media(max-width:700px){.board{padding:12px 12px 20px}.col{flex-basis:84vw}header{padding:12px 14px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>pipeline</b></h1>${nav("pipeline")}<div class="sum" id="sum"></div></header>
+<div class="board" id="board"></div>
+<dialog id="dlg"></dialog>
+<script type="application/json" id="data">${payload}</script>
+<script>
+const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.leads,board=document.getElementById('board'),dlg=document.getElementById('dlg');
+const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
+function draw(){
+  let open=0,won=0,booked=0;
+  board.innerHTML=S.map(([k,n])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);
+    if(k==='new')open=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot;
+    return '<section class="col s-'+k+'" data-stage="'+k+'"><h2>'+n+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+
+    (ls.map(l=>'<article class="card" draggable="true" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div></article>').join('')||'<div class="empty">Drop leads here</div>')+'</div></section>';}).join('');
+  document.getElementById('sum').innerHTML='<div class="stat g"><b>'+open+'</b><span>new to contact</span></div><div class="stat"><b>'+money(booked)+'</b><span>booked + done</span></div><div class="stat"><b>'+money(won)+'</b><span>completed</span></div>';
+}
+async function save(id,patch,url){const r=await fetch(url||'/admin/lead',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({id},patch))});return r.ok}
+let dragId=null;
+board.addEventListener('dragstart',e=>{const c=e.target.closest('.card');if(!c)return;dragId=+c.dataset.id;c.classList.add('drag');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(dragId))});
+board.addEventListener('dragend',()=>{dragId=null;draw()});
+board.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(!c)return;e.preventDefault();board.querySelectorAll('.col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
+board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){l.stage=st;draw();await save(l.id,{stage:st})}else draw()});
+board.addEventListener('click',e=>{const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
+function open(id){const l=L.find(x=>x.id===id);if(!l)return;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' ');
+  dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.email)+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
+  '<div class="g2"><div><label>Service</label>'+$(l.service||'-')+(l.also_interested?'<div style="color:#8a9099;font-size:13px">also: '+$(l.also_interested)+'</div>':'')+'</div><div><label>Vehicle</label>'+$(veh||'-')+'</div>'+(l.detail?'<div><label>Campaign</label>'+$(l.detail)+'</div>':'')+(l.page?'<div><label>Landed on</label>'+$(l.page)+'</div>':'')+'</div>'+
+  (l.message?'<p class="msg">&ldquo;'+$(l.message)+'&rdquo;</p>':'')+
+  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+'<a class="btn" href="mailto:'+$(l.email)+'">Email</a></div>'+
+  '<div class="g2"><div><label>Stage</label><select id="fs">'+S.map(([k,n])=>'<option value="'+k+'"'+(k===l.stage?' selected':'')+'>'+n+'</option>').join('')+'</select></div><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
+  '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
+  '<div class="acts"><button class="btn go" id="fsave">Save</button></div></div>';
+  dlg.showModal();
+  document.getElementById('fsave').onclick=async()=>{const p={stage:document.getElementById('fs').value,value:Math.max(0,parseInt(document.getElementById('fv').value||'0',10)||0),notes:document.getElementById('fn').value};if(await save(l.id,p)){Object.assign(l,p);dlg.close();draw()}}}
+draw();
 </script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
@@ -189,7 +276,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button[dat
 async function csv(env) {
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY id DESC").all();
-  const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "contacted"];
+  const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes"];
   const q = v => { let s = String(v ?? ""); if (/^[=+\-@]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
   const body = [cols.join(","), ...results.map(r => cols.map(c => q(r[c])).join(","))].join("\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="divine-detailers-leads.csv"', "cache-control": "no-store" } });
@@ -206,6 +293,8 @@ export default {
     if (onCrm) {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
       if (p === "/" || p === "/admin") return adminRoute("/admin", request, env);
+      if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
+      if (p === "/admin/stage" || p === "/admin/lead") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/favicon.ico" || p.startsWith("/assets/favicon")) return env.ASSETS.fetch(request);
@@ -234,9 +323,18 @@ async function adminRoute(p, request, env) {
   if (!env.DB) return new Response("Lead database is not configured.", { status: 503 });
   if (p === "/admin") return adminPage(env);
   if (p === "/admin/leads.csv") return csv(env);
-  if (p === "/admin/contacted" && request.method === "POST") {
-    const { id, contacted } = await request.json().catch(() => ({}));
-    if (Number.isInteger(id)) await env.DB.prepare("UPDATE leads SET contacted = ? WHERE id = ?").bind(contacted ? 1 : 0, id).run();
+  if (p === "/admin/pipeline") return pipelinePage(env);
+  if ((p === "/admin/stage" || p === "/admin/lead") && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    const sets = [], vals = [];
+    if (typeof b.stage === "string" && STAGE_KEYS.includes(b.stage)) { sets.push("stage = ?", "contacted = ?", "stage_changed_at = datetime('now')"); vals.push(b.stage, b.stage === "new" ? 0 : 1); }
+    if (p === "/admin/lead") {
+      if (Number.isFinite(b.value)) { sets.push("value = ?"); vals.push(Math.max(0, Math.min(10000000, Math.floor(b.value)))); }
+      if (typeof b.notes === "string") { sets.push("notes = ?"); vals.push(b.notes.slice(0, 4000)); }
+    }
+    if (!sets.length) return json({ success: false }, 400);
+    await env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id).run();
     return json({ success: true });
   }
   return new Response("Not found", { status: 404 });
