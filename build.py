@@ -800,6 +800,11 @@ def build_projects():
             ("Detailing", "bmw7-wash", "BMW 7 Series wash and detail", "Divine Detailers explaining the signature wash package on a white BMW 7 Series", True),
             ("Detailing Ceramic", "tesla-wash", "Tesla signature wash and sealant", "Divine Detailers explaining the signature wash and sealant on a black Tesla", True),
             ("Detailing", "x6-calipers", "BMW X6 M brake caliper cleaning", "Divine Detailers explaining brake caliper and wheel cleaning on a BMW X6 M", True),
+            ("Detailing", "sclass-interior", "Mercedes S-Class interior shampoo and conditioning", "Divine Detailers explaining an interior shampoo, exfoliation and leather conditioning on a Mercedes S-Class", True),
+            ("Detailing", "bugatti-wash", "Bugatti Chiron Pur Sport wash", "Technicians hand washing a purple Bugatti Chiron Pur Sport in a driveway", False),
+            ("Ceramic", "wheel-ceramic", "Ceramic coating for wheels", "Divine Detailers explaining ceramic coating on BMW wheels and rims", True),
+            ("Detailing", "mobile-showroom", "Mobile detailing: Ferrari and Lamborghini", "Divine Detailers explaining keeping a Ferrari and Lamborghini showroom clean with mobile detailing", True),
+            ("Detailing", "mobile-schedule", "Mobile detailing that fits your schedule", "Divine Detailers explaining mobile detailing at your home with a Rolls-Royce Cullinan and Porsche GT3", True),
             ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
             ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
             ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
