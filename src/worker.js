@@ -31,7 +31,8 @@ async function ensureTable(db) {
       make TEXT, year TEXT, model TEXT, message TEXT,
       page TEXT, referrer TEXT, gclid TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_term TEXT,
       ip TEXT, user_agent TEXT, contacted INTEGER NOT NULL DEFAULT 0, notes TEXT,
-      stage TEXT NOT NULL DEFAULT 'new', value INTEGER NOT NULL DEFAULT 0, stage_changed_at TEXT)`),
+      stage TEXT NOT NULL DEFAULT 'new', value INTEGER NOT NULL DEFAULT 0, stage_changed_at TEXT,
+      call_id TEXT, duration INTEGER, recording TEXT, answered INTEGER, tracking_number TEXT)`),
     db.prepare("CREATE INDEX IF NOT EXISTS leads_created ON leads (created_at)"),
   ]);
   // upgrade tables created before the pipeline existed
@@ -44,9 +45,81 @@ async function ensureTable(db) {
       db.prepare("UPDATE leads SET stage = 'contacted' WHERE contacted = 1"),
     ]);
   }
+  if (!cols.includes("call_id")) {
+    await db.batch([
+      db.prepare("ALTER TABLE leads ADD COLUMN call_id TEXT"),
+      db.prepare("ALTER TABLE leads ADD COLUMN duration INTEGER"),
+      db.prepare("ALTER TABLE leads ADD COLUMN recording TEXT"),
+      db.prepare("ALTER TABLE leads ADD COLUMN answered INTEGER"),
+      db.prepare("ALTER TABLE leads ADD COLUMN tracking_number TEXT"),
+    ]);
+  }
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
+
+
+// ---------------------------------------------------------------- CallRail (post-call webhook)
+// In CallRail: Settings > Integrations > Webhooks > Post-Call, URL: https://<site>/api/callrail?key=<CALLRAIL_KEY>
+const num = v => (v === undefined || v === null || v === "" ? null : Number(v));
+const bool = v => (v === true || v === "true" || v === 1 || v === "1" ? 1 : v === false || v === "false" || v === 0 || v === "0" ? 0 : null);
+function sqlTime(v) {
+  const d = v ? new Date(v) : new Date();
+  const t = isNaN(d) ? new Date() : d;
+  return t.toISOString().slice(0, 19).replace("T", " ");
+}
+function safeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+async function handleCallrail(request, env, url) {
+  if (!env.CALLRAIL_KEY) return json({ success: false, message: "CALLRAIL_KEY is not set" }, 503);
+  if (!safeEqual(url.searchParams.get("key") || "", env.CALLRAIL_KEY)) return json({ success: false }, 401);
+  if (!env.DB) return json({ success: false, message: "Lead storage is not configured" }, 503);
+  let c;
+  try { c = await request.json(); } catch { return json({ success: false, message: "Bad request" }, 400); }
+  await ensureTable(env.DB);
+  const phone = clean(c.customer_phone_number || c.caller_number || c.formatted_customer_phone_number || c.customer_phone || "", 40);
+  let name = clean(c.customer_name || c.resolved_customer_name || c.caller_name || "", 120);
+  if (/^(unknown|anonymous|private|null)$/i.test(name) || name === phone) name = "";
+  const answered = bool(c.answered);
+  const voicemail = bool(c.voicemail) === 1;
+  const src = clean(c.formatted_tracking_source || c.source || c.utm_source || "", 120);
+  const rec = clean(c.recording_player || c.recording || "", 500);
+  const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
+  const dir = clean(String(c.direction || ""), 20);
+  const row = {
+    created: sqlTime(c.start_time || c.created_at), name, phone, call_id: callId,
+    duration: num(c.duration), recording: rec, answered, tracking: clean(c.tracking_phone_number || c.formatted_tracking_phone_number || "", 40),
+    page: clean(c.landing_page_url || c.last_requested_url || "", 500), referrer: clean(c.referrer_domain || c.referrer || "", 300),
+    gclid: clean(c.gclid || "", 300), utm_source: clean(c.utm_source || src, 200), utm_medium: clean(c.utm_medium || (c.medium || "call"), 200),
+    utm_campaign: clean(c.utm_campaign || c.campaign || "", 200), utm_term: clean(c.utm_term || c.keywords || "", 200),
+    message: [dir === "outbound" ? "Outbound call" : "", voicemail ? "Left a voicemail" : answered === 0 ? "Missed call, call back" : "", c.first_call === true || c.first_call === "true" ? "First-time caller" : "", [c.customer_city, c.customer_state].filter(Boolean).join(", ")].filter(Boolean).join(" · "),
+  };
+  if (!phone && !callId) return json({ success: false, message: "No call data" }, 422);
+  const existing = callId ? await env.DB.prepare("SELECT id FROM leads WHERE call_id = ?").bind(callId).first() : null;
+  if (existing) {
+    // CallRail sends the webhook again when a call is updated (recording ready, tags): keep the person's edits, refresh call facts
+    await env.DB.prepare("UPDATE leads SET duration = ?, recording = ?, answered = ? WHERE id = ?").bind(row.duration, row.recording, row.answered, existing.id).run();
+    return json({ success: true, updated: true });
+  }
+  await env.DB.prepare(`INSERT INTO leads (created_at,type,name,phone,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,call_id,duration,recording,answered,tracking_number,email)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(row.created, "call", row.name, row.phone, row.message, row.page, row.referrer, row.gclid, row.utm_source, row.utm_medium, row.utm_campaign, row.utm_term, row.call_id, row.duration, row.recording, row.answered, row.tracking, "").run();
+  return json({ success: true });
+}
+
+async function addLead(request, env) {
+  const b = await request.json().catch(() => ({}));
+  const name = clean(b.name, 120), phone = clean(b.phone, 40), email = clean(b.email, 200);
+  if (!name && !phone && !email) return json({ success: false, message: "Add a name, phone or email" }, 422);
+  const source = clean(b.source, 60) || "Phone call";
+  await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,make,year,model,message,utm_source,utm_medium,stage)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(/call/i.test(source) ? "call" : "manual", name, email, phone, clean(b.service, 100), clean(b.make, 60), clean(b.year, 10), clean(b.model, 80), clean(b.notes, 2000), source, "manual", STAGE_KEYS.includes(b.stage) ? b.stage : "new").run();
+  return json({ success: true });
+}
 
 async function handleLead(request, env, ctx) {
   let data;
@@ -127,6 +200,13 @@ function authed(request, env) {
 }
 const challenge = () => new Response("Sign in", { status: 401, headers: { "www-authenticate": 'Basic realm="Divine Detailers leads", charset="UTF-8"' } });
 
+const mmss = n => (n || n === 0 ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : "");
+function callTag(l) {
+  if (l.type !== "call") return "";
+  if (/voicemail/i.test(l.message || "")) return '<span class="tag miss">Voicemail</span>';
+  if (l.answered === 0) return '<span class="tag miss">Missed call</span>';
+  return `<span class="tag call">Call${l.duration ? " · " + mmss(l.duration) : ""}</span>`;
+}
 const stageName = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
 const crmPrefix = env => ""; // paths are the same on every host
 function nav(on) {
@@ -153,6 +233,10 @@ function when(sqlUtc) {
   return { ago, abs };
 }
 function sourceOf(l) {
+  if (l.type === "call" && !l.gclid && l.utm_medium !== "cpc") {
+    const g = /google ads|adwords|ppc|paid/i.test(l.utm_source || "");
+    return { label: g ? "Google Ads" : (l.utm_source || "Phone call"), ad: g, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
+  }
   if (l.gclid || l.utm_medium === "cpc") return { label: "Google Ads", ad: true, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
   if (l.utm_source) return { label: l.utm_source, ad: false, detail: l.utm_campaign || "" };
   if (l.referrer) { try { return { label: new URL(l.referrer).hostname.replace(/^www\./, ""), ad: false, detail: "" }; } catch { /* ignore */ } }
@@ -170,7 +254,7 @@ async function adminPage(env) {
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
     return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : l.stage === "new" ? "new" : ""}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.stage === "new" ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
       <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
-        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}</div></div>
+        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}${callTag(l)}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}</div></div>
       <div class="grid">
         ${l.service ? `<div><label>Service</label>${esc(l.service)}${l.also_interested ? `<small>also: ${esc(l.also_interested)}</small>` : ""}</div>` : ""}
         ${veh ? `<div><label>Vehicle</label>${esc(veh)}</div>` : ""}
@@ -178,6 +262,7 @@ async function adminPage(env) {
         ${l.page ? `<div><label>Landed on</label>${esc(l.page)}</div>` : ""}
       </div>
       ${l.message ? `<p class="msg">&ldquo;${esc(l.message)}&rdquo;</p>` : ""}
+      ${l.recording ? `<a class="rec" href="${esc(l.recording)}" target="_blank" rel="noopener">Listen to the call</a>` : ""}
       <div class="actions">${tel ? `<a class="btn call" href="tel:${esc(tel)}">Call ${esc(l.phone)}</a>` : ""}<a class="btn" href="mailto:${esc(l.email)}">Email</a>
         <select class="btn stage" data-id="${l.id}" aria-label="Stage">${STAGES.map(([k, n]) => `<option value="${k}"${k === l.stage ? " selected" : ""}>${n}</option>`).join("")}</select></div>
     </article>`;
@@ -199,7 +284,7 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 .lead{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}.lead.new{border-color:#244d2a}.lead.done{opacity:.6}
 .top{display:flex;justify-content:space-between;gap:10px}h3{margin:0;font-size:17px}.when{color:#8a9099;font-size:12.5px;margin-top:2px}
 .tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}.tag{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#171c23;color:#aab0b9;white-space:nowrap}
-.tag.ad{background:#14263f;color:#8ec0ff}.tag.hot{background:#32cd32;color:#04120a;font-weight:700}.tag.ok{background:#1a2a1c;color:#7fe07f}.tag.nl{background:#2b2411;color:#f0c050}
+.tag.ad{background:#14263f;color:#8ec0ff}.tag.call{background:#2a1f3d;color:#c9a8ff}.tag.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}.rec{color:#8ec0ff;font-size:13px}.tag.hot{background:#32cd32;color:#04120a;font-weight:700}.tag.ok{background:#1a2a1c;color:#7fe07f}.tag.nl{background:#2b2411;color:#f0c050}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:1px}small{display:block;color:#8a9099}
 .msg{margin:0;background:#10141a;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 13px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
@@ -218,7 +303,7 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 </style></head>
 <body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads")}
 <div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div><div class="stat"><b>${ads}</b><span>from Google Ads</span></div></div></header>
-<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
+<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
 ${bnav("leads")}
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
 <script>
@@ -233,8 +318,8 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 
 async function pipelinePage(env) {
   await ensureTable(env.DB);
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at FROM leads WHERE type = 'quote' ORDER BY id DESC LIMIT 1000").all();
-  const data = results.map(l => ({ ...l, ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY id DESC LIMIT 1000").all();
+  const data = results.map(l => ({ ...l, dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
   const payload = JSON.stringify({ stages: STAGES, leads: data }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Pipeline | Divine Detailers</title>
 <style>
@@ -249,7 +334,8 @@ h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.nav
 .cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
 .card{background:#12171e;border:1px solid #232a33;border-radius:11px;padding:11px 12px;cursor:grab}.card:hover{border-color:#3a4552}.card.drag{opacity:.4}
 .card b{display:block;font-size:15px}.card .meta{color:#98a0aa;font-size:13px;margin-top:2px}.card .row span:first-child{white-space:nowrap}.card .row{display:flex;justify-content:space-between;gap:8px;margin-top:8px;align-items:center;color:#7c838d;font-size:12px}
-.pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#171c23;color:#aab0b9}.pill.ad{background:#14263f;color:#8ec0ff}.pill.val{background:#16301a;color:#7fe07f;font-weight:700}
+.pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#171c23;color:#aab0b9}.pill.ad{background:#14263f;color:#8ec0ff}.pill.val{background:#16301a;color:#7fe07f;font-weight:700}.pill.call{background:#2a1f3d;color:#c9a8ff}.pill.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}
+details.ed{border:1px solid #232a33;border-radius:12px;padding:10px 12px}details.ed summary{cursor:pointer;font-weight:600;color:#c3c8cf;min-height:30px;display:flex;align-items:center}details.ed .g2{margin-top:10px}.rec{color:#8ec0ff}.addb{background:#32cd32;color:#04120a;border:0;border-radius:999px;padding:9px 16px;font:inherit;font-weight:800;cursor:pointer}
 .empty{color:#586069;font-size:13px;text-align:center;padding:14px 0}
 dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(520px,94vw);max-height:92vh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.65)}
 .dh{display:flex;justify-content:space-between;gap:10px;padding:18px 20px 6px}.dh h3{margin:0;font-size:20px}.x{background:none;border:0;color:#8a9099;font-size:26px;cursor:pointer;line-height:1}
@@ -275,7 +361,7 @@ ${BNAV_CSS}
   .chips{display:flex;flex-wrap:wrap;gap:8px}.chips button{min-height:44px;padding:0 14px;border-radius:999px;border:1px solid #2a313a;background:#12171e;color:#e8eaed;font:inherit;cursor:pointer}.chips button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 }
 </style></head><body>
-<header><h1>Divine Detailers <b>pipeline</b></h1>${nav("pipeline")}<div class="sum" id="sum"></div></header>
+<header><h1>Divine Detailers <b>pipeline</b></h1>${nav("pipeline")}<div class="sum" id="sum"></div><button class="addb" id="addb" type="button">+ Add lead</button></header>
 <div class="tabs" id="tabs"></div>
 ${bnav("pipeline")}
 <div class="board" id="board"></div>
@@ -285,7 +371,7 @@ ${bnav("pipeline")}
 const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.leads,board=document.getElementById('board'),dlg=document.getElementById('dlg');
 const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
 const M=window.matchMedia('(max-width:700px)');let cur='new';
-function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="tel:'+$(tel)+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
+function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="tel:'+$(tel)+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
 function draw(){
   let open=0,won=0,booked=0;
   S.forEach(([k])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);if(k==='new')open=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot});
@@ -312,17 +398,25 @@ board.addEventListener('dragend',()=>{dragId=null;draw()});
 board.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(!c)return;e.preventDefault();board.querySelectorAll('.col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
 board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){l.stage=st;draw();await save(l.id,{stage:st})}else draw()});
 board.addEventListener('click',e=>{if(e.target.closest('[data-stop]'))return;const d=e.target.closest('[data-open]');if(d){open(+d.dataset.open);return}const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
-function open(id){const l=L.find(x=>x.id===id);if(!l)return;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' ');
-  dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.email)+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
+const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction','Vinyl Wraps','Exterior Detailing','Other'];
+function open(id){const l=L.find(x=>x.id===id);if(!l)return;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
+  const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
+  dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
+  (isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+(l.recording?' &middot; <a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a>':'')+'</div>':'')+
   '<div class="g2"><div><label>Service</label>'+$(l.service||'-')+(l.also_interested?'<div style="color:#8a9099;font-size:13px">also: '+$(l.also_interested)+'</div>':'')+'</div><div><label>Vehicle</label>'+$(veh||'-')+'</div>'+(l.detail?'<div><label>Campaign</label>'+$(l.detail)+'</div>':'')+(l.page?'<div><label>Landed on</label>'+$(l.page)+'</div>':'')+'</div>'+
   (l.message?'<p class="msg">&ldquo;'+$(l.message)+'&rdquo;</p>':'')+
-  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+'<a class="btn" href="mailto:'+$(l.email)+'">Email</a></div>'+
+  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+'</div>'+
+  ed+
   '<div><label>Stage</label><div class="chips" id="fchips">'+S.map(([k,n])=>'<button type="button" data-k="'+k+'" class="'+(k===l.stage?'on':'')+'">'+n+'</button>').join('')+'</div></div><div class="g2"><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
   '<div class="acts"><button class="btn go" id="fsave">Save</button></div></div>';
   dlg.showModal();
   let stg=l.stage;document.getElementById('fchips').onclick=e=>{const b=e.target.closest('button[data-k]');if(!b)return;stg=b.dataset.k;document.querySelectorAll('#fchips button').forEach(x=>x.classList.toggle('on',x===b))};
-  document.getElementById('fsave').onclick=async()=>{const p={stage:stg,value:Math.max(0,parseInt(document.getElementById('fv').value||'0',10)||0),notes:document.getElementById('fn').value};if(await save(l.id,p)){Object.assign(l,p);dlg.close();draw()}}}
+  document.getElementById('fsave').onclick=async()=>{const g=i=>document.getElementById(i).value.trim();const p={stage:stg,name:g('en'),phone:g('ep'),email:g('ee'),service:g('es'),make:g('em'),model:g('ed2'),year:g('ey'),value:Math.max(0,parseInt(document.getElementById('fv').value||'0',10)||0),notes:document.getElementById('fn').value};if(await save(l.id,p)){Object.assign(l,p);dlg.close();draw()}}}
+const SRCS=['Phone call','Walk-in','Text / DM','Referral','Other'];
+function openAdd(){dlg.innerHTML='<div class="dh"><h3>Add a lead</h3><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db"><div class="g2"><div><label>Name</label><input id="an" autocomplete="off"></div><div><label>Phone</label><input id="ap" type="tel" inputmode="tel"></div><div><label>Email</label><input id="ae" type="email"></div><div><label>How they reached you</label><select id="as">'+SRCS.map(x=>'<option>'+x+'</option>').join('')+'</select></div><div><label>Service</label><select id="av"><option value="">Not set</option>'+SVC.map(x=>'<option>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="am"></div><div><label>Model</label><input id="ad"></div><div><label>Year</label><input id="ay" inputmode="numeric"></div></div><div><label>Notes</label><textarea id="ano"></textarea></div><div class="acts"><button class="btn go" id="asave">Add lead</button></div></div>';dlg.showModal();
+  document.getElementById('asave').onclick=async()=>{const g=i=>document.getElementById(i).value.trim();const r=await fetch('/admin/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:g('an'),phone:g('ap'),email:g('ae'),source:g('as'),service:g('av'),make:g('am'),model:g('ad'),year:g('ay'),notes:g('ano')})});if(r.ok)location.reload();else document.getElementById('asave').textContent='Add a name or phone'}}
+document.getElementById('addb').onclick=openAdd;if(location.hash==='#add')openAdd();
 draw();
 </script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
@@ -331,8 +425,8 @@ draw();
 async function csv(env) {
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY id DESC").all();
-  const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes"];
-  const q = v => { let s = String(v ?? ""); if (/^[=+\-@]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+  const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes", "duration", "answered", "recording"];
+  const q = v => { let s = String(v ?? ""); if (/^(=|@|[+\-][^\d(\s])/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
   const body = [cols.join(","), ...results.map(r => cols.map(c => q(r[c])).join(","))].join("\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="divine-detailers-leads.csv"', "cache-control": "no-store" } });
 }
@@ -349,11 +443,17 @@ export default {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
       if (p === "/" || p === "/admin") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/favicon.ico" || p.startsWith("/assets/favicon")) return env.ASSETS.fetch(request);
       return new Response("Not found", { status: 404 });
+    }
+
+    if (p === "/api/callrail") {
+      if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
+      try { return await handleCallrail(request, env, url); }
+      catch (e) { console.error("callrail error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
     }
 
     if (p === "/api/lead") {
@@ -379,6 +479,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin") return adminPage(env);
   if (p === "/admin/leads.csv") return csv(env);
   if (p === "/admin/pipeline") return pipelinePage(env);
+  if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if ((p === "/admin/stage" || p === "/admin/lead") && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id)) return json({ success: false }, 400);
@@ -387,6 +488,9 @@ async function adminRoute(p, request, env) {
     if (p === "/admin/lead") {
       if (Number.isFinite(b.value)) { sets.push("value = ?"); vals.push(Math.max(0, Math.min(10000000, Math.floor(b.value)))); }
       if (typeof b.notes === "string") { sets.push("notes = ?"); vals.push(b.notes.slice(0, 4000)); }
+      for (const f of ["name", "email", "phone", "service", "make", "year", "model"]) {
+        if (typeof b[f] === "string") { sets.push(`${f} = ?`); vals.push(clean(b[f], f === "email" ? 200 : 120)); }
+      }
     }
     if (!sets.length) return json({ success: false }, 400);
     await env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id).run();

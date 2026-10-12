@@ -67,3 +67,10 @@ Local test: `npx wrangler dev` (put `ADMIN_PASSWORD=...` in a `.dev.vars` file, 
 3. The site then lives at `divinedetailers.com` / `www.divinedetailers.com`, and the lead dashboard at `https://crm.divinedetailers.com` (it serves only the dashboard; `/admin` on any other host redirects there).
 4. Optional hardening: protect `crm.divinedetailers.com` with Cloudflare Access (Zero Trust, free for up to 50 users) so staff sign in with their email instead of a shared password.
 5. Email: verify `divinedetailers.com` at Resend and set `NOTIFY_FROM` to e.g. `Divine Detailers <leads@divinedetailers.com>`.
+
+### Phone calls from CallRail
+Calls tracked by CallRail show up in the same Leads list and Pipeline as web form leads (tagged Call, Missed call or Voicemail, with duration, source, campaign and a link to the recording).
+1. Choose a long random string and save it as the Cloudflare secret `CALLRAIL_KEY`.
+2. In CallRail: Settings > Integrations > Webhooks > add a **Post-Call** webhook with the URL `https://<your site>/api/callrail?key=<CALLRAIL_KEY>` (use the main domain, not the crm. address).
+3. Every finished call creates one lead (a second webhook for the same call only refreshes duration and recording, it does not overwrite edits).
+4. Callers CallRail does not know show up as a number only. Open the lead (Details) and use **Edit contact and vehicle** to add the name, service and car. **+ Add lead** records walk-ins, texts or calls that were not tracked.
