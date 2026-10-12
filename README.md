@@ -35,3 +35,14 @@ With a key set, submissions are emailed to you and the visitor lands on `thanks.
 - `python3 build.py` also writes `styles.min.css` and `script.min.js` (minified, with a content hash in the link so they can be cached for a year). Edit `styles.css` / `script.js`, never the `.min` files. For minifying, run `pip install rcssmin rjsmin` once.
 - `_headers` sets cache rules for Cloudflare/Netlify. `.assetsignore` keeps source files off the public site.
 - Wide photos ship at 720 / 1000 / 1600 px and phones pick the smallest that fits.
+
+## Adding photos later (service pages)
+
+Service pages no longer show empty "Photo" boxes. A slot with no photo is simply left out and the section becomes text-only
+(`.noimg`). To switch a slot on, register the photo in `PHOTOS` in `build.py` and point the slot at its key:
+
+- Page banner / "impact" photo / "why trust us" photo: `SERVICE_PHOTOS[slug] = (impact_key, why_key)` and `WHY_PHOTO`.
+- Alternating text + photo rows: the last item of each tuple in that page's `rows=[...]` in `EXTRA`.
+- Package pictures (the 4 cards): add `slug: (folder, {"Package name": "file-stem"})` to `PIMG_ALL` in `build_service`.
+
+Pages currently without photos: Vinyl Wraps (all slots), plus the package pictures on Paint Correction and Exterior Detailing.

@@ -698,7 +698,7 @@ def build_service(slug, title, short):
     PIMG_ALL = {"window-tinting": ("tint", {"Two windows": "two-windows", "Full tint": "full-tint", "Windshield": "windshield", "Sunvisor strip": "sunvisor-strip"}),
                 "paint-protection-film": ("ppf", {"Partial Front": "highway", "Full Front": "full-front", "Track Package": "individual-panels", "Full Protection": "full-body"})}
     PDIR, PIMG = PIMG_ALL.get(slug, ("", {}))
-    pimg = lambda t: (f'<div class="pimg"><img src="assets/{PDIR}/{PIMG[t]}.webp" alt="{t} package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '<div class="pimg">Photo</div>')
+    pimg = lambda t: (f'<div class="pimg"><img src="assets/{PDIR}/{PIMG[t]}.webp" alt="{t} package at the Divine Detailers shop" width="960" height="559" loading="lazy"></div>' if t in PIMG else '')
     pk = "".join(f'<div class="pkg">{pimg(t)}<h3>{t}</h3><ul>{"".join(f"<li>{i}</li>" for i in items)}</ul></div>' for t, items in d["packages"])
     nums = "".join(f'<div><b>{n}</b><span>{l}</span></div>' for n, l in d["nums"])
     tiles = "".join(f'<div class="tile"><span class="kick">{k}</span><h3>{h}</h3><p>{p}</p></div>' for k, h, p in d["tiles"])
@@ -717,7 +717,7 @@ def build_service(slug, title, short):
         faq = '<section class="sec" id="faq"><div class="wrap"><div class="center"><span class="chip">FAQ</span><h2>Everything you wanted to <em>know</em></h2></div><div class="faq">' + "".join(faq_block(items) for _, items, _ in d["faq"]) + "</div></div></section>"
     ik, wk = SERVICE_PHOTOS[slug]
     bk = wk or ik
-    band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '<div class="band" aria-hidden="true"><span>Photo / video</span></div>')
+    band = (f'<div class="band has-photo" aria-hidden="true">{photo(bk, 1600, BAND_POS[bk], alt=False)}</div>' if bk else '')
     if slug == "window-tinting":
         feats = "".join(f'<div class="cf"><h3>{h}</h3><p>{p}</p></div>' for _, h, p in d["tiles"])
         band = f'''<section class="cpp"><div class="cpp-img">{photo("tdoor", 1600, "50% 45%", alt=True)}</div><div class="cpp-txt"><h2>Comfort, privacy, and protection</h2><p>We install premium ceramic window film that rejects heat, cuts glare and blocks harmful UV rays, so every drive in Miami&rsquo;s sun feels cooler and more comfortable.</p><div class="cfs">{feats}</div></div></section>'''
@@ -736,17 +736,17 @@ def build_service(slug, title, short):
     for i, (kick, h2, p1, p2, key) in enumerate(x["rows"]):
         rev = " rev" if i % 2 else ""
         p2h = f"<p>{p2}</p>" if p2 else ""
-        rows += f'<section class="feat{rev}"><div class="txt"><span class="kick">{kick}</span><h2>{h2}</h2><p>{p1}</p>{p2h}</div>{photo_box(key)}</section>'
+        rows += f'<section class="feat{rev}{"" if key else " noimg"}"><div class="txt"><span class="kick">{kick}</span><h2>{h2}</h2><p>{p1}</p>{p2h}</div>{photo_box(key) if key else ""}</section>'
     portfolio = f'<section class="sec"><div class="wrap center"><span class="chip">Our Portfolio</span><h2>Real vehicles. Real work. <em>Real results.</em></h2><div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf")}</div><div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div></section>'
     video = ""
     if slug == "window-tinting":
         video = f'''<section class="sec vid-sec"><div class="wrap"><div class="split"><div><span class="chip">Watch it done</span><h2>See a tint install <em>start to finish</em></h2><p>Every film is cut to fit, applied wet and squeegeed flat in a clean bay. Watch how our installers handle the glass on a real car.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div><div class="vid"><video controls playsinline preload="none" poster="assets/video/tint-install-poster.webp" width="540" height="960"><source src="assets/video/tint-install.mp4" type="video/mp4"></video></div></div></div></section>'''
     body += f'''{stripes()}{partners()}
 <section class="sec hl-sec"><div class="wrap"><h2 class="center">{x["hl_h"]}</h2>{hl_intro}<div class="hls">{hl}</div></div></section>
-{pk_section}{stripes()}{band}{stripes()}
-<section class="sec impact-sec"><div class="wrap"><div class="split"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik)}</div></div></section>
+{pk_section}{stripes()}{band}{stripes() if band else ""}
+<section class="sec impact-sec"><div class="wrap"><div class="split{"" if ik else " noimg"}"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik) if ik else ""}</div></div></section>
 {process}{benefits}
-<section class="sec"><div class="wrap"><div class="split">{photo_box(WHY_PHOTO.get(slug, wk))}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
+<section class="sec"><div class="wrap"><div class="split{"" if WHY_PHOTO.get(slug, wk) else " noimg"}">{photo_box(WHY_PHOTO.get(slug, wk)) if WHY_PHOTO.get(slug, wk) else ""}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
 {rows}{portfolio}{faq}{cta_banner()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
 
