@@ -105,7 +105,9 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
       const res = await fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(f)).toString() });
       if (!res.ok) throw new Error('not ok');
     }
-    window.location.href = 'thanks.html';
+    const kind = f.getAttribute('name') === 'newsletter' ? 'newsletter' : 'quote';
+    const svc = f.querySelector('[name=service]');
+    window.location.href = 'thanks.html?type=' + kind + (svc && svc.value ? '&service=' + encodeURIComponent(svc.value) : '');
   } catch (err) {
     btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
     setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
@@ -211,4 +213,27 @@ if (yr) yr.textContent = new Date().getFullYear();
   }));
   modal.addEventListener('click', e => { if (e.target === modal || e.target.classList.contains('vclose')) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) close(); });
+})();
+
+// Analytics hooks (GTM / gtag read window.dataLayer): call taps and form leads are separate events
+(() => {
+  window.dataLayer = window.dataLayer || [];
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[href^="tel:"]');
+    if (a) window.dataLayer.push({ event: 'call_click', location: a.closest('header') ? 'header' : a.classList.contains('callfab') ? 'floating_bar' : 'page' });
+  });
+  // Thank-you page: fire one lead event per form fill and tailor the message
+  if (document.getElementById('thH1')) {
+    const q = new URLSearchParams(location.search), type = q.get('type');
+    if (type === 'newsletter') {
+      document.getElementById('thChip').textContent = 'You are subscribed';
+      document.getElementById('thH1').innerHTML = 'Welcome <em>aboard.</em>';
+      document.getElementById('thLead').textContent = 'Thanks for joining. You will get car care tips and offers from Divine Detailers. Need something sooner? Give us a call.';
+      const n = document.getElementById('thNext'); if (n) n.hidden = true;
+    } else {
+      const svc = q.get('service');
+      if (svc) document.getElementById('thLead').textContent = 'We received your request for ' + svc + '. A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book.';
+      window.dataLayer.push({ event: 'form_lead', form: type || 'quote', service: svc || '' });
+    }
+  }
 })();

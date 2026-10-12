@@ -745,3 +745,15 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .ah-row p{max-width:640px;color:var(--muted);font-size:1.05rem;line-height:1.55;margin:0}
 .ah-row .btn{flex:none;width:auto;white-space:nowrap}
 @media(max-width:860px){.about-hero{padding:56px 0 40px}.ah-row{flex-direction:column;align-items:stretch;gap:26px}.ah-row .btn{width:100%;justify-content:center}}
+
+/* thank-you page (call-first) */
+.thanks-hero{padding:90px 0 60px;text-align:center;border-bottom:1px solid var(--line)}
+.thanks-hero h1{font-size:clamp(2.2rem,6vw,4rem);text-transform:uppercase;margin-bottom:16px}
+.thanks-hero .lead{max-width:640px;margin:0 auto 30px}
+.th-call{display:flex;flex-direction:column;align-items:center;gap:12px}
+.th-call .btn{width:auto;min-width:300px;min-height:64px;font-size:1.15rem}
+.th-call small{color:var(--muted)}
+.th-steps{display:grid;grid-template-columns:repeat(3,1fr);margin-top:34px;border:1px solid var(--line)}
+.th-steps .hl{border:0;border-left:1px solid var(--line)}.th-steps .hl:first-child{border-left:0}
+.th-meta{margin-top:34px;color:var(--muted);line-height:1.7}
+@media(max-width:860px){.thanks-hero{padding:56px 0 40px}.th-call .btn{width:100%;min-width:0}.th-steps{grid-template-columns:1fr}.th-steps .hl{border-left:0;border-top:1px solid var(--line)}.th-steps .hl:first-child{border-top:0}}

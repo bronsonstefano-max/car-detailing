@@ -259,7 +259,7 @@ def build_assets():
         if kind == "css": CSS_URL = f"{out}?v={v}"
         else: JS_URL = f"{out}?v={v}"
 
-def page(fname, title, desc, body, active=None):
+def page(fname, title, desc, body, active=None, noindex=False):
     preload = ""
     m = re.search(r'<img [^>]*src="([^"]+)"( srcset="([^"]+)" sizes="([^"]+)")?[^>]*fetchpriority="high"', body)
     if m:
@@ -272,6 +272,7 @@ def page(fname, title, desc, body, active=None):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
+{'<meta name="robots" content="noindex,nofollow">' if noindex else ''}
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/special-gothic.woff2" crossorigin>
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/manrope.woff2" crossorigin>
 <link rel="icon" type="image/png" href="assets/favicon.png">
@@ -926,8 +927,21 @@ def build_privacy():
     page("privacy-policy.html", f"Privacy Policy | {n}", "Divine Detailers privacy policy.", body)
 
 def build_thanks():
-    body = f'''<section class="sec"><div class="wrap center"><span class="chip">Thank you</span><h1>Message <em>received</em></h1><p class="lead" style="margin:16px auto 26px">Thanks for reaching out. We will get back to you shortly. For anything urgent, call {SITE['phone']}.</p><a class="btn" href="index.html">Back to home</a></div></section>'''
-    page("thanks.html", f"Thank You | {SITE['name']}", "Thanks for contacting Divine Detailers.", body)
+    ico = '''<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>'''
+    body = f'''<section class="thanks-hero"><div class="wrap">
+  <span class="chip" id="thChip">Request received</span>
+  <h1 id="thH1">Thanks, <em>we got it.</em></h1>
+  <p class="lead" id="thLead">A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book your appointment.</p>
+  <div class="th-call"><a class="btn" id="thCall" href="tel:{SITE['tel']}" data-track="call_click">{ico}<b>Call Now</b><span>{SITE['phone']}</span></a><small>Prefer to wait? No problem. We will contact you soon.</small></div>
+</div></section>
+<section class="sec" id="thNext"><div class="wrap"><h2 class="center">What happens <em>next</em></h2>
+<div class="th-steps"><div class="hl"><h3>1. We review your request</h3><p>We look at your vehicle and the service you asked about so we can give you a straight answer.</p></div>
+<div class="hl"><h3>2. We reach out</h3><p>Expect a call or message from us shortly with options and pricing. Calling us first gets you answered fastest.</p></div>
+<div class="hl"><h3>3. We book your car in</h3><p>Pick a time at the shop, or have our mobile detailing van come to you.</p></div></div></div></section>
+<section class="sec" id="thMore" style="padding-top:20px"><div class="wrap center"><span class="chip">While you wait</span><h2>See our <em>recent work</em></h2>
+<div class="btn-row" style="margin-top:22px"><a class="btn" href="projects.html">Watch our projects</a><a class="btn gray" href="services.html">Browse services</a></div>
+<p class="th-meta">{SITE['addr1']}, {SITE['addr2']}<br>{SITE['hours'][0]} &middot; {SITE['hours'][1]}<br><a href="https://www.instagram.com/divinedetailer" target="_blank" rel="noopener">Follow us on Instagram</a></p></div></section>'''
+    page("thanks.html", f"Thank You | {SITE['name']}", "Thanks for contacting Divine Detailers.", body, noindex=True)
 
 if __name__ == "__main__":
     build_assets()
