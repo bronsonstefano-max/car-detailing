@@ -106,8 +106,9 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
       if (!res.ok) throw new Error('not ok');
     }
     const kind = f.getAttribute('name') === 'newsletter' ? 'newsletter' : 'quote';
-    const svc = f.querySelector('[name=service]');
-    window.location.href = 'thanks.html?type=' + kind + (svc && svc.value ? '&service=' + encodeURIComponent(svc.value) : '');
+    const svc = f.querySelector('[name=service]'), nm = f.querySelector('[name=name]');
+    try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '' })); } catch (_) {}
+    window.location.href = 'thanks.html?type=' + kind;
   } catch (err) {
     btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
     setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
@@ -222,18 +223,29 @@ if (yr) yr.textContent = new Date().getFullYear();
     const a = e.target.closest && e.target.closest('a[href^="tel:"]');
     if (a) window.dataLayer.push({ event: 'call_click', location: a.closest('header') ? 'header' : a.classList.contains('callfab') ? 'floating_bar' : 'page' });
   });
-  // Thank-you page: fire one lead event per form fill and tailor the message
+  // Thank-you page: tailor the message (name and service come from sessionStorage, never the URL), fire one lead event
   if (document.getElementById('thH1')) {
-    const q = new URLSearchParams(location.search), type = q.get('type');
+    const q = new URLSearchParams(location.search);
+    let lead = {};
+    try { lead = JSON.parse(sessionStorage.getItem('dd_lead') || '{}'); } catch (_) {}
+    const type = q.get('type') || lead.type || 'quote';
+    const svc = q.get('service') || lead.service || '';
+    const first = (q.get('name') || lead.name || '').split(/\s+/)[0].slice(0, 30);
+    const h1 = document.getElementById('thH1'), lead_ = document.getElementById('thLead');
     if (type === 'newsletter') {
       document.getElementById('thChip').textContent = 'You are subscribed';
-      document.getElementById('thH1').innerHTML = 'Welcome <em>aboard.</em>';
-      document.getElementById('thLead').textContent = 'Thanks for joining. You will get car care tips and offers from Divine Detailers. Need something sooner? Give us a call.';
-      const n = document.getElementById('thNext'); if (n) n.hidden = true;
+      h1.textContent = first ? 'Welcome aboard, ' + first + '.' : 'Welcome aboard.';
+      lead_.textContent = 'Thanks for joining. You will get car care tips and offers from Divine Detailers. Need something sooner? Give us a call.';
+      ['thNext'].forEach(id => { const n = document.getElementById(id); if (n) n.hidden = true; });
+      document.querySelectorAll('.th-svc').forEach(b => b.hidden = true);
     } else {
-      const svc = q.get('service');
-      if (svc) document.getElementById('thLead').textContent = 'We received your request for ' + svc + '. A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book.';
-      window.dataLayer.push({ event: 'form_lead', form: type || 'quote', service: svc || '' });
+      h1.textContent = first ? 'Thanks, ' + first + '.' : 'Thanks, we got it.';
+      const em = document.createElement('em'); em.textContent = first ? ' We got it.' : ''; h1.appendChild(em);
+      lead_.textContent = (svc && svc !== 'Other' ? 'We received your request for ' + svc.toLowerCase() + '. ' : 'We received your request. ') + 'A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book.';
+      const blocks = [...document.querySelectorAll('.th-svc')];
+      const hit = blocks.find(b => b.dataset.svc === svc) || blocks.find(b => b.dataset.svc === 'Other');
+      blocks.forEach(b => { b.hidden = b !== hit; });
+      window.dataLayer.push({ event: 'form_lead', form: type, service: svc });
     }
   }
 })();

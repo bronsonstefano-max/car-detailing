@@ -757,3 +757,7 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .th-steps .hl{border:0;border-left:1px solid var(--line)}.th-steps .hl:first-child{border-left:0}
 .th-meta{margin-top:34px;color:var(--muted);line-height:1.7}
 @media(max-width:860px){.thanks-hero{padding:56px 0 40px}.th-call .btn{width:100%;min-width:0}.th-steps{grid-template-columns:1fr}.th-steps .hl{border-left:0;border-top:1px solid var(--line)}.th-steps .hl:first-child{border-top:0}}
+
+.th-vids{max-width:1000px}
+.th-faq .faq{max-width:860px;margin:30px auto 0}
+.thanks-hero h1 em{font-style:normal;color:var(--g)}
