@@ -14,7 +14,7 @@ SITE = dict(
     email="info@divinedetailers.com",
     addr1="5181 NW 74th Ave",
     addr2="Miami, FL 33166",
-    hours=("Mon - Fri - 9:00AM - 5:00PM", "Sat - Sun - Closed"),   # placeholder hours
+    hours=("Mon - Sat - 9:00AM - 6:00PM", "Sun - Closed"),
     instagram="https://www.instagram.com/divinedetailer", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
     map_embed="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus",   # Google "Share > Embed a map" URL for the business listing
@@ -163,16 +163,40 @@ def header(active):
 
 STATUS = '<div class="status"><span class="dot"></span>Estimated Wait Time: 30 Minutes or less</div>'
 
-def quote_form(fid=None, select_default=None, extra="", status=True):
+VEHICLE_MAKES = ["Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Bugatti", "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Ferrari", "Ford", "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "Jaguar", "Jeep", "Kia", "Lamborghini", "Land Rover", "Lexus", "Lincoln", "Lotus", "Maserati", "Mazda", "McLaren", "Mercedes-Benz", "Mini", "Mitsubishi", "Nissan", "Polestar", "Porsche", "Ram", "Rivian", "Rolls-Royce", "Subaru", "Tesla", "Toyota", "Volkswagen", "Volvo", "Other"]
+
+def quote_form_short(fid=None, select_default=None):
+    """Home page step 1: four inputs, then hands off to the full form on the Contact page."""
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
+    idattr = f' id="{fid}"' if fid else ""
+    return f'''<form class="qform"{idattr} name="quote-step1" action="contact.html#quote" method="GET" data-step1>
+  {STATUS}
+  <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
+  <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
+  <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
+  <label>Service interested in*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <button class="submit" type="submit">Request Quote</button>
+</form>'''
+
+def quote_form(fid=None, select_default=None, extra="", status=True):
+    import datetime
+    opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
+    opts_also = "".join(f"<option>{o}</option>" for o in SERVICE_OPTIONS if o != "Other")
+    makes = "".join(f"<option>{m}</option>" for m in VEHICLE_MAKES)
+    y = datetime.date.today().year + 1
+    years = "".join(f"<option>{n}</option>" for n in range(y, 1989, -1)) + "<option>Older</option>"
     idattr = f' id="{fid}"' if fid else ""
     return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
   {form_extra("quote")}
   {STATUS if status else ""}
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
-  <label>Phone<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel"></label>
-  <label>Select Service*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
+  <label>Service interested in*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <label>Also interested in <span class="opt">(optional)</span><select name="also_interested" data-also><option value="">None</option>{opts_also}</select></label>
+  <label>Vehicle make*<select name="make" data-make required><option value="">Select make…</option>{makes}</select></label>
+  <label>Vehicle year*<select name="year" required><option value="">Select year…</option>{years}</select></label>
+  <label class="vm">Vehicle model*<input name="model" data-model placeholder="e.g. M3, Model Y" autocomplete="off" required></label>
   {extra}
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
@@ -259,7 +283,7 @@ def build_assets():
         if kind == "css": CSS_URL = f"{out}?v={v}"
         else: JS_URL = f"{out}?v={v}"
 
-def page(fname, title, desc, body, active=None):
+def page(fname, title, desc, body, active=None, noindex=False):
     preload = ""
     m = re.search(r'<img [^>]*src="([^"]+)"( srcset="([^"]+)" sizes="([^"]+)")?[^>]*fetchpriority="high"', body)
     if m:
@@ -272,6 +296,7 @@ def page(fname, title, desc, body, active=None):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
+{'<meta name="robots" content="noindex,nofollow">' if noindex else ''}
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/special-gothic.woff2" crossorigin>
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/manrope.woff2" crossorigin>
 <link rel="icon" type="image/png" href="assets/favicon.png">
@@ -333,6 +358,52 @@ def map_block(cls="map-embed"):
                  f'<span class="pin" aria-hidden="true"></span><b>{SITE["name"]}</b><span>{SITE["addr1"]}<br>{SITE["addr2"]}</span><em>View on Google Maps</em></a>')
     return frame, place, direc
 
+PROJECT_VIDS = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin silver wrap on a Lamborghini Urus", False),
+        ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
+        ("PPF Wraps", "f150-ppf", "Ford F-150 PPF and trim wrap", "Technicians installing paint protection film and black trim wrap on a white Ford F-150", False),
+        ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
+        ("Ceramic Correction", "correction-green", "G-Wagon polish and ceramic coating", "Technicians washing, machine polishing and ceramic coating an olive green Mercedes G-Wagon", False),
+        ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black", True),
+        ("Tint", "black-ppf", "Rolls-Royce window tint", "Technicians installing window tint on a black Rolls-Royce", False),
+        ("Detailing", "mobile-detail", "Mobile detailing: Porsche 911", "Divine Detailers explaining mobile detailing on a Porsche 911", True),
+        ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False),
+        ("PPF", "golf-ppf", "VW Golf R PPF", "Divine Detailers explaining paint protection film on a VW Golf R", True),
+        ("Tint", "porsche-tint", "Porsche 718 GT4 window tint", "Technician tinting the windows of a red Porsche 718 GT4", False),
+        ("Ceramic Detailing", "m3-ppf", "BMW M3 wash and ceramic coating", "Technicians washing and applying ceramic coating to a gray BMW M3", False),
+        ("PPF Tint", "m2-ppf", "BMW M2 CS PPF and tint", "Divine Detailers explaining paint protection film and window tint on a BMW M2 CS", True),
+        ("Wraps Tint", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a matte black wrap and window tint on a Tesla Cybertruck", True),
+        ("PPF", "p911-front-ppf", "Porsche 911 full-front PPF", "Technician explaining full-front paint protection film on a light blue Porsche 911", True),
+        ("Correction", "polish-talk", "Machine polishing explained", "Technician machine polishing a gray car while explaining paint correction", True),
+        ("Tint", "suv-tint", "Rivian window tint", "Technicians installing dark window tint on an olive green Rivian", False),
+        ("PPF", "blue-ppf", "Dodge Charger PPF", "Divine Detailers explaining paint protection film on a blue Dodge Charger", True),
+        ("Detailing", "gt3-detail", "Porsche 911 GT3 wash and detail", "Technicians washing and detailing a green Porsche 911 GT3 in a driveway", False),
+        ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True),
+        ("PPF", "ppf-install", "Jeep paint protection film install", "Technician installing clear paint protection film on the front end of a black Jeep", False),
+        ("PPF Detailing", "gt3rs-wash", "Porsche 911 GT3 RS PPF and wash", "Divine Detailers explaining paint protection film and washing a white Porsche 911 GT3 RS", True),
+        ("PPF Ceramic", "p911-turbo-talk", "Porsche 911 Turbo PPF and coating", "Divine Detailers explaining paint protection film and coatings on a gray Porsche 911 Turbo", True),
+        ("PPF Correction Ceramic", "raptor-talk", "Ford F-150 Raptor R PPF, polish and ceramic", "Divine Detailers explaining PPF, paint correction and ceramic coating on a black Ford F-150 Raptor R", True),
+        ("Ceramic Detailing", "cullinan-ceramic", "Rolls-Royce Cullinan interior ceramic", "Divine Detailers applying ceramic coating to the orange leather interior of a Rolls-Royce Cullinan", True),
+        ("PPF Detailing", "ferrari-roma-ppf", "Ferrari Roma matte PPF care", "Divine Detailers explaining matte paint protection film care on a Ferrari Roma", True),
+        ("Detailing", "aventador-wash", "Lamborghini Aventador SVJ wash", "Technician washing a gold Lamborghini Aventador SVJ in a driveway", False),
+        ("Detailing", "mobile-concept", "Mobile detailing at your door", "Divine Detailers explaining the mobile detailing service with a Lamborghini Urus and Corvette being washed", True),
+        ("Correction", "sf90-correction", "Ferrari SF90 paint correction", "Divine Detailers explaining paint correction on a red Ferrari SF90", True),
+        ("Ceramic Detailing", "superduty-ceramic", "Ford Super Duty ceramic coating wash", "Divine Detailers explaining how a ceramic coating makes a white Ford Super Duty easier to rinse", True),
+        ("Detailing", "skyline-wash", "Nissan Skyline GT-R wash", "Technicians washing and detailing a blue Nissan Skyline GT-R in a driveway", False),
+        ("Correction", "charger-correction", "Dodge Charger paint correction", "Technicians masking and machine polishing a Dodge Charger while explaining paint correction", True),
+        ("Detailing", "corvette-engine", "Corvette engine bay detail", "Divine Detailers explaining how to safely wash a Corvette engine bay", True),
+        ("PPF Detailing", "m3-matte-care", "BMW M3 matte PPF care", "Divine Detailers explaining matte paint protection film care on a BMW M3", True),
+        ("Detailing", "bmw7-wash", "BMW 7 Series wash and detail", "Divine Detailers explaining the signature wash package on a white BMW 7 Series", True),
+        ("Detailing Ceramic", "tesla-wash", "Tesla signature wash and sealant", "Divine Detailers explaining the signature wash and sealant on a black Tesla", True),
+        ("Detailing", "x6-calipers", "BMW X6 M brake caliper cleaning", "Divine Detailers explaining brake caliper and wheel cleaning on a BMW X6 M", True),
+        ("Detailing", "sclass-interior", "Mercedes S-Class interior shampoo and conditioning", "Divine Detailers explaining an interior shampoo, exfoliation and leather conditioning on a Mercedes S-Class", True),
+        ("Detailing", "bugatti-wash", "Bugatti Chiron Pur Sport wash", "Technicians hand washing a purple Bugatti Chiron Pur Sport in a driveway", False),
+        ("Ceramic", "wheel-ceramic", "Ceramic coating for wheels", "Divine Detailers explaining ceramic coating on BMW wheels and rims", True),
+        ("Detailing", "mobile-showroom", "Mobile detailing: Ferrari and Lamborghini", "Divine Detailers explaining keeping a Ferrari and Lamborghini showroom clean with mobile detailing", True),
+        ("Detailing", "mobile-schedule", "Mobile detailing that fits your schedule", "Divine Detailers explaining mobile detailing at your home with a Rolls-Royce Cullinan and Porsche GT3", True),
+        ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
+        ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
+        ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
+
 def vtile(c, n, t, a, talk, still=False):
     vid = "" if still else '<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
     return (f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
@@ -366,7 +437,7 @@ def build_home():
     <div class="hero-btns"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
   </div>
   </div>
-  <div class="qwrap">{quote_form(fid="hero-quote")}</div>
+  <div class="qwrap">{quote_form_short(fid="hero-quote")}</div>
 </section>
 {stripes()}
 {partners()}
@@ -778,51 +849,7 @@ def build_projects():
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
     # (category, file stem in assets/projects, title, alt)
     # (categories (space separated, first one is shown), file stem, title, alt, narrated)
-    vids = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin silver wrap on a Lamborghini Urus", False),
-            ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
-            ("PPF Wraps", "f150-ppf", "Ford F-150 PPF and trim wrap", "Technicians installing paint protection film and black trim wrap on a white Ford F-150", False),
-            ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
-            ("Ceramic Correction", "correction-green", "G-Wagon polish and ceramic coating", "Technicians washing, machine polishing and ceramic coating an olive green Mercedes G-Wagon", False),
-            ("Wraps", "gwagon-wrap", "Mercedes G-Wagon wrap makeover", "Mercedes G-Wagon wrap makeover finished in matte black", True),
-            ("Tint", "black-ppf", "Rolls-Royce window tint", "Technicians installing window tint on a black Rolls-Royce", False),
-            ("Detailing", "mobile-detail", "Mobile detailing: Porsche 911", "Divine Detailers explaining mobile detailing on a Porsche 911", True),
-            ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False),
-            ("PPF", "golf-ppf", "VW Golf R PPF", "Divine Detailers explaining paint protection film on a VW Golf R", True),
-            ("Tint", "porsche-tint", "Porsche 718 GT4 window tint", "Technician tinting the windows of a red Porsche 718 GT4", False),
-            ("Ceramic Detailing", "m3-ppf", "BMW M3 wash and ceramic coating", "Technicians washing and applying ceramic coating to a gray BMW M3", False),
-            ("PPF Tint", "m2-ppf", "BMW M2 CS PPF and tint", "Divine Detailers explaining paint protection film and window tint on a BMW M2 CS", True),
-            ("Wraps Tint", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a matte black wrap and window tint on a Tesla Cybertruck", True),
-            ("PPF", "p911-front-ppf", "Porsche 911 full-front PPF", "Technician explaining full-front paint protection film on a light blue Porsche 911", True),
-            ("Correction", "polish-talk", "Machine polishing explained", "Technician machine polishing a gray car while explaining paint correction", True),
-            ("Tint", "suv-tint", "Rivian window tint", "Technicians installing dark window tint on an olive green Rivian", False),
-            ("PPF", "blue-ppf", "Dodge Charger PPF", "Divine Detailers explaining paint protection film on a blue Dodge Charger", True),
-            ("Detailing", "gt3-detail", "Porsche 911 GT3 wash and detail", "Technicians washing and detailing a green Porsche 911 GT3 in a driveway", False),
-            ("Tint", "bmw-tint-talk", "BMW window tint explained", "Divine Detailers explaining ceramic window tint on a white BMW", True),
-            ("PPF", "ppf-install", "Jeep paint protection film install", "Technician installing clear paint protection film on the front end of a black Jeep", False),
-            ("PPF Detailing", "gt3rs-wash", "Porsche 911 GT3 RS PPF and wash", "Divine Detailers explaining paint protection film and washing a white Porsche 911 GT3 RS", True),
-            ("PPF Ceramic", "p911-turbo-talk", "Porsche 911 Turbo PPF and coating", "Divine Detailers explaining paint protection film and coatings on a gray Porsche 911 Turbo", True),
-            ("PPF Correction Ceramic", "raptor-talk", "Ford F-150 Raptor R PPF, polish and ceramic", "Divine Detailers explaining PPF, paint correction and ceramic coating on a black Ford F-150 Raptor R", True),
-            ("Ceramic Detailing", "cullinan-ceramic", "Rolls-Royce Cullinan interior ceramic", "Divine Detailers applying ceramic coating to the orange leather interior of a Rolls-Royce Cullinan", True),
-            ("PPF Detailing", "ferrari-roma-ppf", "Ferrari Roma matte PPF care", "Divine Detailers explaining matte paint protection film care on a Ferrari Roma", True),
-            ("Detailing", "aventador-wash", "Lamborghini Aventador SVJ wash", "Technician washing a gold Lamborghini Aventador SVJ in a driveway", False),
-            ("Detailing", "mobile-concept", "Mobile detailing at your door", "Divine Detailers explaining the mobile detailing service with a Lamborghini Urus and Corvette being washed", True),
-            ("Correction", "sf90-correction", "Ferrari SF90 paint correction", "Divine Detailers explaining paint correction on a red Ferrari SF90", True),
-            ("Ceramic Detailing", "superduty-ceramic", "Ford Super Duty ceramic coating wash", "Divine Detailers explaining how a ceramic coating makes a white Ford Super Duty easier to rinse", True),
-            ("Detailing", "skyline-wash", "Nissan Skyline GT-R wash", "Technicians washing and detailing a blue Nissan Skyline GT-R in a driveway", False),
-            ("Correction", "charger-correction", "Dodge Charger paint correction", "Technicians masking and machine polishing a Dodge Charger while explaining paint correction", True),
-            ("Detailing", "corvette-engine", "Corvette engine bay detail", "Divine Detailers explaining how to safely wash a Corvette engine bay", True),
-            ("PPF Detailing", "m3-matte-care", "BMW M3 matte PPF care", "Divine Detailers explaining matte paint protection film care on a BMW M3", True),
-            ("Detailing", "bmw7-wash", "BMW 7 Series wash and detail", "Divine Detailers explaining the signature wash package on a white BMW 7 Series", True),
-            ("Detailing Ceramic", "tesla-wash", "Tesla signature wash and sealant", "Divine Detailers explaining the signature wash and sealant on a black Tesla", True),
-            ("Detailing", "x6-calipers", "BMW X6 M brake caliper cleaning", "Divine Detailers explaining brake caliper and wheel cleaning on a BMW X6 M", True),
-            ("Detailing", "sclass-interior", "Mercedes S-Class interior shampoo and conditioning", "Divine Detailers explaining an interior shampoo, exfoliation and leather conditioning on a Mercedes S-Class", True),
-            ("Detailing", "bugatti-wash", "Bugatti Chiron Pur Sport wash", "Technicians hand washing a purple Bugatti Chiron Pur Sport in a driveway", False),
-            ("Ceramic", "wheel-ceramic", "Ceramic coating for wheels", "Divine Detailers explaining ceramic coating on BMW wheels and rims", True),
-            ("Detailing", "mobile-showroom", "Mobile detailing: Ferrari and Lamborghini", "Divine Detailers explaining keeping a Ferrari and Lamborghini showroom clean with mobile detailing", True),
-            ("Detailing", "mobile-schedule", "Mobile detailing that fits your schedule", "Divine Detailers explaining mobile detailing at your home with a Rolls-Royce Cullinan and Porsche GT3", True),
-            ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
-            ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
-            ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
+    vids = PROJECT_VIDS
     grid = "".join(vtile(*v) for v in vids)
     _old = "".join(
         f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
@@ -837,13 +864,25 @@ def build_projects():
     page("projects.html", f"Our Projects | {SITE['name']}", "Recent vehicles completed by Divine Detailers in Miami.", body, "projects")
 
 def build_about():
-    body = inner_hero("About <em>us</em>", f"{SITE['name']} is a Miami vehicle protection and detailing shop built on craft and customer care.", ['<a href="index.html">Home</a>', "About us"], form=False)
+    body = f'''<section class="about-hero"><div class="wrap"><span class="chip">About us</span>
+<h1><span class="dim">Crafting custom</span> automotive experiences</h1>
+<div class="ah-row"><p>At {SITE['name']}, we&rsquo;re passionate about turning your vehicle into a reflection of your unique style. With over 20 years of experience, our dedicated team specializes in window tint, paint protection film, ceramic coating, paint correction, vinyl wraps and detailing that elevate both the appearance and protection of your car.</p>
+<a class="btn" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></div></section>'''
+    vals = [("Craft first", "Every film is cut, every panel is prepped and every finish is checked by hand. We take the time to do it right the first time."),
+            ("Honest advice", "We tell you what your car actually needs, and what it does not. You get a clear quote before any work starts."),
+            ("Protected for Miami", "Sun, salt air, storms and traffic are hard on paint and glass. We choose products and finishes built for exactly that."),
+            ("Backed by a guarantee", "Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee.")]
+    vh = "".join(f'<div class="hl"><h3>{t}</h3><p>{p}</p></div>' for t, p in vals)
+    svc = "".join(f'<a class="scard-lite" href="{s}.html"><h3>{t}</h3><p>{d}</p></a>' for s, t, d in SERVICES)
     body += f'''{stripes()}
-<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>Placeholder copy. Tell the story of {SITE['name']}: who started it, why, and what makes your shop different. Mention your experience, certifications and the kind of vehicles you love working on.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div>{photo_box("svan")}</div></div></section>
+<section class="sec"><div class="wrap"><div class="split"><div><span class="chip">Our story</span><h2>Built on <em>craft</em></h2><p>{SITE['name']} is a Miami shop focused on protecting and perfecting vehicles. With more than 20 years of experience behind our work, we have completed over 5,000 vehicles, from daily drivers to exotics and show cars.</p><p>We do window tint, paint protection film, ceramic coating, paint correction, vinyl wraps and exterior detailing under one roof, so one team looks after your car from the first wash to the final coat. Our customers find us through word of mouth and Instagram, and they keep coming back, which is why we hold a 4.9-star Google rating.</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div>{photo_box("svan")}</div></div></section>
 <section class="stats"><div class="stat"><b>5000+</b><span>Vehicles completed</span></div><div class="stat"><b>20+</b><span>Years of experience</span></div><div class="stat"><b>4.9★</b><span>Google rating</span></div></section>
-<section class="feat"><div class="txt"><span class="kick">Our mission</span><h2>Correction, protection, reflection</h2><p>Placeholder copy. Describe your mission and values, and what customers can expect every time they bring a car in.</p></div>{photo_box("polish", pos="40% 45%")}</section>
-<section class="sec"><div class="wrap center"><span class="chip">Meet the team</span><h2>The people behind <em>the work</em></h2><div class="grid3">{"".join('<div class="ph-box">Team member</div>' for _ in range(3))}</div></div></section>{cta_banner()}'''
-    page("about-us.html", f"About Us | {SITE['name']}", f"Learn about {SITE['name']}, a Miami vehicle protection and detailing shop.", body, "about")
+<section class="feat"><div class="txt"><span class="kick">Our mission</span><h2>Correction, protection, reflection</h2><p>Our mission is simple: make every car look its best and keep it that way. We correct what time and traffic have done to the paint, protect it with the right film or coating, and finish it so the reflection shows the difference.</p><p>You can expect a clean shop, clear communication and results we are proud to put our name on, every time you bring a car in.</p></div>{photo_box("pc3")}</section>
+<section class="sec hl-sec"><div class="wrap"><h2 class="center">What we stand for</h2><div class="hls">{vh}</div></div></section>
+<section class="feat rev"><div class="txt"><span class="kick">We come to you</span><h2>Mobile detailing across Miami</h2><p>Cannot spare the day? Our wrapped detailing van brings the shop to your home or office, with the water, power and products to wash, detail and coat your car on site.</p><p>Call us at <a href="tel:{SITE['tel']}">{SITE['phone']}</a> to book a mobile appointment.</p></div>{photo_box("dv")}</section>
+<section class="sec"><div class="wrap center"><span class="chip">What we do</span><h2>Everything your car <em>needs</em></h2><div class="svc-links">{svc}</div></div></section>
+<section class="sec"><div class="wrap center"><span class="chip">Visit us</span><h2>Find the shop</h2><p class="lead" style="margin-top:14px">{SITE['addr1']}, {SITE['addr2']}<br>Call <a href="tel:{SITE['tel']}">{SITE['phone']}</a> or <a href="mailto:{SITE['email']}">{SITE['email']}</a></p><p style="margin-top:22px"><a class="btn" href="contact.html">Contact us</a></p></div></section>{cta_banner()}'''
+    page("about-us.html", f"About Us | {SITE['name']}", f"Learn about {SITE['name']}, a Miami vehicle protection and detailing shop with 20+ years of experience and 5000+ vehicles completed.", body, "about")
 
 POSTS = [("gloss-vs-matte-ppf", "Gloss PPF vs. Matte PPF: Which Finish Fits Your Style", "Gloss and matte paint protection films are two distinct styling options. Before scheduling PPF installation, consider which finish fits your style and vehicle."),
          (None, "Ceramic Coating vs. Wax: What Is the Difference?", "A plain-language look at durability, gloss and cost, and which one fits your car."),
@@ -875,10 +914,9 @@ def build_contact():
     cats = [("Ceramic coating", FAQ_CERAMIC, "faq-ceramic"), ("Paint correction", FAQ_CORRECTION, "faq-correction"), ("PPF / Clear bra", FAQ_PPF, "faq-ppf"), ("Window tint", FAQ_TINT, "faq-tint")]
     jump = '<nav class="faq-jump"><a href="#faq-general">General</a>' + "".join(f'<a href="#{i}">{esc(n)}</a>' for n, _, i in cats) + "</nav>"
     faq = faq_block(GENERAL_FAQ, "General", "faq-general") + "".join(faq_block(it, n, i) for n, it, i in cats)
-    ex = '<label class="full">Message<textarea name="message" rows="4" placeholder="Tell us about your vehicle and what you need"></textarea></label>'
-    body = inner_hero("Request quote <em>today</em>", "Get your free quote now.", ['<a href="index.html">Home</a>', "Contact"], buttons=False)
-    body += f'''{stripes()}
-<section id="quote"><div class="contact-split"><div><span class="chip">Get quote</span><h2>Get your free <em>quote now!</em></h2><p class="lead" style="margin:14px 0 26px;max-width:none">Tell us about your vehicle and what you want done. We will reply with a quote and next steps.</p>{quote_form(extra=ex)}</div>
+    ex = '<label class="full">Message*<textarea name="message" rows="4" placeholder="Tell us about your vehicle and what you need" required></textarea></label>'
+    body = ''
+    body += f'''<section id="quote" style="padding-top:10px"><div class="contact-split"><div><span class="chip">Get quote</span><h2>Get your free <em>quote now!</em></h2><p class="lead" style="margin:14px 0 26px;max-width:none">Tell us about your vehicle and what you want done. We will reply with a quote and next steps.</p>{quote_form(extra=ex)}</div>
 <div><span class="chip">Visit us</span><h2>Find the <em>shop</em></h2><ul class="info" style="margin-top:26px"><li><b>Address</b>{SITE['addr1']}<br>{SITE['addr2']}</li><li><b>Hours</b>{SITE['hours'][0]}<br>{SITE['hours'][1]}</li><li><b>Call</b><a href="tel:{SITE['tel']}">{SITE['phone']}</a></li><li><b>Email</b><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul>
 {cmap[0]}
 <p style="margin-top:14px"><a class="btn gray sm" href="{cmap[2]}" target="_blank" rel="noopener">Get Directions</a></p></div></div></section>
@@ -913,9 +951,64 @@ def build_privacy():
 <section class="sec"><div class="wrap">{map_block()[0]}</div></section>''' + cta_banner()
     page("privacy-policy.html", f"Privacy Policy | {n}", "Divine Detailers privacy policy.", body)
 
+FAQ_WRAP = [
+    ("How long does a vinyl wrap last?", "With proper care, a quality wrap commonly lasts several years. Climate, parking and how the car is washed all affect how long it looks its best."),
+    ("Will a wrap damage my paint?", "A wrap installed over sound factory paint protects it rather than harming it. Paint that is already damaged or poorly repainted can lift when the film is removed, so we inspect the paint first."),
+    ("How do I wash a wrapped car?", "Hand wash with a gentle pH-neutral soap and a clean microfiber mitt. Avoid pressure washing close to the edges and skip automatic brush washes."),
+    ("Can a wrap be removed?", "Yes. Vinyl can be removed and the paint underneath is usually left in good condition, which is one reason people choose a wrap over a repaint."),
+    ("How do I choose a color and finish?", "Bring your ideas or a reference photo. We will show you gloss, satin, matte, metallic and color-shift options and help you pick what suits the car."),
+]
+FAQ_DETAIL = [
+    ("What is included in an exterior detail?", "A safe hand wash, decontamination, drying and a protective finish such as a sealant or wax. We tailor the steps to the condition of your paint."),
+    ("How often should I get my car detailed?", "Many owners book a maintenance detail every few weeks to a few months, depending on how the car is driven, stored and what protection is already on the paint."),
+    ("Why does hand washing matter?", "Most swirl marks come from poor washing. A lubricated, controlled hand wash keeps dirt from being ground into the clear coat."),
+    ("Do you offer mobile detailing?", "Yes. Our wrapped detailing van can come to your home or office. Call us to book a mobile appointment."),
+    ("Will detailing remove scratches?", "A detail cleans and protects the paint but does not remove defects. Swirls and scratches need paint correction, and we can add it after a detail if the paint needs it."),
+]
+THANKS_SERVICES = [
+    ("Window Tint", "window-tinting", "Tint", "window tint", FAQ_TINT),
+    ("PPF / Clear Bra", "paint-protection-film", "PPF", "paint protection film", FAQ_PPF),
+    ("Ceramic Coating", "ceramic-coating", "Ceramic", "ceramic coating", FAQ_CERAMIC),
+    ("Paint Correction", "paint-correction", "Correction", "paint correction", FAQ_CORRECTION),
+    ("Vinyl Wraps", "vinyl-wraps", "Wraps", "vinyl wraps", FAQ_WRAP),
+    ("Exterior Detailing", "exterior-detailing", "Detailing", "exterior detailing", FAQ_DETAIL),
+    ("Other", "services", "", "our services", GENERAL_FAQ),
+]
+
 def build_thanks():
-    body = f'''<section class="sec"><div class="wrap center"><span class="chip">Thank you</span><h1>Message <em>received</em></h1><p class="lead" style="margin:16px auto 26px">Thanks for reaching out. We will get back to you shortly. For anything urgent, call {SITE['phone']}.</p><a class="btn" href="index.html">Back to home</a></div></section>'''
-    page("thanks.html", f"Thank You | {SITE['name']}", "Thanks for contacting Divine Detailers.", body)
+    ico = '''<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>'''
+    blocks = ""
+    for opt, slug, cat, label, faqs in THANKS_SERVICES:
+        pool = [v for v in PROJECT_VIDS if cat in v[0].split()] if cat else []
+        if not pool:  # "Other": a taste of everything
+            seen, pool = set(), []
+            for v in PROJECT_VIDS:
+                k = v[0].split()[0]
+                if k not in seen and v[4]:
+                    seen.add(k); pool.append(v)
+        pool = sorted(pool, key=lambda v: not v[4])[:4]  # narrated clips first
+        tiles = "".join(vtile(*v, still=True) for v in pool)
+        faq = "".join(f"<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>" for q, a in faqs[:6])
+        page_link = f'<a class="btn gray" href="{slug}.html">More about {label}</a>' if slug != "services" else '<a class="btn gray" href="services.html">Browse all services</a>'
+        blocks += (f'<div class="th-svc" data-svc="{esc(opt)}"{"" if opt == "Other" else " hidden"}>'
+                   f'<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">While you wait</span><h2>{"See our <em>"+label+"</em> work" if slug != "services" else "See our <em>recent work</em>"}</h2>'
+                   f'<div class="vgrid vhome th-vids">{tiles}</div><p style="margin-top:26px"><a class="btn" href="projects.html">Watch all projects</a></p></div></section>'
+                   f'<section class="sec th-faq" style="padding-top:0"><div class="wrap"><div class="center"><span class="chip">Good to know</span><h2>{"Questions about <em>"+label+"</em>" if slug != "services" else "Questions we <em>hear most</em>"}</h2></div>'
+                   f'<div class="faq">{faq}</div><p class="center" style="margin-top:26px">{page_link}</p></div></section></div>')
+    body = f'''<section class="thanks-hero"><div class="wrap">
+  <span class="chip" id="thChip">Request received</span>
+  <h1 id="thH1">Thanks, <em>we got it.</em></h1>
+  <p class="lead" id="thLead">A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book your appointment.</p>
+  <div class="th-call"><a class="btn" id="thCall" href="tel:{SITE['tel']}" data-track="call_click">{ico}<b>Call Now</b><span>{SITE['phone']}</span></a><small>Prefer to wait? No problem. We will contact you soon.</small></div>
+</div></section>
+<section class="sec" id="thNext"><div class="wrap"><h2 class="center">What happens <em>next</em></h2>
+<div class="th-steps"><div class="hl"><h3>1. We review your request</h3><p>We look at your vehicle and the service you asked about so we can give you a straight answer.</p></div>
+<div class="hl"><h3>2. We reach out</h3><p>Expect a call or message from us shortly with options and pricing. Calling us first gets you answered fastest.</p></div>
+<div class="hl"><h3>3. We book your car in</h3><p>Pick a time at the shop, or have our mobile detailing van come to you.</p></div></div></div></section>
+{blocks}
+<section class="sec" id="thMore" style="padding-top:0"><div class="wrap center">
+<p class="th-meta">{SITE['addr1']}, {SITE['addr2']}<br>{SITE['hours'][0]} &middot; {SITE['hours'][1]}<br><a href="https://www.instagram.com/divinedetailer" target="_blank" rel="noopener">Follow us on Instagram</a></p></div></section>{VMODAL}'''
+    page("thanks.html", f"Thank You | {SITE['name']}", "Thanks for contacting Divine Detailers.", body, noindex=True)
 
 if __name__ == "__main__":
     build_assets()

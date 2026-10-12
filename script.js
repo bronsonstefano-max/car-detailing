@@ -105,7 +105,11 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
       const res = await fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(f)).toString() });
       if (!res.ok) throw new Error('not ok');
     }
-    window.location.href = 'thanks.html';
+    const kind = f.getAttribute('name') === 'newsletter' ? 'newsletter' : 'quote';
+    const svc = f.querySelector('[name=service]'), nm = f.querySelector('[name=name]');
+    const veh = ['year', 'make', 'model'].map(k => { const x = f.querySelector('[name=' + k + ']'); return x ? x.value.trim() : ''; }).filter(Boolean).join(' ');
+    try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '', also: (f.querySelector('[name=also_interested]') || {}).value || '', vehicle: typeof veh === 'string' ? veh : '' })); } catch (_) {}
+    window.location.href = 'thanks.html?type=' + kind;
   } catch (err) {
     btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
     setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
@@ -211,4 +215,102 @@ if (yr) yr.textContent = new Date().getFullYear();
   }));
   modal.addEventListener('click', e => { if (e.target === modal || e.target.classList.contains('vclose')) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) close(); });
+})();
+
+// Analytics hooks (GTM / gtag read window.dataLayer): call taps and form leads are separate events
+(() => {
+  window.dataLayer = window.dataLayer || [];
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[href^="tel:"]');
+    if (a) window.dataLayer.push({ event: 'call_click', location: a.closest('header') ? 'header' : a.classList.contains('callfab') ? 'floating_bar' : 'page' });
+  });
+  // Thank-you page: tailor the message (name and service come from sessionStorage, never the URL), fire one lead event
+  if (document.getElementById('thH1')) {
+    const q = new URLSearchParams(location.search);
+    let lead = {};
+    try { lead = JSON.parse(sessionStorage.getItem('dd_lead') || '{}'); } catch (_) {}
+    const type = q.get('type') || lead.type || 'quote';
+    const svc = q.get('service') || lead.service || '';
+    const first = (q.get('name') || lead.name || '').split(/\s+/)[0].slice(0, 30);
+    const h1 = document.getElementById('thH1'), lead_ = document.getElementById('thLead');
+    if (type === 'newsletter') {
+      document.getElementById('thChip').textContent = 'You are subscribed';
+      h1.textContent = first ? 'Welcome aboard, ' + first + '.' : 'Welcome aboard.';
+      lead_.textContent = 'Thanks for joining. You will get car care tips and offers from Divine Detailers. Need something sooner? Give us a call.';
+      ['thNext'].forEach(id => { const n = document.getElementById(id); if (n) n.hidden = true; });
+      document.querySelectorAll('.th-svc').forEach(b => b.hidden = true);
+    } else {
+      h1.textContent = first ? 'Thanks, ' + first + '.' : 'Thanks, we got it.';
+      const em = document.createElement('em'); em.textContent = first ? ' We got it.' : ''; h1.appendChild(em);
+      lead_.textContent = (svc && svc !== 'Other' ? 'We received your request for ' + svc.toLowerCase() + (lead.vehicle ? ' on your ' + lead.vehicle : '') + '. ' : 'We received your request' + (lead.vehicle ? ' for your ' + lead.vehicle : '') + '. ') + 'A member of our team will reach out shortly. Want an answer right now? Calling is the fastest way to get a quote and book.';
+      const blocks = [...document.querySelectorAll('.th-svc')];
+      const hit = blocks.find(b => b.dataset.svc === svc) || blocks.find(b => b.dataset.svc === 'Other');
+      blocks.forEach(b => { b.hidden = b !== hit; });
+      window.dataLayer.push({ event: 'form_lead', form: type, service: svc, also: lead.also || '' });
+    }
+  }
+})();
+
+// Quote form: make -> model suggestions (the model box still accepts anything typed)
+(() => {
+  const M = {
+    'Acura': 'ILX,Integra,MDX,RDX,TLX,NSX', 'Alfa Romeo': 'Giulia,Stelvio,4C,Tonale', 'Aston Martin': 'DB11,DB12,DBX,Vantage,DBS',
+    'Audi': 'A3,A4,A5,A6,A7,A8,Q3,Q5,Q7,Q8,R8,RS3,RS5,RS6,RS7,S4,e-tron', 'Bentley': 'Bentayga,Continental GT,Flying Spur',
+    'BMW': '1 Series,2 Series,3 Series,4 Series,5 Series,7 Series,8 Series,M2,M3,M4,M5,M8,X1,X3,X5,X6,X7,XM,i4,i7,iX,Z4',
+    'Bugatti': 'Chiron,Veyron,Divo', 'Cadillac': 'CT4,CT5,Escalade,XT4,XT5,XT6,Lyriq,CTS-V',
+    'Chevrolet': 'Blazer,Camaro,Colorado,Corvette,Equinox,Malibu,Silverado 1500,Silverado 2500,Suburban,Tahoe,Trailblazer',
+    'Chrysler': '300,Pacifica', 'Dodge': 'Challenger,Charger,Durango,Hornet,Ram 1500',
+    'Ferrari': '296 GTB,488,812,F8,Portofino,Purosangue,Roma,SF90,California,458,12Cilindri', 'Ford': 'Bronco,Edge,Escape,Expedition,Explorer,F-150,F-250,F-350,Maverick,Mustang,Ranger,Raptor',
+    'Genesis': 'G70,G80,G90,GV70,GV80', 'GMC': 'Acadia,Canyon,Sierra 1500,Sierra 2500,Terrain,Yukon,Hummer EV',
+    'Honda': 'Accord,Civic,CR-V,HR-V,Odyssey,Passport,Pilot,Ridgeline', 'Hyundai': 'Elantra,Ioniq 5,Kona,Palisade,Santa Fe,Sonata,Tucson,Veloster N',
+    'Infiniti': 'Q50,Q60,QX50,QX55,QX60,QX80', 'Jaguar': 'E-Pace,F-Pace,F-Type,I-Pace,XF', 'Jeep': 'Cherokee,Compass,Gladiator,Grand Cherokee,Renegade,Wagoneer,Wrangler',
+    'Kia': 'Carnival,EV6,Forte,K5,Seltos,Sorento,Soul,Sportage,Stinger,Telluride',
+    'Lamborghini': 'Aventador,Huracan,Revuelto,Urus,Gallardo,Murcielago', 'Land Rover': 'Defender,Discovery,Range Rover,Range Rover Sport,Range Rover Velar,Evoque',
+    'Lexus': 'ES,GX,IS,LC,LS,LX,NX,RC,RX,RZ,UX', 'Lincoln': 'Aviator,Corsair,Navigator,Nautilus', 'Lotus': 'Emira,Evora,Eletre,Elise',
+    'Maserati': 'Ghibli,GranTurismo,Grecale,Levante,MC20,Quattroporte', 'Mazda': 'CX-30,CX-5,CX-50,CX-90,Mazda3,Mazda6,MX-5 Miata',
+    'McLaren': '570S,600LT,650S,720S,765LT,Artura,GT,P1', 'Mercedes-Benz': 'A-Class,C-Class,CLA,E-Class,G-Class,GLA,GLB,GLC,GLE,GLS,S-Class,SL,AMG GT,Maybach,EQS,Sprinter',
+    'Mini': 'Clubman,Cooper,Countryman', 'Mitsubishi': 'Eclipse Cross,Lancer Evolution,Outlander,Mirage',
+    'Nissan': '370Z,Altima,Armada,Frontier,GT-R,Kicks,Maxima,Murano,Pathfinder,Rogue,Sentra,Skyline,Titan,Z',
+    'Polestar': 'Polestar 2,Polestar 3,Polestar 4', 'Porsche': '718 Boxster,718 Cayman,718 GT4,911,911 GT3,911 GT3 RS,911 Turbo,Cayenne,Macan,Panamera,Taycan,Carrera GT,918',
+    'Ram': '1500,2500,3500,TRX', 'Rivian': 'R1S,R1T', 'Rolls-Royce': 'Cullinan,Dawn,Ghost,Phantom,Spectre,Wraith',
+    'Subaru': 'BRZ,Crosstrek,Forester,Impreza,Legacy,Outback,WRX', 'Tesla': 'Cybertruck,Model 3,Model S,Model X,Model Y,Roadster',
+    'Toyota': '4Runner,86,Camry,Corolla,GR Supra,GR86,Highlander,Land Cruiser,Prius,RAV4,Sequoia,Sienna,Tacoma,Tundra',
+    'Volkswagen': 'Arteon,Atlas,Golf GTI,Golf R,ID.4,Jetta,Passat,Taos,Tiguan', 'Volvo': 'S60,S90,V60,XC40,XC60,XC90,EX30'
+  };
+  document.querySelectorAll('form[data-form]').forEach((f, i) => {
+    const mk = f.querySelector('[data-make]'), md = f.querySelector('[data-model]');
+    if (!mk || !md) return;
+    const dl = document.createElement('datalist'); dl.id = 'models' + i; md.setAttribute('list', dl.id); f.appendChild(dl);
+    mk.addEventListener('change', () => {
+      dl.innerHTML = '';
+      (M[mk.value] || '').split(',').filter(Boolean).forEach(m => { const o = document.createElement('option'); o.value = m; dl.appendChild(o); });
+      md.placeholder = mk.value && M[mk.value] ? 'Choose or type your ' + mk.value : 'e.g. M3, Model Y';
+    });
+  });
+})();
+
+// "Also interested in" can't repeat the main service
+document.querySelectorAll('form[data-form]').forEach(f => {
+  const a = f.querySelector('[data-also]'), m = f.querySelector('[name=service]');
+  if (!a || !m) return;
+  const sync = () => { [...a.options].forEach(o => { o.disabled = !!o.value && o.value === m.value; }); if (a.selectedOptions[0] && a.selectedOptions[0].disabled) a.value = ''; };
+  m.addEventListener('change', sync); sync();
+});
+
+// Two-step quote: the short home form only collects four fields, then opens the full form on the Contact page with them filled in
+document.querySelectorAll('form[data-step1]').forEach(f => f.addEventListener('submit', e => {
+  e.preventDefault();
+  const d = {}; ['name', 'email', 'phone', 'service'].forEach(k => { const x = f.querySelector('[name=' + k + ']'); d[k] = x ? x.value.trim() : ''; });
+  try { sessionStorage.setItem('dd_step1', JSON.stringify(d)); } catch (_) {}
+  window.dataLayer = window.dataLayer || []; window.dataLayer.push({ event: 'quote_step1', service: d.service });
+  window.location.href = 'contact.html#quote';
+}));
+(() => {
+  let d = null;
+  try { d = JSON.parse(sessionStorage.getItem('dd_step1') || 'null'); } catch (_) {}
+  const f = document.querySelector('form[data-form][name=quote]');
+  if (!d || !f) return;
+  ['name', 'email', 'phone', 'service'].forEach(k => { const x = f.querySelector('[name=' + k + ']'); if (x && d[k]) { x.value = d[k]; x.dispatchEvent(new Event('change')); } });
+  const first = ['make', 'year', 'model'].map(k => f.querySelector('[name=' + k + ']')).find(x => x && !x.value);
+  if (first && location.hash === '#quote') setTimeout(() => first.focus({ preventScroll: true }), 300);
 })();

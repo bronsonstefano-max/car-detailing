@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Window Tinting, PPF &amp; Ceramic Coating in Miami | Divine Detailers</title>
 <meta name="description" content="Divine Detailers brings window tint, paint protection film, ceramic coating, paint correction and vinyl wraps to Miami drivers. Get a free quote.">
+
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/special-gothic.woff2" crossorigin>
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/manrope.woff2" crossorigin>
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="preload" as="image" fetchpriority="high" imagesrcset="assets/photos/gwagon-wipe-720.webp 720w, assets/photos/gwagon-wipe-1000.webp 1000w, assets/photos/gwagon-wipe-1600.webp 1600w" imagesizes="100vw">
-<link rel="stylesheet" href="styles.min.css?v=685e250e">
+<link rel="stylesheet" href="styles.min.css?v=b1373fb2">
 </head>
 <body>
 <header class="site-header">
@@ -40,14 +41,12 @@
     <div class="hero-btns"><a class="btn" href="tel:+17867572826"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>(786) 757-2826</span></a><a class="btn gray" href="#hero-quote">Request Quote</a></div>
   </div>
   </div>
-  <div class="qwrap"><form class="qform" id="hero-quote" name="quote" method="POST" action="thanks.html" data-netlify="true" data-form>
-  <input type="hidden" name="form-name" value="quote">
+  <div class="qwrap"><form class="qform" id="hero-quote" name="quote-step1" action="contact.html#quote" method="GET" data-step1>
   <div class="status"><span class="dot"></span>Estimated Wait Time: 30 Minutes or less</div>
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
-  <label>Phone<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel"></label>
-  <label>Select Service*<select name="service" required><option value="">Select…</option><option>Window Tint</option><option>PPF / Clear Bra</option><option>Ceramic Coating</option><option>Paint Correction</option><option>Vinyl Wraps</option><option>Exterior Detailing</option><option>Other</option></select></label>
-  
+  <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\s\(\)\+\.\-]{7,}" title="Enter a valid phone number" required></label>
+  <label>Service interested in*<select name="service" required><option value="">Select…</option><option>Window Tint</option><option>PPF / Clear Bra</option><option>Ceramic Coating</option><option>Paint Correction</option><option>Vinyl Wraps</option><option>Exterior Detailing</option><option>Other</option></select></label>
   <button class="submit" type="submit">Request Quote</button>
 </form></div>
 </section>
@@ -78,7 +77,7 @@
 <section id="locations" style="border-top:1px solid var(--line)">
   <h2 class="loc-title">Our <em>Location</em></h2>
   <div class="loc-grid">
-    <div class="loc hot"><h3>Divine Detailers</h3><div class="cols"><div><b>Store Hours</b><span>Mon - Fri - 9:00AM - 5:00PM<br>Sat - Sun - Closed</span></div><div><b>Office</b><span>5181 NW 74th Ave<br>Miami, FL 33166</span></div></div></div>
+    <div class="loc hot"><h3>Divine Detailers</h3><div class="cols"><div><b>Store Hours</b><span>Mon - Sat - 9:00AM - 6:00PM<br>Sun - Closed</span></div><div><b>Office</b><span>5181 NW 74th Ave<br>Miami, FL 33166</span></div></div></div>
     <div class="loc call"><small>CALL NOW</small><a href="tel:+17867572826">(786) 757-2826</a></div>
   </div>
   <div class="loc-map"><iframe class="map-embed" title="Map showing Divine Detailers" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus"></iframe>
@@ -121,6 +120,6 @@
 </footer>
 </main>
 <a class="callfab" href="tel:+17867572826" aria-label="Call Divine Detailers at (786) 757-2826"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span>Call Now<small>(786) 757-2826</small></span></a>
-<script src="script.min.js?v=1fe53cdc" defer></script>
+<script src="script.min.js?v=85585dfd" defer></script>
 </body>
 </html>
