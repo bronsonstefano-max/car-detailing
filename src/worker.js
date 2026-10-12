@@ -596,6 +596,11 @@ export default {
     const crmHost = (env.CRM_HOST || "").toLowerCase();
     const onCrm = !!crmHost && url.hostname.toLowerCase() === crmHost;
 
+    // www.divinedetailers.com sends visitors to the bare domain (only once the real domain is configured)
+    if (crmHost && url.hostname.toLowerCase().startsWith("www.") && url.hostname.toLowerCase().slice(4) === crmHost.replace(/^crm\./, "")) {
+      return Response.redirect(`https://${url.hostname.slice(4)}${url.pathname}${url.search}`, 301);
+    }
+
     if (onCrm) {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);

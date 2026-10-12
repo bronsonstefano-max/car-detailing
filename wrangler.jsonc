@@ -9,20 +9,11 @@
   },
   // Lead database. Wrangler creates it automatically on the first deploy if it does not exist yet.
   "d1_databases": [{ "binding": "DB", "database_name": "divine-detailers-leads" }],
-  // After divinedetailers.com is added to Cloudflare, uncomment this to serve the site on the domain and the lead dashboard at crm.divinedetailers.com,
-  // and set "CRM_HOST" below. (Deploying these before the domain is on your Cloudflare account makes the build fail.)
-  // "routes": [
-  //   { "pattern": "divinedetailers.com", "custom_domain": true },
-  //   { "pattern": "www.divinedetailers.com", "custom_domain": true },
-  //   { "pattern": "crm.divinedetailers.com", "custom_domain": true }
-  // ],
+  // The domains (divinedetailers.com, www and crm) are connected in the Cloudflare dashboard:
+  // Workers & Pages > this Worker > Settings > Domains & Routes > Add > Custom domain.
+  // Only CRM_HOST lives here. Everything else (NOTIFY_TO, NOTIFY_FROM, ALERT_SMS_TO, AUTO_REPLY, GOOGLE_REVIEW_URL and the secrets)
+  // is set in the dashboard under Settings > Variables and Secrets, so a deploy never overwrites it.
   "vars": {
-    "CRM_HOST": "",
-    // Who gets an email for every new lead (needs the RESEND_API_KEY secret). Comma separated.
-    "NOTIFY_TO": "",
-    "NOTIFY_FROM": "",
-    "ALERT_SMS_TO": "",
-    "AUTO_REPLY": "",
-    "GOOGLE_REVIEW_URL": ""
+    "CRM_HOST": "crm.divinedetailers.com"
   }
 }
