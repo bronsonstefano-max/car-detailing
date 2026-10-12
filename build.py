@@ -344,7 +344,8 @@ VMODAL = '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="bu
 
 HOME_VIDS = [("Wraps", "urus-wrap", "Lamborghini Urus satin wrap", "Technicians installing a satin silver wrap on a Lamborghini Urus", False),
              ("PPF", "f150-ppf", "Ford F-150 PPF and trim wrap", "Technicians installing paint protection film and black trim wrap on a white Ford F-150", False),
-             ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False)]
+             ("Ceramic", "m3-prep", "BMW M3 ceramic coating application", "Technicians prepping and applying ceramic coating to a white BMW M3", False),
+             ("Tint", "porsche-tint", "Porsche 718 GT4 window tint", "Technician tinting the windows of a red Porsche 718 GT4", False)]
 
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)

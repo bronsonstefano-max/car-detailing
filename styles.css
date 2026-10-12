@@ -725,9 +725,8 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .split.noimg>div{max-width:820px;margin-inline:auto}
 .scard-img[src*="ppf-porsche"],.scard.has-img:hover .scard-img[src*="ppf-porsche"]{transform-origin:35% 100%;transform:translateY(-14%) scale(1.22)}
 
-/* home portfolio: three video tiles */
-.vhome{grid-template-columns:repeat(3,1fr);max-width:900px;margin-inline:auto}
+/* home portfolio: four still-frame video tiles (4 across, 2x2 on phones) */
+.vhome{grid-template-columns:repeat(4,1fr);max-width:1100px;margin-inline:auto}
 .vhome .vtile{aspect-ratio:9/14}
-@media(max-width:860px){.vhome{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;margin-inline:-16px;padding:0 16px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-.vhome::-webkit-scrollbar{display:none}
-.vhome .vtile{flex:0 0 70%;scroll-snap-align:center;aspect-ratio:9/14}}
+@media(max-width:1100px){.vhome{grid-template-columns:repeat(4,1fr);gap:12px}}
+@media(max-width:860px){.vhome{grid-template-columns:repeat(2,1fr);gap:10px}.vhome .vtile{aspect-ratio:9/14}}
