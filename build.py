@@ -168,6 +168,7 @@ VEHICLE_MAKES = ["Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW"
 def quote_form(fid=None, select_default=None, extra="", status=True):
     import datetime
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
+    opts_also = "".join(f"<option>{o}</option>" for o in SERVICE_OPTIONS if o != "Other")
     makes = "".join(f"<option>{m}</option>" for m in VEHICLE_MAKES)
     y = datetime.date.today().year + 1
     years = "".join(f"<option>{n}</option>" for n in range(y, 1989, -1)) + "<option>Older</option>"
@@ -178,10 +179,11 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
   <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
-  <label>Select Service*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <label>Service interested in*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <label>Also interested in <span class="opt">(optional)</span><select name="also_interested" data-also><option value="">None</option>{opts_also}</select></label>
   <label>Vehicle make*<select name="make" data-make required><option value="">Select make…</option>{makes}</select></label>
   <label>Vehicle year*<select name="year" required><option value="">Select year…</option>{years}</select></label>
-  <label class="vm">Vehicle model*<input name="model" data-model placeholder="Pick a make, or type your model" autocomplete="off" required></label>
+  <label class="vm">Vehicle model*<input name="model" data-model placeholder="e.g. M3, Model Y" autocomplete="off" required></label>
   {extra}
   <button class="submit" type="submit">Request Quote</button>
 </form>'''

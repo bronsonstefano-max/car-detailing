@@ -108,7 +108,7 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
     const kind = f.getAttribute('name') === 'newsletter' ? 'newsletter' : 'quote';
     const svc = f.querySelector('[name=service]'), nm = f.querySelector('[name=name]');
     const veh = ['year', 'make', 'model'].map(k => { const x = f.querySelector('[name=' + k + ']'); return x ? x.value.trim() : ''; }).filter(Boolean).join(' ');
-    try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '', vehicle: typeof veh === 'string' ? veh : '' })); } catch (_) {}
+    try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '', also: (f.querySelector('[name=also_interested]') || {}).value || '', vehicle: typeof veh === 'string' ? veh : '' })); } catch (_) {}
     window.location.href = 'thanks.html?type=' + kind;
   } catch (err) {
     btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
@@ -246,7 +246,7 @@ if (yr) yr.textContent = new Date().getFullYear();
       const blocks = [...document.querySelectorAll('.th-svc')];
       const hit = blocks.find(b => b.dataset.svc === svc) || blocks.find(b => b.dataset.svc === 'Other');
       blocks.forEach(b => { b.hidden = b !== hit; });
-      window.dataLayer.push({ event: 'form_lead', form: type, service: svc });
+      window.dataLayer.push({ event: 'form_lead', form: type, service: svc, also: lead.also || '' });
     }
   }
 })();
@@ -284,7 +284,15 @@ if (yr) yr.textContent = new Date().getFullYear();
     mk.addEventListener('change', () => {
       dl.innerHTML = '';
       (M[mk.value] || '').split(',').filter(Boolean).forEach(m => { const o = document.createElement('option'); o.value = m; dl.appendChild(o); });
-      md.placeholder = mk.value && M[mk.value] ? 'Choose or type your ' + mk.value + ' model' : 'Type your model';
+      md.placeholder = mk.value && M[mk.value] ? 'Choose or type your ' + mk.value : 'e.g. M3, Model Y';
     });
   });
 })();
+
+// "Also interested in" can't repeat the main service
+document.querySelectorAll('form[data-form]').forEach(f => {
+  const a = f.querySelector('[data-also]'), m = f.querySelector('[name=service]');
+  if (!a || !m) return;
+  const sync = () => { [...a.options].forEach(o => { o.disabled = !!o.value && o.value === m.value; }); if (a.selectedOptions[0] && a.selectedOptions[0].disabled) a.value = ''; };
+  m.addEventListener('change', sync); sync();
+});

@@ -762,6 +762,6 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .th-faq .faq{max-width:860px;margin:30px auto 0}
 .thanks-hero h1 em{font-style:normal;color:var(--g)}
 
-.qform .vm{grid-column:span 2}
-.contact-split .qform .vm,.qform.cs .vm{grid-column:1/-1}
+.qform .vm{grid-column:span 1}
+.qform .opt{color:var(--muted);font-size:.75rem}
 @media(max-width:860px){.qform .vm{grid-column:1/-1}}
