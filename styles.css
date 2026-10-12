@@ -730,3 +730,9 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .vhome .vtile{aspect-ratio:9/14}
 @media(max-width:1100px){.vhome{grid-template-columns:repeat(4,1fr);gap:12px}}
 @media(max-width:860px){.vhome{grid-template-columns:repeat(2,1fr);gap:10px}.vhome .vtile{aspect-ratio:9/14}}
+
+.svc-links{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:34px;text-align:left}
+.scard-lite{display:block;padding:24px;border:1px solid var(--line2);border-radius:14px;background:var(--card);transition:border-color .25s,transform .25s}
+.scard-lite:hover{border-color:var(--g);transform:translateY(-3px)}
+.scard-lite h3{font-size:1.1rem;margin-bottom:8px}.scard-lite p{color:var(--muted);font-size:.95rem}
+@media(max-width:860px){.svc-links{grid-template-columns:1fr}}
