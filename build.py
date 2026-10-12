@@ -18,6 +18,7 @@ SITE = dict(
     instagram="https://www.instagram.com/divinedetailer", tiktok="#", facebook="#", youtube="#",
     map_query="5181 NW 74th Ave, Miami, FL 33166",
     map_embed="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3591.482286979325!2d-80.31968002393148!3d25.820648606165566!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9bb4acc62bfe7%3A0x2f8c9a23ac76d3e2!2sDivine%20Detailers!5e0!3m2!1sen!2sus!4v1791389842431!5m2!1sen!2sus",   # Google "Share > Embed a map" URL for the business listing
+    lead_endpoint="/api/lead",   # our own Cloudflare Worker (src/worker.js) stores leads in D1 and emails/webhooks them. Empty = fall back to Web3Forms/Netlify
     form_key="",   # free Web3Forms access key (web3forms.com) so form submissions are emailed to you on any host. Empty = Netlify Forms
     gmaps_key="",   # paste a Google Maps Embed API key here to show the live map with pin (see README)
 )
@@ -202,13 +203,17 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
 </form>'''
 
 def form_extra(name):
-    """Hidden fields: Netlify form name, or a Web3Forms key + spam honeypot when SITE['form_key'] is set."""
+    """Hidden fields: honeypot for our own Worker, or Netlify form name / Web3Forms key as fallbacks."""
+    if SITE["lead_endpoint"]:
+        return f'<input type="hidden" name="form-name" value="{name}"><input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">'
     if SITE["form_key"]:
         return (f'<input type="hidden" name="access_key" value="{SITE["form_key"]}"><input type="hidden" name="subject" value="New {name} request from the {SITE["name"]} website">'
                 f'<input type="hidden" name="from_name" value="{SITE["name"]} website"><input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">')
     return f'<input type="hidden" name="form-name" value="{name}">'
 
 def form_attrs():
+    if SITE["lead_endpoint"]:
+        return f'data-endpoint="{SITE["lead_endpoint"]}" data-own="1"'
     return 'data-endpoint="https://api.web3forms.com/submit"' if SITE["form_key"] else 'data-netlify="true"'
 
 def stripes():

@@ -98,6 +98,7 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
     if (endpoint) {
       // Web3Forms (works on any host): emails the submission to the address tied to the access key
       const data = Object.fromEntries(new FormData(f));
+      if (f.dataset.own) Object.assign(data, window.ddAttribution ? window.ddAttribution() : {});
       const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(data) });
       const out = await res.json();
       if (!out.success) throw new Error('not ok');
@@ -111,8 +112,8 @@ document.querySelectorAll('form[data-form]').forEach(f => f.addEventListener('su
     try { sessionStorage.setItem('dd_lead', JSON.stringify({ type: kind, name: nm ? nm.value.trim() : '', service: svc ? svc.value : '', also: (f.querySelector('[name=also_interested]') || {}).value || '', vehicle: typeof veh === 'string' ? veh : '' })); } catch (_) {}
     window.location.href = 'thanks.html?type=' + kind;
   } catch (err) {
-    btn.textContent = 'Not connected here. Works once the site is live on Netlify.';
-    setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
+    btn.textContent = 'Could not send. Please call (786) 757-2826';
+    setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 6000);
   }
 }));
 
@@ -313,4 +314,17 @@ document.querySelectorAll('form[data-step1]').forEach(f => f.addEventListener('s
   ['name', 'email', 'phone', 'service'].forEach(k => { const x = f.querySelector('[name=' + k + ']'); if (x && d[k]) { x.value = d[k]; x.dispatchEvent(new Event('change')); } });
   const first = ['make', 'year', 'model'].map(k => f.querySelector('[name=' + k + ']')).find(x => x && !x.value);
   if (first && location.hash === '#quote') setTimeout(() => first.focus({ preventScroll: true }), 300);
+})();
+
+// Ad attribution: remember where the visit came from (Google Ads click id, UTM tags) and send it with the lead
+(() => {
+  const KEYS = ['gclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term'];
+  let a = {};
+  try { a = JSON.parse(sessionStorage.getItem('dd_attr') || '{}'); } catch (_) {}
+  const q = new URLSearchParams(location.search);
+  KEYS.forEach(k => { if (q.get(k)) a[k] = q.get(k).slice(0, 200); });
+  if (!a.referrer && document.referrer && !document.referrer.includes(location.host)) a.referrer = document.referrer.slice(0, 300);
+  if (!a.page) a.page = location.pathname;
+  try { sessionStorage.setItem('dd_attr', JSON.stringify(a)); } catch (_) {}
+  window.ddAttribution = () => Object.assign({}, a, { page: a.page });
 })();

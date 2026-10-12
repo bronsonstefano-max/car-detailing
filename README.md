@@ -46,3 +46,17 @@ Service pages no longer show empty "Photo" boxes. A slot with no photo is simply
 - Package pictures (the 4 cards): add `slug: (folder, {"Package name": "file-stem"})` to `PIMG_ALL` in `build_service`.
 
 Pages currently without photos: Vinyl Wraps (all slots), plus the package pictures on Paint Correction and Exterior Detailing.
+
+## Lead backend (Cloudflare Worker + D1)
+
+Forms post to `/api/lead`, handled by `src/worker.js`. Leads are stored in a D1 database and can also be emailed and/or forwarded to a webhook/CRM.
+Everything else is served as static files. Set `lead_endpoint=""` in `build.py` to go back to Web3Forms/Netlify.
+
+One-time setup (Cloudflare dashboard, Workers & Pages > divine-detailers > Settings):
+1. **Database**: created automatically on the first deploy (binding `DB`, name `divine-detailers-leads`). If the build says it cannot create it, create a D1 database with that name in the dashboard, then bind it to the worker as `DB`.
+2. **ADMIN_PASSWORD** (secret, required): password for `https://<site>/admin` (user name is `admin`). Shows all leads, lets you mark them contacted and download a CSV.
+3. **Email each lead** (optional): create a free account at resend.com, add the key as the secret `RESEND_API_KEY`, and set the `NOTIFY_TO` variable (comma separated emails). For a branded sender, verify your domain at Resend and set `NOTIFY_FROM`.
+4. **CRM / Zapier / Slack** (optional): add the secret `LEAD_WEBHOOK_URL`. Every lead is POSTed to it as JSON.
+
+Each lead also records the landing page, referrer, Google Ads click id (`gclid`) and UTM tags, so you can see which ads produced it.
+Local test: `npx wrangler dev` (put `ADMIN_PASSWORD=...` in a `.dev.vars` file, which is git-ignored).

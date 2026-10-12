@@ -1,5 +1,17 @@
 {
   "name": "divine-detailers",
+  "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "." }
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/admin", "/admin/*"]
+  },
+  // Lead database. Wrangler creates it automatically on the first deploy if it does not exist yet.
+  "d1_databases": [{ "binding": "DB", "database_name": "divine-detailers-leads" }],
+  "vars": {
+    // Who gets an email for every new lead (needs the RESEND_API_KEY secret). Comma separated.
+    "NOTIFY_TO": "",
+    "NOTIFY_FROM": ""
+  }
 }
