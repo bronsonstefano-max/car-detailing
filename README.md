@@ -60,3 +60,10 @@ One-time setup (Cloudflare dashboard, Workers & Pages > divine-detailers > Setti
 
 Each lead also records the landing page, referrer, Google Ads click id (`gclid`) and UTM tags, so you can see which ads produced it.
 Local test: `npx wrangler dev` (put `ADMIN_PASSWORD=...` in a `.dev.vars` file, which is git-ignored).
+
+### Custom domain and CRM address (divinedetailers.com + crm.divinedetailers.com)
+1. Add `divinedetailers.com` to your Cloudflare account (Websites > Add a site) and point the registrar's nameservers at Cloudflare.
+2. In `wrangler.jsonc` uncomment `routes` and set `"CRM_HOST": "crm.divinedetailers.com"`, then deploy. Cloudflare creates the DNS records and certificates for the three hostnames.
+3. The site then lives at `divinedetailers.com` / `www.divinedetailers.com`, and the lead dashboard at `https://crm.divinedetailers.com` (it serves only the dashboard; `/admin` on any other host redirects there).
+4. Optional hardening: protect `crm.divinedetailers.com` with Cloudflare Access (Zero Trust, free for up to 50 users) so staff sign in with their email instead of a shared password.
+5. Email: verify `divinedetailers.com` at Resend and set `NOTIFY_FROM` to e.g. `Divine Detailers <leads@divinedetailers.com>`.

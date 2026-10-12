@@ -10,6 +10,7 @@
 //   NOTIFY_TO         (var, optional)          who gets the email (comma separated)
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
 //   LEAD_WEBHOOK_URL  (secret, optional)       POST each lead as JSON (Zapier, Make, Slack, a CRM...)
+//   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
 const FIELDS = ["name", "email", "phone", "service", "also_interested", "make", "year", "model", "message"];
 const MAX = { default: 300, message: 4000 };
@@ -147,6 +148,18 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname.replace(/\/+$/, "") || "/";
+    // When CRM_HOST is set (e.g. crm.divinedetailers.com) the lead dashboard lives only on that host, at its root.
+    const crmHost = (env.CRM_HOST || "").toLowerCase();
+    const onCrm = !!crmHost && url.hostname.toLowerCase() === crmHost;
+
+    if (onCrm) {
+      // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
+      if (p === "/" || p === "/admin") return adminRoute("/admin", request, env);
+      if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
+      if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
+      if (p === "/favicon.ico" || p.startsWith("/assets/favicon")) return env.ASSETS.fetch(request);
+      return new Response("Not found", { status: 404 });
+    }
 
     if (p === "/api/lead") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
@@ -155,20 +168,25 @@ export default {
     }
 
     if (p === "/admin" || p.startsWith("/admin/")) {
-      const a = authed(request, env);
-      if (a === "unconfigured") return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
-      if (!a) return challenge();
-      if (!env.DB) return new Response("Lead database is not configured.", { status: 503 });
-      if (p === "/admin") return adminPage(env);
-      if (p === "/admin/leads.csv") return csv(env);
-      if (p === "/admin/contacted" && request.method === "POST") {
-        const { id, contacted } = await request.json().catch(() => ({}));
-        if (Number.isInteger(id)) await env.DB.prepare("UPDATE leads SET contacted = ? WHERE id = ?").bind(contacted ? 1 : 0, id).run();
-        return json({ success: true });
-      }
-      return new Response("Not found", { status: 404 });
+      if (crmHost) return Response.redirect(`https://${crmHost}/`, 301);
+      return adminRoute(p, request, env);
     }
 
     return env.ASSETS.fetch(request);
   },
 };
+
+async function adminRoute(p, request, env) {
+  const a = authed(request, env);
+  if (a === "unconfigured") return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
+  if (!a) return challenge();
+  if (!env.DB) return new Response("Lead database is not configured.", { status: 503 });
+  if (p === "/admin") return adminPage(env);
+  if (p === "/admin/leads.csv") return csv(env);
+  if (p === "/admin/contacted" && request.method === "POST") {
+    const { id, contacted } = await request.json().catch(() => ({}));
+    if (Number.isInteger(id)) await env.DB.prepare("UPDATE leads SET contacted = ? WHERE id = ?").bind(contacted ? 1 : 0, id).run();
+    return json({ success: true });
+  }
+  return new Response("Not found", { status: 404 });
+}
