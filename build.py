@@ -177,11 +177,11 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
   {STATUS if status else ""}
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
-  <label>Phone<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel"></label>
+  <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
   <label>Select Service*<select name="service" required><option value="">Select…</option>{opts}</select></label>
-  <label>Vehicle make<select name="make" data-make><option value="">Select make…</option>{makes}</select></label>
-  <label>Vehicle year<select name="year"><option value="">Select year…</option>{years}</select></label>
-  <label class="vm">Vehicle model<input name="model" data-model placeholder="Pick a make, or type your model" autocomplete="off"></label>
+  <label>Vehicle make*<select name="make" data-make required><option value="">Select make…</option>{makes}</select></label>
+  <label>Vehicle year*<select name="year" required><option value="">Select year…</option>{years}</select></label>
+  <label class="vm">Vehicle model*<input name="model" data-model placeholder="Pick a make, or type your model" autocomplete="off" required></label>
   {extra}
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
@@ -899,7 +899,7 @@ def build_contact():
     cats = [("Ceramic coating", FAQ_CERAMIC, "faq-ceramic"), ("Paint correction", FAQ_CORRECTION, "faq-correction"), ("PPF / Clear bra", FAQ_PPF, "faq-ppf"), ("Window tint", FAQ_TINT, "faq-tint")]
     jump = '<nav class="faq-jump"><a href="#faq-general">General</a>' + "".join(f'<a href="#{i}">{esc(n)}</a>' for n, _, i in cats) + "</nav>"
     faq = faq_block(GENERAL_FAQ, "General", "faq-general") + "".join(faq_block(it, n, i) for n, it, i in cats)
-    ex = '<label class="full">Message<textarea name="message" rows="4" placeholder="Tell us about your vehicle and what you need"></textarea></label>'
+    ex = '<label class="full">Message*<textarea name="message" rows="4" placeholder="Tell us about your vehicle and what you need" required></textarea></label>'
     body = inner_hero("Request quote <em>today</em>", "Get your free quote now.", ['<a href="index.html">Home</a>', "Contact"], buttons=False)
     body += f'''{stripes()}
 <section id="quote"><div class="contact-split"><div><span class="chip">Get quote</span><h2>Get your free <em>quote now!</em></h2><p class="lead" style="margin:14px 0 26px;max-width:none">Tell us about your vehicle and what you want done. We will reply with a quote and next steps.</p>{quote_form(extra=ex)}</div>
