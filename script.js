@@ -202,7 +202,7 @@ if (yr) yr.textContent = new Date().getFullYear();
         v.play().then(() => t.classList.add('playing')).catch(() => {});
       } else { v.pause(); t.classList.remove('playing'); }
     }), { threshold: 0.6 });
-    tiles.forEach(t => io.observe(t));
+    tiles.forEach(t => { if (!t.closest('.vhome')) io.observe(t); });
   }
   const close = () => { modal.hidden = true; mv.pause(); mv.removeAttribute('src'); mv.load(); document.body.style.overflow = ''; };
   tiles.forEach(t => t.addEventListener('click', () => {

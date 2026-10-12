@@ -333,6 +333,20 @@ def map_block(cls="map-embed"):
                  f'<span class="pin" aria-hidden="true"></span><b>{SITE["name"]}</b><span>{SITE["addr1"]}<br>{SITE["addr2"]}</span><em>View on Google Maps</em></a>')
     return frame, place, direc
 
+def vtile(c, n, t, a, talk, still=False):
+    vid = "" if still else '<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
+    return (f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
+            f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
+            f'{vid}'
+            f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c.replace(" "," · ")}</i>{t}</span></button>')
+
+VMODAL = '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
+
+HOME_VIDS = [("Wraps Tint", "cybertruck-wrap", "Tesla Cybertruck wrap and tint", "Divine Detailers explaining a matte black wrap and window tint on a Tesla Cybertruck", True),
+             ("PPF", "gt4-ppf", "Porsche 718 GT4 PPF", "Technicians installing paint protection film on a red Porsche 718 GT4", True),
+             ("Ceramic", "m3-ceramic", "BMW M3 ceramic coating", "Divine Detailers explaining a ceramic coating on a white BMW M3", True),
+             ("PPF Tint", "m2-ppf", "BMW M2 CS PPF and tint", "Divine Detailers explaining paint protection film and window tint on a BMW M2 CS", True)]
+
 def build_home():
     cards = "".join(service_card(s, t, d) for s, t, d in SERVICES)
     home_map = map_block()
@@ -397,13 +411,13 @@ def build_home():
   <p>{SITE['name']} brings vehicle protection and detailing to Miami drivers who care about how their car looks and how long it lasts. We tailor each service to your vehicle and your style, with certified installers who focus on the small details. Every project happens in a facility built for precise work, quality products and a polished experience from start to finish.</p>
   <a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a></div></div></div>
 </section>
-<section class="feat"><div class="txt"><span class="kick">Protect</span><h2>Protect and preserve your car&rsquo;s flawless finish</h2><p>Keep your vehicle looking new with protection built for Miami&rsquo;s sun, salt air and storms. Paint protection film takes the hit from rock chips and road debris, while ceramic coating adds gloss, shrugs off contaminants and makes every wash faster.</p></div>{photo_box("ppf", pos="40% 50%")}</section>
-<section class="feat rev"><div class="txt"><span class="kick">Customize</span><h2>Make your ride uniquely yours</h2><p>Whether you want a refined upgrade or a bold new look, we turn your ideas into high-quality results. Vinyl wraps change color, texture and finish, while premium window tint cuts heat and glare and gives the car a cleaner, finished look.</p></div>{photo_box("heat", pos="50% 35%")}</section>
-<section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div>{photo_box("polish", pos="40% 45%")}</section>
+<section class="feat"><div class="txt"><span class="kick">Protect</span><h2>Protect and preserve your car&rsquo;s flawless finish</h2><p>Keep your vehicle looking new with protection built for Miami&rsquo;s sun, salt air and storms. Paint protection film takes the hit from rock chips and road debris, while ceramic coating adds gloss, shrugs off contaminants and makes every wash faster.</p></div>{photo_box("c3", pos="50% 55%")}</section>
+<section class="feat rev"><div class="txt"><span class="kick">Customize</span><h2>Make your ride uniquely yours</h2><p>Whether you want a refined upgrade or a bold new look, we turn your ideas into high-quality results. Vinyl wraps change color, texture and finish, while premium window tint cuts heat and glare and gives the car a cleaner, finished look.</p></div>{photo_box("q3", pos="50% 60%")}</section>
+<section class="feat"><div class="txt"><span class="kick">Enjoy</span><h2>Take your car&rsquo;s style to new heights</h2><p>Our shop is built on craft and customer satisfaction. Every vehicle gets a careful inspection before it goes home, and our work is backed by a workmanship guarantee so you can drive away with confidence.</p></div>{photo_box("gt3", pos="50% 55%")}</section>
 <section class="sec" id="portfolio">
   <div class="wrap center"><span class="chip">Our Portfolio</span><h2>Recent vehicles <em>completed.</em></h2>
-  <div class="grid3">{photo_box("gblack")}{photo_box("urus")}{photo_box("ppf911")}</div>
-  <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>
+  <div class="vgrid vhome">{"".join(vtile(*v, still=True) for v in HOME_VIDS)}</div>
+  <div style="margin-top:44px"><a class="btn" href="projects.html">View More Projects</a></div></div>{VMODAL}
 </section>
 {cta_banner()}'''
     page("index.html", f"Window Tinting, PPF & Ceramic Coating in Miami | {SITE['name']}",
@@ -809,13 +823,14 @@ def build_projects():
             ("PPF", "bmw-m3-white-ppf", "BMW M3 PPF explained", "Divine Detailers explaining paint protection film on a white BMW M3", True),
             ("PPF", "p911-ppf", "Porsche 911 rocker PPF", "Technicians installing film on the side skirts of a black Porsche 911 cabriolet", False),
             ("PPF", "white-ppf-talk", "Why PPF matters", "Divine Detailers explaining paint protection film over carbon fiber", True)]
-    grid = "".join(
+    grid = "".join(vtile(*v) for v in vids)
+    _old = "".join(
         f'<button class="vtile" type="button" data-cat="{c}" data-src="assets/projects/{n}.mp4" data-prev="assets/projects/{n}-p.mp4" data-title="{t}" aria-label="Play video: {t}">'
         f'<img src="assets/projects/{n}.webp" alt="{a}" width="480" height="853" loading="lazy" decoding="async">'
         f'<video muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>'
         f'<span class="vplay" aria-hidden="true"></span>{"<span class=vsound>Sound on</span>" if talk else ""}<span class="vcap"><i>{c.replace(" "," · ")}</i>{t}</span></button>'
         for c, n, t, a, talk in vids)
-    grid += '<div class="vmodal" id="vmodal" hidden><button class="vclose" type="button" aria-label="Close video">&times;</button><video id="vmodalVid" controls playsinline></video></div>'
+    grid += VMODAL
     body = inner_hero("Our recent <em>projects</em>", "Explore real vehicles completed in our shop featuring paint protection film, vinyl wraps, ceramic coating, tint and detailing.", ['<a href="index.html">Home</a>', "Projects"], form=True)
     body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Explore more of our projects</span><h2>Vehicles we&rsquo;ve <em>completed</em></h2>
 <div class="filters" role="group" aria-label="Filter projects">{f}</div><div class="vgrid" id="projectGrid">{grid}</div></div></section>{cta_banner()}'''
