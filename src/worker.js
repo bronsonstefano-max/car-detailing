@@ -5,7 +5,7 @@
 //
 // Bindings / settings (see wrangler.jsonc and README):
 //   DB                (D1 database)            required to store leads
-//   ADMIN_PASSWORD    (secret)                 required to open /admin
+//   PASSWORD_GIORDANI, PASSWORD_BRONSON (secrets)  one password each for the two people who can sign in (ADMIN_PASSWORD still works as the bronson password)
 //   RESEND_API_KEY    (secret, optional)       email each new lead via resend.com
 //   NOTIFY_TO         (var, optional)          who gets the email (comma separated)
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
@@ -263,37 +263,45 @@ async function notifyCall(env, row, base) {
 // ---- sign in: a page with a password box, then a signed cookie (no browser pop-up login)
 const SESSION_DAYS = 30;
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
-async function sign(env, msg) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("dd-session|" + env.ADMIN_PASSWORD), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+// the only two people who can sign in. Each has their own password, stored as a Cloudflare secret.
+const USERS = { giordani: "PASSWORD_GIORDANI", bronson: "PASSWORD_BRONSON" };
+const passwordOf = (env, user) => (Object.hasOwn(USERS, user) ? env[USERS[user]] || (user === "bronson" ? env.ADMIN_PASSWORD : "") || "" : "");
+const anyPassword = env => Object.keys(USERS).some(u => passwordOf(env, u));
+async function sign(pw, msg) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("dd-session|" + pw), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
 }
 const same = (a, b) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 const cookieOf = (request, name) => (request.headers.get("cookie") || "").split(/;\s*/).map(c => c.split(/=(.*)/s)).find(c => c[0] === name)?.[1] || "";
+// returns the signed-in username, false, or "unconfigured"
 async function authed(request, env) {
-  if (!env.ADMIN_PASSWORD) return "unconfigured";
-  const [exp = "", sig = ""] = cookieOf(request, "dd_session").split(".");
-  if (!/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
-  return same(sig, await sign(env, exp));
+  if (!anyPassword(env)) return "unconfigured";
+  const [user = "", exp = "", sig = ""] = cookieOf(request, "dd_session").split(".");
+  const pw = passwordOf(env, user);
+  if (!pw || !/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
+  return same(sig, await sign(pw, user + "|" + exp)) ? user : false;
 }
 const safeNext = n => (typeof n === "string" && /^\/(?!\/)[\w\-./?=&%#]*$/.test(n) && !n.startsWith("/login") ? n : "/");
-const loginHtml = (err, next) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Sign in | Divine Detailers</title>
+const loginHtml = (err, next, user = "") => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Sign in | Divine Detailers</title>
 <style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07090c;color:#e8eaed;font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px}
 .box{width:min(380px,100%);background:#0d1116;border:1px solid #1d2229;border-radius:18px;padding:28px 24px;display:flex;flex-direction:column;gap:16px}
 h1{margin:0;font-size:22px}h1 b{color:#32cd32}p{margin:0;color:#8a9099;font-size:14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px}
 input{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:12px;padding:14px;font:inherit;min-height:50px}input:focus{outline:2px solid #32cd32;outline-offset:1px}
 button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:14px;font:inherit;font-weight:700;min-height:50px;cursor:pointer}.err{background:#3b1d1d;color:#ff9a9a;border-radius:10px;padding:10px 12px;font-size:14px}</style></head>
 <body><form class="box" method="post" action="/login"><h1>Divine Detailers <b>CRM</b></h1><p>Sign in to see your leads.</p>${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
-<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" autofocus required></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
+<div><label for="u">Username</label><input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(user)}" ${user ? "" : "autofocus"} required></div>
+<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" ${user ? "autofocus" : ""} required></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
 const htmlRes = (body, status = 200, extra = {}) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex", ...extra } });
 async function loginRoute(p, request, env) {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   if (p === "/logout") return new Response(null, { status: 302, headers: { location: "/login", "set-cookie": `dd_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
-  if (!env.ADMIN_PASSWORD) return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
+  if (!anyPassword(env)) return new Response("Sign in is not set up yet. Add the PASSWORD_GIORDANI and PASSWORD_BRONSON secrets.", { status: 503 });
   const url = new URL(request.url);
   if (request.method !== "POST") return htmlRes(loginHtml("", safeNext(url.searchParams.get("next"))));
   const form = await request.formData().catch(() => null);
   const next = safeNext(form && form.get("next"));
   const pass = String((form && form.get("password")) || "");
+  const user = String((form && form.get("username")) || "").trim().toLowerCase();
   // slow down guessing: 8 failures per 15 minutes per address
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   if (env.DB) {
@@ -302,12 +310,13 @@ async function loginRoute(p, request, env) {
     const r = await env.DB.prepare("SELECT COUNT(*) n FROM login_fails WHERE ip = ? AND at > ?").bind(ip, since).first();
     if (r && r.n >= 8) return htmlRes(loginHtml("Too many tries. Wait a few minutes and try again.", next), 429);
   }
-  if (!same(pass, env.ADMIN_PASSWORD)) {
+  const pw = passwordOf(env, user);
+  if (!pw || !same(pass, pw)) {
     if (env.DB) await env.DB.prepare("INSERT INTO login_fails (ip, at) VALUES (?, ?)").bind(ip, Math.floor(Date.now() / 1000)).run();
-    return htmlRes(loginHtml("That password is not right.", next), 401);
+    return htmlRes(loginHtml("That username or password is not right.", next, user), 401);
   }
   const exp = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400);
-  return new Response(null, { status: 303, headers: { location: next, "set-cookie": `dd_session=${exp}.${await sign(env, exp)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
+  return new Response(null, { status: 303, headers: { location: next, "set-cookie": `dd_session=${user}.${exp}.${await sign(pw, user + "|" + exp)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
 }
 
 const mmss = n => (n || n === 0 ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : "");
@@ -740,7 +749,7 @@ draw();
 
 async function adminRoute(p, request, env) {
   const a = await authed(request, env);
-  if (a === "unconfigured") return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
+  if (a === "unconfigured") return new Response("Sign in is not set up yet. Add the PASSWORD_GIORDANI and PASSWORD_BRONSON secrets.", { status: 503 });
   if (!a) {
     if (request.method === "GET") { const u = new URL(request.url); return new Response(null, { status: 302, headers: { location: "/login?next=" + encodeURIComponent(u.pathname + u.search), "cache-control": "no-store" } }); }
     return json({ success: false, message: "Signed out" }, 401);

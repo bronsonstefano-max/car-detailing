@@ -54,12 +54,12 @@ Everything else is served as static files. Set `lead_endpoint=""` in `build.py` 
 
 One-time setup (Cloudflare dashboard, Workers & Pages > divine-detailers > Settings):
 1. **Database**: created automatically on the first deploy (binding `DB`, name `divine-detailers-leads`). If the build says it cannot create it, create a D1 database with that name in the dashboard, then bind it to the worker as `DB`.
-2. **ADMIN_PASSWORD** (secret, required): password for `https://<site>/admin` (user name is `admin`). Shows all leads (search, filters, CSV download) and a drag-and-drop **Pipeline** board (New lead, Contacted, Quote sent, Booked, In the shop, Completed, Lost) where you can set each job's value and add notes.
+2. **PASSWORD_GIORDANI** and **PASSWORD_BRONSON** (secrets, required): the two people who can sign in at the CRM sign-in page (usernames `giordani` and `bronson`). `ADMIN_PASSWORD` also still works as the `bronson` password. Shows all leads (search, filters, CSV download) and a drag-and-drop **Pipeline** board (New lead, Contacted, Quote sent, Booked, In the shop, Completed, Lost) where you can set each job's value and add notes.
 3. **Email each lead** (optional): create a free account at resend.com, add the key as the secret `RESEND_API_KEY`, and set the `NOTIFY_TO` variable (in the dashboard under Settings > Variables and Secrets) (comma separated emails). For a branded sender, verify your domain at Resend and set `NOTIFY_FROM`.
 4. **CRM / Zapier / Slack** (optional): add the secret `LEAD_WEBHOOK_URL`. Every lead is POSTed to it as JSON.
 
 Each lead also records the landing page, referrer, Google Ads click id (`gclid`) and UTM tags, so you can see which ads produced it.
-Local test: `npx wrangler dev` (put `ADMIN_PASSWORD=...` in a `.dev.vars` file, which is git-ignored).
+Local test: `npx wrangler dev` (put `PASSWORD_BRONSON=...` in a `.dev.vars` file, which is git-ignored).
 
 ### Custom domain and CRM address (divinedetailers.com + crm.divinedetailers.com)
 1. Add `divinedetailers.com` to your Cloudflare account (Websites > Add a site) and point the registrar's nameservers at Cloudflare.
