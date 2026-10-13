@@ -32,8 +32,8 @@
 <section class="page-hero tall has-vid">
   <div class="hero-media" aria-hidden="true"></div>
   <div class="wrap hero-in"><div class="hero-txt"><h1>Paint Protection Film</h1><p class="lead" style="margin:16px auto 26px">Paint protection film guards your vehicle from rock chips, scratches and everyday road damage while keeping the original paint looking untouched.</p><div class="btn-row"><a class="btn" href="tel:+17867572826"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>(786) 757-2826</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div></div><div class="vframe" aria-hidden="true"><video class="hero-vid" muted loop playsinline preload="none" tabindex="-1" data-webm="assets/video/ppf-hero.webm" data-mp4="assets/video/ppf-hero.mp4"></video></div></div>
-  <div class="qwrap"><form class="qform" name="quote" method="POST" action="thanks.html" data-netlify="true" data-form>
-  <input type="hidden" name="form-name" value="quote">
+  <div class="qwrap"><form class="qform" name="quote" method="POST" action="thanks.html" data-endpoint="/api/lead" data-own="1" data-form>
+  <input type="hidden" name="form-name" value="quote"><input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">
   
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
@@ -65,13 +65,13 @@
     <div><h4>Services</h4><ul><li><a href="window-tinting.html">Window Tinting</a></li><li><a href="paint-protection-film.html">Paint Protection Film</a></li><li><a href="ceramic-coating.html">Ceramic Coating</a></li><li><a href="paint-correction.html">Paint Correction</a></li><li><a href="vinyl-wraps.html">Vinyl Wraps</a></li><li><a href="exterior-detailing.html">Exterior Detailing</a></li></ul></div>
     <div><h4>Follow us</h4><ul><li><a href="https://www.instagram.com/divinedetailer" target="_blank" rel="noopener">Instagram</a></li><li><a href="tel:+17867572826">(786) 757-2826</a></li><li><a href="mailto:info@divinedetailers.com">info@divinedetailers.com</a></li></ul></div>
     <div class="news"><p>Join for expert car care tips and exclusive offers on our top services.</p>
-      <form name="newsletter" method="POST" action="thanks.html" data-netlify="true" data-form><input type="hidden" name="form-name" value="newsletter"><input name="email" type="email" placeholder="Your email" required aria-label="Your email"><button class="btn" type="submit">Join Now</button></form>
+      <form name="newsletter" method="POST" action="thanks.html" data-endpoint="/api/lead" data-own="1" data-form><input type="hidden" name="form-name" value="newsletter"><input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off"><input name="email" type="email" placeholder="Your email" required aria-label="Your email"><button class="btn" type="submit">Join Now</button></form>
       <small>By subscribing, you agree to our <a href="privacy-policy.html">Privacy Policy</a> and consent to receive updates from Divine Detailers.</small></div>
   </div>
   <div class="copy">&copy; <span id="yr">2026</span> Divine Detailers. All rights reserved.</div>
 </footer>
 </main>
 <a class="callfab" href="tel:+17867572826" aria-label="Call Divine Detailers at (786) 757-2826"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span>Call Now<small>(786) 757-2826</small></span></a>
-<script src="script.min.js?v=85585dfd" defer></script>
+<script src="script.min.js?v=af6ce320" defer></script>
 </body>
 </html>

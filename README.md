@@ -46,3 +46,42 @@ Service pages no longer show empty "Photo" boxes. A slot with no photo is simply
 - Package pictures (the 4 cards): add `slug: (folder, {"Package name": "file-stem"})` to `PIMG_ALL` in `build_service`.
 
 Pages currently without photos: Vinyl Wraps (all slots), plus the package pictures on Paint Correction and Exterior Detailing.
+
+## Lead backend (Cloudflare Worker + D1)
+
+Forms post to `/api/lead`, handled by `src/worker.js`. Leads are stored in a D1 database and can also be emailed and/or forwarded to a webhook/CRM.
+Everything else is served as static files. Set `lead_endpoint=""` in `build.py` to go back to Web3Forms/Netlify.
+
+One-time setup (Cloudflare dashboard, Workers & Pages > divine-detailers > Settings):
+1. **Database**: created automatically on the first deploy (binding `DB`, name `divine-detailers-leads`). If the build says it cannot create it, create a D1 database with that name in the dashboard, then bind it to the worker as `DB`.
+2. **ADMIN_PASSWORD** (secret, required): password for `https://<site>/admin` (user name is `admin`). Shows all leads (search, filters, CSV download) and a drag-and-drop **Pipeline** board (New lead, Contacted, Quote sent, Booked, In the shop, Completed, Lost) where you can set each job's value and add notes.
+3. **Email each lead** (optional): create a free account at resend.com, add the key as the secret `RESEND_API_KEY`, and set the `NOTIFY_TO` variable (in the dashboard under Settings > Variables and Secrets) (comma separated emails). For a branded sender, verify your domain at Resend and set `NOTIFY_FROM`.
+4. **CRM / Zapier / Slack** (optional): add the secret `LEAD_WEBHOOK_URL`. Every lead is POSTed to it as JSON.
+
+Each lead also records the landing page, referrer, Google Ads click id (`gclid`) and UTM tags, so you can see which ads produced it.
+Local test: `npx wrangler dev` (put `ADMIN_PASSWORD=...` in a `.dev.vars` file, which is git-ignored).
+
+### Custom domain and CRM address (divinedetailers.com + crm.divinedetailers.com)
+1. Add `divinedetailers.com` to your Cloudflare account (Websites > Add a site) and point the registrar's nameservers at Cloudflare.
+2. In `wrangler.jsonc` uncomment `routes` and set `"CRM_HOST": "crm.divinedetailers.com"`, then deploy. Cloudflare creates the DNS records and certificates for the three hostnames.
+3. The site then lives at `divinedetailers.com` / `www.divinedetailers.com`, and the lead dashboard at `https://crm.divinedetailers.com` (it serves only the dashboard; `/admin` on any other host redirects there).
+4. Optional hardening: protect `crm.divinedetailers.com` with Cloudflare Access (Zero Trust, free for up to 50 users) so staff sign in with their email instead of a shared password.
+5. Email: verify `divinedetailers.com` at Resend and set `NOTIFY_FROM` to e.g. `Divine Detailers <leads@divinedetailers.com>`.
+
+### Phone calls from CallRail
+Calls tracked by CallRail show up in the same Leads list and Pipeline as web form leads (tagged Call, Missed call or Voicemail, with duration, source, campaign and a link to the recording).
+1. Choose a long random string and save it as the Cloudflare secret `CALLRAIL_KEY`.
+2. In CallRail: Settings > Integrations > Webhooks > add a **Post-Call** webhook with the URL `https://<your site>/api/callrail?key=<CALLRAIL_KEY>` (use the main domain, not the crm. address).
+3. Every finished call creates one lead (a second webhook for the same call only refreshes duration and recording, it does not overwrite edits).
+4. Callers CallRail does not know show up as a number only. Open the lead (Details) and use **Edit contact and vehicle** to add the name, service and car. **+ Add lead** records walk-ins, texts or calls that were not tracked.
+
+### Follow-up steps
+Each pipeline stage has its own list of next steps (for example Quote sent: Invoice sent, Waiting on a decision, Accepted deposit paid, Too expensive, Not interested). After a lead moves, the dashboard offers those steps (optional, can be skipped) and an optional "follow up on" date. Some steps also move the lead (Too expensive moves it to Lost). The lists live in `FOLLOWUPS` in `src/worker.js`. Every move and step is saved in the lead's stage history.
+
+
+## Instant alerts, Today list and one-tap replies
+
+- **Alerts**: every new form lead and every missed call or voicemail emails everyone in `NOTIFY_TO` (comma separated) through Resend, with a big Call button. For texts, add the secrets `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` and set `ALERT_SMS_TO` to the numbers that should get them (comma separated).
+- **Confirmation to the customer**: set `AUTO_REPLY` to `1` (needs a verified sending domain at Resend as `NOTIFY_FROM`).
+- **Today** (the CRM home page): calls to return, new leads nobody has contacted, follow-ups due today and overdue. The tab shows how many are waiting.
+- **One-tap replies**: open a lead and pick a message, then tap Text or Email. It opens your phone's messages or mail app with the text filled in. Set `GOOGLE_REVIEW_URL` for the review request message. Each use is logged in the lead's history, and texting a brand new lead moves it to Contacted.

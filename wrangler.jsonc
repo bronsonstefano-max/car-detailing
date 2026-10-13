@@ -1,5 +1,19 @@
 {
   "name": "divine-detailers",
+  "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "." }
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": ["/*", "!/assets/*", "!/styles.min.css", "!/script.min.js"]
+  },
+  // Lead database. Wrangler creates it automatically on the first deploy if it does not exist yet.
+  "d1_databases": [{ "binding": "DB", "database_name": "divine-detailers-leads" }],
+  // The domains (divinedetailers.com, www and crm) are connected in the Cloudflare dashboard:
+  // Workers & Pages > this Worker > Settings > Domains & Routes > Add > Custom domain.
+  // Only CRM_HOST lives here. Everything else (NOTIFY_TO, NOTIFY_FROM, ALERT_SMS_TO, AUTO_REPLY, GOOGLE_REVIEW_URL and the secrets)
+  // is set in the dashboard under Settings > Variables and Secrets, so a deploy never overwrites it.
+  "vars": {
+    "CRM_HOST": "crm.divinedetailers.com"
+  }
 }

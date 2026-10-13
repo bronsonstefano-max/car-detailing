@@ -12,3 +12,10 @@ __pycache__
 *.pyc
 styles.css
 script.js
+
+src
+package.json
+package-lock.json
+node_modules
+.dev.vars
+.wrangler
