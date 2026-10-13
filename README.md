@@ -88,3 +88,5 @@ Each pipeline stage has its own list of next steps (for example Quote sent: Invo
 
 ## Free push alerts (ntfy)
 Set the variable `NTFY_TOPIC` (a long private name, for example `dd-leads-x7k29qpm`) in the Cloudflare dashboard. Everyone who installs the free ntfy app (iPhone or Android) and subscribes to that topic gets a notification within a second of every new lead and missed call or voicemail. Tapping it opens the CRM's Today page. Several topics can be listed, separated by commas.
+
+If ntfy answers 429 (daily quota), create a free account at ntfy.sh, make an access token (Account, Access tokens) and add it as the secret `NTFY_TOKEN`. Messages then count against your own quota. Use a long random topic name, since anyone who knows it can read the alerts.
