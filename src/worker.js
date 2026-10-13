@@ -669,7 +669,7 @@ export default {
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/demo") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -724,6 +724,20 @@ function demoLeads() {
     L({ m: 60 * 24 * 8, name: "Brian Foster", phone: "(305) 555-0116", email: "bfoster@example.com", service: "Window Tint", make: "Ford", model: "F-150", year: "2021", stage: "lost", value: 380, follow_up: "Too expensive" }),
   ].map(l => ({ ...l, created: ago(l.m) }));
 }
+// Sends a test push and reports what happened, so a broken setup can be diagnosed from the CRM itself
+async function testAlert(request, env) {
+  const topic = (env.NTFY_TOPIC || "").trim();
+  const out = { push_topic_set: !!topic, topic_hint: topic ? topic.slice(0, 3) + "..." + topic.slice(-2) + " (" + topic.length + " characters)" : "", has_slash_or_space: /[\s/:]/.test(topic), email: !!(env.RESEND_API_KEY && env.NOTIFY_TO), sms: !!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM && env.ALERT_SMS_TO), zapier_webhook: !!env.LEAD_WEBHOOK_URL };
+  if (topic) {
+    const server = (env.NTFY_SERVER || "https://ntfy.sh").replace(/\/+$/, "");
+    try {
+      const r = await fetch(server, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic, title: "Test alert from your CRM", message: "If you can read this, lead alerts will reach this phone.", priority: 4, tags: ["white_check_mark"], click: crmLink(env, new URL(request.url).origin, "/admin/today") }) });
+      out.push_status = r.status; out.push_response = (await r.text()).slice(0, 200);
+    } catch (e) { out.push_status = 0; out.push_response = String(e && e.message || e).slice(0, 200); }
+  }
+  return json({ success: true, ...out });
+}
+
 async function demoRoute(request, env) {
   const b = await request.json().catch(() => ({}));
   await ensureTable(env.DB);
@@ -777,7 +791,7 @@ ${FOLLOW_CSS}
 ${bnav("today", items.length)}
 ${FOLLOW_HTML}
 <main id="m"></main>
-<div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button></div>
+<div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button><button class="btn" id="ta">Send test alert</button><pre id="tr" style="flex:1 1 100%;white-space:pre-wrap;color:#c3c8cf;font-size:12.5px;margin:0"></pre></div>
 <script type="application/json" id="data">${payload}</script>
 <script>
 const D=JSON.parse(document.getElementById('data').textContent),CFG=D.cfg,TODAY=D.today;let items=D.items;
@@ -805,6 +819,7 @@ document.getElementById('m').addEventListener('click',async e=>{const b=e.target
     const nx=await askNext(lab,st);const o2=await post('/admin/stage',{id:l.id,followup:nx?nx.followup:undefined,follow_date:nx?nx.follow_date:''});
     if(o2.ok){const j=await o2.json();l.stage=j.stage;l.follow_up_date=j.follow_up_date;l.follow_up=j.followup;if(!(j.follow_up_date&&j.follow_up_date<=TODAY&&!['done','lost'].includes(j.stage)))items=items.filter(x=>x.id!==l.id);draw()}else b.disabled=false}})
 draw();
+document.getElementById('ta').onclick=async e=>{e.target.disabled=true;const tr=document.getElementById('tr');tr.textContent='Sending...';try{const r=await post('/admin/testalert',{});if(r.status===404){tr.textContent='This version of the site does not have alerts yet. Re-run the latest build in Cloudflare.'}else{const j=await r.json();tr.textContent=(j.push_topic_set?'Push topic is set: '+j.topic_hint+(j.has_slash_or_space?'\nWARNING: the topic contains a space, a slash or a colon. It must be the name only.':'')+'\nntfy answered: '+j.push_status+' '+j.push_response+(j.push_status===200?'\nSent. Check the phone now.':''):'NTFY_TOPIC is NOT set on the live site. Add it as a variable or secret and deploy.')+'\nEmail alerts: '+(j.email?'on':'off')+' | Text alerts: '+(j.sms?'on':'off')+' | Zapier: '+(j.zapier_webhook?'on':'off')}}catch(_){tr.textContent='Could not reach the server.'}e.target.disabled=false};
 for(const [id,act] of [['dl','load'],['dc','clear']])document.getElementById(id).onclick=async e=>{e.target.disabled=true;await post('/admin/demo',{action:act});location.reload()};
 </script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
@@ -824,6 +839,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env);
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
+  if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
   if (p === "/admin/touch" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id) || typeof b.label !== "string") return json({ success: false }, 400);
