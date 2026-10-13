@@ -85,3 +85,6 @@ Each pipeline stage has its own list of next steps (for example Quote sent: Invo
 - **Confirmation to the customer**: set `AUTO_REPLY` to `1` (needs a verified sending domain at Resend as `NOTIFY_FROM`).
 - **Today** (the CRM home page): calls to return, new leads nobody has contacted, follow-ups due today and overdue. The tab shows how many are waiting.
 - **One-tap replies**: open a lead and pick a message, then tap Text or Email. It opens your phone's messages or mail app with the text filled in. Set `GOOGLE_REVIEW_URL` for the review request message. Each use is logged in the lead's history, and texting a brand new lead moves it to Contacted.
+
+## Free push alerts (ntfy)
+Set the variable `NTFY_TOPIC` (a long private name, for example `dd-leads-x7k29qpm`) in the Cloudflare dashboard. Everyone who installs the free ntfy app (iPhone or Android) and subscribes to that topic gets a notification within a second of every new lead and missed call or voicemail. Tapping it opens the CRM's Today page. Several topics can be listed, separated by commas.
