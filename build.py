@@ -289,6 +289,10 @@ def build_assets():
         if kind == "css": CSS_URL = f"{out}?v={v}"
         else: JS_URL = f"{out}?v={v}"
 
+# CallRail call tracking: swaps the phone number on the page for a tracking number (set to "" to turn it off)
+CALLRAIL_SRC = "https://cdn.callrail.com/companies/865473736/7dd16a198431c7d95229/12/swap.js"
+CALLRAIL = f'<link rel="preconnect" href="https://cdn.callrail.com">\n<script src="{CALLRAIL_SRC}" defer></script>\n' if CALLRAIL_SRC else ""
+
 def page(fname, title, desc, body, active=None, noindex=False):
     preload = ""
     m = re.search(r'<img [^>]*src="([^"]+)"( srcset="([^"]+)" sizes="([^"]+)")?[^>]*fetchpriority="high"', body)
@@ -308,7 +312,7 @@ def page(fname, title, desc, body, active=None, noindex=False):
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 {preload}<link rel="stylesheet" href="{CSS_URL}">
-</head>
+{CALLRAIL}</head>
 <body>
 {header(active)}
 <main class="page">
