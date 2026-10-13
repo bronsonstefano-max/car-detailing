@@ -5,7 +5,7 @@
 //
 // Bindings / settings (see wrangler.jsonc and README):
 //   DB                (D1 database)            required to store leads
-//   ADMIN_PASSWORD    (secret)                 required to open /admin
+//   PASSWORD_GIORDANI, PASSWORD_BRONSON (secrets)  one password each for the two people who can sign in (ADMIN_PASSWORD still works as the bronson password)
 //   RESEND_API_KEY    (secret, optional)       email each new lead via resend.com
 //   NOTIFY_TO         (var, optional)          who gets the email (comma separated)
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
@@ -263,37 +263,45 @@ async function notifyCall(env, row, base) {
 // ---- sign in: a page with a password box, then a signed cookie (no browser pop-up login)
 const SESSION_DAYS = 30;
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
-async function sign(env, msg) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("dd-session|" + env.ADMIN_PASSWORD), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+// the only two people who can sign in. Each has their own password, stored as a Cloudflare secret.
+const USERS = { giordani: "PASSWORD_GIORDANI", bronson: "PASSWORD_BRONSON" };
+const passwordOf = (env, user) => (Object.hasOwn(USERS, user) ? env[USERS[user]] || (user === "bronson" ? env.ADMIN_PASSWORD : "") || "" : "");
+const anyPassword = env => Object.keys(USERS).some(u => passwordOf(env, u));
+async function sign(pw, msg) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("dd-session|" + pw), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
 }
 const same = (a, b) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 const cookieOf = (request, name) => (request.headers.get("cookie") || "").split(/;\s*/).map(c => c.split(/=(.*)/s)).find(c => c[0] === name)?.[1] || "";
+// returns the signed-in username, false, or "unconfigured"
 async function authed(request, env) {
-  if (!env.ADMIN_PASSWORD) return "unconfigured";
-  const [exp = "", sig = ""] = cookieOf(request, "dd_session").split(".");
-  if (!/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
-  return same(sig, await sign(env, exp));
+  if (!anyPassword(env)) return "unconfigured";
+  const [user = "", exp = "", sig = ""] = cookieOf(request, "dd_session").split(".");
+  const pw = passwordOf(env, user);
+  if (!pw || !/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
+  return same(sig, await sign(pw, user + "|" + exp)) ? user : false;
 }
 const safeNext = n => (typeof n === "string" && /^\/(?!\/)[\w\-./?=&%#]*$/.test(n) && !n.startsWith("/login") ? n : "/");
-const loginHtml = (err, next) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Sign in | Divine Detailers</title>
+const loginHtml = (err, next, user = "") => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Sign in | Divine Detailers</title>
 <style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07090c;color:#e8eaed;font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px}
 .box{width:min(380px,100%);background:#0d1116;border:1px solid #1d2229;border-radius:18px;padding:28px 24px;display:flex;flex-direction:column;gap:16px}
 h1{margin:0;font-size:22px}h1 b{color:#32cd32}p{margin:0;color:#8a9099;font-size:14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px}
 input{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:12px;padding:14px;font:inherit;min-height:50px}input:focus{outline:2px solid #32cd32;outline-offset:1px}
 button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:14px;font:inherit;font-weight:700;min-height:50px;cursor:pointer}.err{background:#3b1d1d;color:#ff9a9a;border-radius:10px;padding:10px 12px;font-size:14px}</style></head>
 <body><form class="box" method="post" action="/login"><h1>Divine Detailers <b>CRM</b></h1><p>Sign in to see your leads.</p>${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
-<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" autofocus required></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
+<div><label for="u">Username</label><input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(user)}" ${user ? "" : "autofocus"} required></div>
+<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" ${user ? "autofocus" : ""} required></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
 const htmlRes = (body, status = 200, extra = {}) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex", ...extra } });
 async function loginRoute(p, request, env) {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   if (p === "/logout") return new Response(null, { status: 302, headers: { location: "/login", "set-cookie": `dd_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
-  if (!env.ADMIN_PASSWORD) return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
+  if (!anyPassword(env)) return new Response("Sign in is not set up yet. Add the PASSWORD_GIORDANI and PASSWORD_BRONSON secrets.", { status: 503 });
   const url = new URL(request.url);
   if (request.method !== "POST") return htmlRes(loginHtml("", safeNext(url.searchParams.get("next"))));
   const form = await request.formData().catch(() => null);
   const next = safeNext(form && form.get("next"));
   const pass = String((form && form.get("password")) || "");
+  const user = String((form && form.get("username")) || "").trim().toLowerCase();
   // slow down guessing: 8 failures per 15 minutes per address
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   if (env.DB) {
@@ -302,12 +310,13 @@ async function loginRoute(p, request, env) {
     const r = await env.DB.prepare("SELECT COUNT(*) n FROM login_fails WHERE ip = ? AND at > ?").bind(ip, since).first();
     if (r && r.n >= 8) return htmlRes(loginHtml("Too many tries. Wait a few minutes and try again.", next), 429);
   }
-  if (!same(pass, env.ADMIN_PASSWORD)) {
+  const pw = passwordOf(env, user);
+  if (!pw || !same(pass, pw)) {
     if (env.DB) await env.DB.prepare("INSERT INTO login_fails (ip, at) VALUES (?, ?)").bind(ip, Math.floor(Date.now() / 1000)).run();
-    return htmlRes(loginHtml("That password is not right.", next), 401);
+    return htmlRes(loginHtml("That username or password is not right.", next, user), 401);
   }
   const exp = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400);
-  return new Response(null, { status: 303, headers: { location: next, "set-cookie": `dd_session=${exp}.${await sign(env, exp)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
+  return new Response(null, { status: 303, headers: { location: next, "set-cookie": `dd_session=${user}.${exp}.${await sign(pw, user + "|" + exp)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
 }
 
 const mmss = n => (n || n === 0 ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : "");
@@ -642,7 +651,7 @@ export default {
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/demo") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -676,6 +685,48 @@ export default {
   },
 };
 
+// ---- example leads, so the CRM can be shown off. They are marked ip = 'demo' and can be removed in one click.
+const DEMO_NOTE = "Example lead. Remove all examples with the button at the bottom of the Today page.";
+function demoLeads() {
+  const day = n => new Date(Date.now() + n * 864e5).toLocaleDateString("en-CA", { timeZone: TZ });
+  const ago = m => new Date(Date.now() - m * 60000).toISOString().slice(0, 19).replace("T", " ");
+  const L = (o) => ({ type: "quote", stage: "new", value: 0, ...o });
+  return [
+    L({ m: 4, name: "Marcus Rivera", phone: "(305) 555-0142", email: "marcus.r@example.com", service: "Window Tint", make: "BMW", model: "M3", year: "2022", message: "Want 20% all the way around and a clear strip on the windshield. Can I come Saturday?", gclid: "demo", utm_source: "google", utm_medium: "cpc", utm_campaign: "Miami Window Tint", utm_term: "window tint near me", page: "/window-tinting" }),
+    L({ m: 18, type: "call", name: "UNKNOWN CALLER", phone: "(786) 555-0178", answered: 0, duration: 0, utm_source: "Google Ads", utm_campaign: "Miami Window Tint", message: "" }),
+    L({ m: 47, type: "call", name: "Danielle Brooks", phone: "(305) 555-0119", answered: 0, duration: 31, utm_source: "Google Ads", utm_campaign: "PPF Miami", message: "Voicemail: hi I need a quote on full front PPF for a Porsche Macan, call me back" }),
+    L({ m: 95, name: "Kevin Alvarez", phone: "(954) 555-0166", email: "kalvarez@example.com", service: "Ceramic Coating", also_interested: "Paint Correction", make: "Tesla", model: "Model Y", year: "2024", message: "Brand new car, want it protected before it gets dirty.", gclid: "demo", utm_source: "google", utm_medium: "cpc", utm_campaign: "Ceramic Coating Miami", page: "/ceramic-coating" }),
+    L({ m: 150, type: "call", name: "Priya Shah", phone: "(305) 555-0187", answered: 1, duration: 412, utm_source: "Google Ads", utm_campaign: "Miami Window Tint" }),
+    L({ m: 60 * 26, name: "Tony Delgado", phone: "(786) 555-0133", email: "tony.d@example.com", service: "PPF / Clear Bra", make: "Chevrolet", model: "Corvette C8", year: "2023", message: "Full front end and rocker panels.", stage: "contacted", follow_up: "Left a voicemail", follow_up_date: day(0), page: "/paint-protection-film" }),
+    L({ m: 60 * 50, name: "Samantha Cole", phone: "(305) 555-0124", email: "sam.cole@example.com", service: "Window Tint", make: "Audi", model: "Q5", year: "2021", stage: "quoted", value: 450, follow_up: "Waiting on a decision", follow_up_date: day(-2), page: "/window-tinting" }),
+    L({ m: 60 * 72, name: "Luis Ortega", phone: "(786) 555-0151", email: "luis.o@example.com", service: "Vinyl Wraps", make: "Dodge", model: "Charger", year: "2020", message: "Satin black full wrap.", stage: "quoted", value: 3200, follow_up: "Invoice sent", follow_up_date: day(1), page: "/vinyl-wraps" }),
+    L({ m: 60 * 100, name: "Jasmine Wright", phone: "(305) 555-0172", email: "jwright@example.com", service: "Ceramic Coating", make: "Mercedes-Benz", model: "G-Class", year: "2022", stage: "booked", value: 1400, follow_up: "Accepted, deposit paid", follow_up_date: day(3) }),
+    L({ m: 60 * 120, name: "Carlos Mendez", phone: "(954) 555-0109", email: "carlos.m@example.com", service: "Paint Correction", make: "Lamborghini", model: "Huracan", year: "2019", stage: "working", value: 1800 }),
+    L({ m: 60 * 24 * 6, name: "Aaliyah Grant", phone: "(786) 555-0194", email: "aaliyah.g@example.com", service: "PPF / Clear Bra", make: "Toyota", model: "GR Supra", year: "2023", stage: "done", value: 2600 }),
+    L({ m: 60 * 24 * 8, name: "Brian Foster", phone: "(305) 555-0116", email: "bfoster@example.com", service: "Window Tint", make: "Ford", model: "F-150", year: "2021", stage: "lost", value: 380, follow_up: "Too expensive" }),
+  ].map(l => ({ ...l, created: ago(l.m) }));
+}
+async function demoRoute(request, env) {
+  const b = await request.json().catch(() => ({}));
+  await ensureTable(env.DB);
+  if (b.action === "clear") {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM stage_log WHERE lead_id IN (SELECT id FROM leads WHERE ip = 'demo')"),
+      env.DB.prepare("DELETE FROM leads WHERE ip = 'demo'"),
+    ]);
+    return json({ success: true });
+  }
+  if (b.action !== "load") return json({ success: false }, 400);
+  const have = await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE ip = 'demo'").first();
+  if (have && have.n) return json({ success: true, added: 0 });
+  const ins = env.DB.prepare(`INSERT INTO leads (created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,gclid,utm_source,utm_medium,utm_campaign,utm_term,ip,contacted,notes,stage,value,stage_changed_at,call_id,duration,answered,follow_up,follow_up_date)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'demo',?,?,?,?,?,?,?,?,?,?)`);
+  const stmts = demoLeads().map((l, i) => ins.bind(l.created, l.type, l.name, l.email || "", l.phone, l.service || "", l.also_interested || "", l.make || "", l.year || "", l.model || "", l.message || "", l.page || "", l.gclid || "", l.utm_source || "", l.utm_medium || "", l.utm_campaign || "", l.utm_term || "",
+    l.stage === "new" ? 0 : 1, DEMO_NOTE, l.stage, l.value, l.created, l.type === "call" ? "demo-" + i : null, l.duration ?? null, l.answered ?? null, l.follow_up || "", l.follow_up_date || ""));
+  await env.DB.batch(stmts);
+  return json({ success: true, added: stmts.length });
+}
+
 async function todayPage(env) {
   await ensureTable(env.DB);
   const today = todayStr();
@@ -698,6 +749,7 @@ section.miss h2{color:#ff9a9a}section.late h2{color:#ffb86b}section.new h2{color
 .pill{font-size:11.5px;padding:2px 9px;border-radius:999px;background:#171c23;color:#aab0b9}.pill.ad{background:#14263f;color:#8ec0ff}.pill.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}
 .acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:11px 15px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;min-height:46px;display:inline-flex;align-items:center;justify-content:center}
 .btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.dn{background:#1d2630}
+.demo{max-width:880px;margin:0 auto;padding:0 22px 40px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;color:#7c838d;font-size:13px}.demo .btn{min-height:40px;padding:8px 12px;font-weight:600}
 .empty{color:#7c838d;padding:10px 0}.all{text-align:center;padding:50px 0;color:#8a9099}.all b{display:block;color:#32cd32;font-size:20px;margin-bottom:6px}
 ${BNAV_CSS}
 ${FOLLOW_CSS}
@@ -707,6 +759,7 @@ ${FOLLOW_CSS}
 ${bnav("today", items.length)}
 ${FOLLOW_HTML}
 <main id="m"></main>
+<div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button></div>
 <script type="application/json" id="data">${payload}</script>
 <script>
 const D=JSON.parse(document.getElementById('data').textContent),CFG=D.cfg,TODAY=D.today;let items=D.items;
@@ -734,13 +787,14 @@ document.getElementById('m').addEventListener('click',async e=>{const b=e.target
     const nx=await askNext(lab,st);const o2=await post('/admin/stage',{id:l.id,followup:nx?nx.followup:undefined,follow_date:nx?nx.follow_date:''});
     if(o2.ok){const j=await o2.json();l.stage=j.stage;l.follow_up_date=j.follow_up_date;l.follow_up=j.followup;if(!(j.follow_up_date&&j.follow_up_date<=TODAY&&!['done','lost'].includes(j.stage)))items=items.filter(x=>x.id!==l.id);draw()}else b.disabled=false}})
 draw();
+for(const [id,act] of [['dl','load'],['dc','clear']])document.getElementById(id).onclick=async e=>{e.target.disabled=true;await post('/admin/demo',{action:act});location.reload()};
 </script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
 async function adminRoute(p, request, env) {
   const a = await authed(request, env);
-  if (a === "unconfigured") return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
+  if (a === "unconfigured") return new Response("Sign in is not set up yet. Add the PASSWORD_GIORDANI and PASSWORD_BRONSON secrets.", { status: 503 });
   if (!a) {
     if (request.method === "GET") { const u = new URL(request.url); return new Response(null, { status: 302, headers: { location: "/login?next=" + encodeURIComponent(u.pathname + u.search), "cache-control": "no-store" } }); }
     return json({ success: false, message: "Signed out" }, 401);
@@ -751,6 +805,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/pipeline") return pipelinePage(env);
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env);
+  if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/touch" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id) || typeof b.label !== "string") return json({ success: false }, 400);
