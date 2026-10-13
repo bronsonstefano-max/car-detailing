@@ -207,9 +207,23 @@ async function sendSms(env, to, body) {
   }).catch(() => {})));
 }
 
-// one message to everyone who should react fast: email list (NOTIFY_TO) and text list (ALERT_SMS_TO)
-async function alertTeam(env, { subject, text, html }) {
+// Push notification through ntfy (free, no account): everyone subscribed to the private topic NTFY_TOPIC gets it on their phone
+// within a second, on any carrier. NTFY_SERVER is only needed if you host your own server.
+async function sendPush(env, { title, message, click }) {
+  const topic = (env.NTFY_TOPIC || "").trim();
+  if (!topic) return;
+  const server = (env.NTFY_SERVER || "https://ntfy.sh").replace(/\/+$/, "");
+  await Promise.all(topic.split(",").map(t => t.trim()).filter(Boolean).map(t => fetch(server, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ topic: t, title, message, priority: 4, tags: ["bell"], click: click || undefined }),
+  }).catch(() => {})));
+}
+
+// one message to everyone who should react fast: push (NTFY_TOPIC), email list (NOTIFY_TO) and text list (ALERT_SMS_TO)
+async function alertTeam(env, { subject, text, html, push }) {
   await Promise.all([
+    push ? sendPush(env, push) : null,
     sendEmail(env, { to: env.NOTIFY_TO, subject, html }),
     sendSms(env, env.ALERT_SMS_TO, text),
   ]);
@@ -230,7 +244,8 @@ async function notify(env, lead, base) {
     const html = `<p style="font-size:16px"><b>New lead: ${esc(lead.name)}</b> &middot; ${esc(lead.service)}${veh ? " &middot; " + esc(veh) : ""}</p>
       <p><a href="tel:${esc(lead.phone)}" style="background:#32cd32;color:#04120a;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700">Call ${esc(lead.phone)}</a>
       &nbsp; <a href="${esc(link)}">Open in CRM</a></p><table>${rows}</table>`;
-    jobs.push(alertTeam(env, { subject: `New lead: ${lead.name} (${lead.service}${veh ? ", " + veh : ""})`, text, html }));
+    jobs.push(alertTeam(env, { subject: `New lead: ${lead.name} (${lead.service}${veh ? ", " + veh : ""})`, text, html,
+      push: { title: `New lead: ${lead.name}`, message: [lead.service, veh, lead.phone].filter(Boolean).join(" | "), click: crmLink(env, base, "/admin/today") } }));
     // optional confirmation to the customer (needs a verified sending domain at Resend: set NOTIFY_FROM and AUTO_REPLY=1)
     if (env.AUTO_REPLY === "1" && lead.email) {
       jobs.push(sendEmail(env, {
@@ -256,7 +271,8 @@ async function notifyCall(env, row, base) {
     <p><a href="tel:${esc(row.phone)}" style="background:#32cd32;color:#04120a;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700">Call back ${esc(row.phone)}</a>
     &nbsp; <a href="${esc(link)}">Open today's list</a></p>${row.recording ? `<p><a href="${esc(row.recording)}">Listen to the recording</a></p>` : ""}`;
   await Promise.all([
-    alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html }),
+    alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html,
+      push: { title: `${vm ? "Voicemail" : "Missed call"}: ${who}`, message: [row.phone, src].filter(Boolean).join(" | ") + ". Call them back.", click: link } }),
     env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link }) }).catch(() => {}) : null,
   ]);
 }
