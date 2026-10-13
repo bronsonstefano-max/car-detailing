@@ -815,6 +815,10 @@ def build_service(slug, title, short):
     benefits = "" if slug in ("window-tinting", "ceramic-coating") else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
     pk_section = "" if slug == "ceramic-coating" else f'''<section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>'''
+    if slug == "exterior-detailing":
+        pk_section += f'''<section class="sec book-sec" id="book"><div class="wrap center"><span class="chip">Book online</span><h2>Book your detail <em>in minutes</em></h2>
+<p class="lead">Pick a service and a time that works for you. Prefer to talk it through first? Call us at <a href="tel:{SITE['tel']}"><b>{SITE['phone']}</b></a>.</p>
+<div class="book-frame"><iframe src="https://app.urable.com/virtual-shop/5FEcNw77jDgOYcunLFZh" title="Book an exterior detail with {SITE['name']}" loading="lazy" scrolling="no" frameborder="0" marginheight="0" marginwidth="0" height="1200" width="100%"></iframe></div></div></section>'''
     body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
