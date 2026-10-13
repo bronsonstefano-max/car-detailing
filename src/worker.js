@@ -9,7 +9,7 @@
 //   RESEND_API_KEY    (secret, optional)       email each new lead via resend.com
 //   NOTIFY_TO         (var, optional)          who gets the email (comma separated)
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
-//   LEAD_WEBHOOK_URL  (secret, optional)       POST each lead as JSON (Zapier, Make, Slack, a CRM...)
+//   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and each missed call as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
 const FIELDS = ["name", "email", "phone", "service", "also_interested", "make", "year", "model", "message"];
@@ -217,9 +217,11 @@ async function alertTeam(env, { subject, text, html }) {
 
 async function notify(env, lead, base) {
   const jobs = [];
-  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(lead) }).catch(() => {}));
   const veh = [lead.year, lead.make, lead.model].filter(Boolean).join(" ");
   const link = crmLink(env, base, "/admin/pipeline");
+  // `text` is a ready-written line, so Zapier (or anything else) can pass it straight on as an SMS or chat message
+  const line = lead.type === "newsletter" ? `Newsletter signup: ${lead.email}` : `NEW LEAD: ${lead.name}, ${lead.service}${veh ? ", " + veh : ""}. ${lead.phone}. Call now. ${link}`;
+  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...lead, text: line, crm_link: link }) }).catch(() => {}));
   if (lead.type === "newsletter") {
     jobs.push(sendEmail(env, { to: env.NOTIFY_TO, subject: `Newsletter signup: ${lead.email}`, html: `<p>${esc(lead.email)} joined the newsletter.</p>` }));
   } else {
@@ -255,7 +257,7 @@ async function notifyCall(env, row, base) {
     &nbsp; <a href="${esc(link)}">Open today's list</a></p>${row.recording ? `<p><a href="${esc(row.recording)}">Listen to the recording</a></p>` : ""}`;
   await Promise.all([
     alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html }),
-    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row }) }).catch(() => {}) : null,
+    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link }) }).catch(() => {}) : null,
   ]);
 }
 
