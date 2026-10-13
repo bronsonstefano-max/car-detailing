@@ -113,6 +113,7 @@ PHOTOS = {
 }
 CARD_PHOTO = {"vinyl-wraps": "gblack", "window-tinting": "spray", "paint-protection-film": "ppf911", "ceramic-coating": "ceramic", "paint-correction": "polish", "exterior-detailing": "svan"}
 HERO_PHOTO = {"window-tinting": ("spray", "40% 45%"), "paint-protection-film": ("ppf", "40% 38%"), "ceramic-coating": ("ceramic", "50% 55%"), "paint-correction": ("polish", "40% 40%"), "exterior-detailing": ("foam", "40% 40%")}
+BOOK_URL = {"exterior-detailing": "https://app.urable.com/virtual-shop/5FEcNw77jDgOYcunLFZh"}
 SERVICE_PHOTOS = {"window-tinting": ("rolls", "tdoor"), "paint-protection-film": ("p3", "p1"), "ceramic-coating": ("c3", "ceramic"), "paint-correction": ("pc2", "pc4"), "vinyl-wraps": (None, None), "exterior-detailing": ("dv", "wash")}
 WHY_PHOTO = {"paint-correction": "pc3", "window-tinting": "tspray", "ceramic-coating": "c5", "paint-protection-film": "q6"}
 BAND_POS = {"pc4": "45% 55%", "c3": "45% 48%", "c4": "50% 40%", "c5": "50% 45%", "p3": "50% 42%", "p1": "50% 74%", "tdoor": "50% 42%", "wheel": "40% 52%", "dv": "40% 62%", "wash": "55% 60%", "spray": "50% 50%", "tint": "62% 25%", "heat": "50% 58%", "ppf": "50% 52%", "ceramic": "50% 55%", "polish": "40% 45%"}
@@ -335,10 +336,13 @@ def hero_video(name, poster):
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
 HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster"), "vinyl-wraps": hero_video("wrap-hero", "x"), "paint-correction": hero_video("pc-hero", "x"), "exterior-detailing": hero_video("detail-hero", "x")}
 
-def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None):
+def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None, book=None):
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
     q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
+    if book:
+        q = f'''<div class="qwrap" id="book"><div class="book-frame"><iframe src="{book}" title="Book an appointment with {SITE['name']}" loading="lazy" scrolling="no" frameborder="0" marginheight="0" marginwidth="0" height="1200" width="100%"></iframe></div></div>'''
+        btns = btns.replace('href="contact.html#quote"><span class="dot"></span>Get Your Free Quote', 'href="#book"><span class="dot"></span>Book Online')
     return f'''<section class="page-hero{' tall' if form else ''}{' has-vid' if video else ''}">
   <div class="hero-media" aria-hidden="true"></div>
   <div class="wrap hero-in"><div class="hero-txt"><h1>{title_html}</h1><p class="lead" style="margin:16px auto 26px">{sub}</p>{btns}</div>{('<div class="vframe" aria-hidden="true">' + video + '</div>') if video else ""}</div>
@@ -815,11 +819,7 @@ def build_service(slug, title, short):
     benefits = "" if slug in ("window-tinting", "ceramic-coating") else f'''<section class="sec" style="padding-top:0"><div class="wrap center"><span class="chip">Benefits</span><h2>Comfort, protection and <em>style</em></h2><div class="tiles" style="text-align:initial">{tiles}</div></div></section>'''
     pk_section = "" if slug == "ceramic-coating" else f'''<section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>'''
-    if slug == "exterior-detailing":
-        pk_section += f'''<section class="sec book-sec" id="book"><div class="wrap center"><span class="chip">Book online</span><h2>Book your detail <em>in minutes</em></h2>
-<p class="lead">Pick a service and a time that works for you. Prefer to talk it through first? Call us at <a href="tel:{SITE['tel']}"><b>{SITE['phone']}</b></a>.</p>
-<div class="book-frame"><iframe src="https://app.urable.com/virtual-shop/5FEcNw77jDgOYcunLFZh" title="Book an exterior detail with {SITE['name']}" loading="lazy" scrolling="no" frameborder="0" marginheight="0" marginwidth="0" height="1200" width="100%"></iframe></div></div></section>'''
-    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug))
+    body = inner_hero(esc(title), d["sub"], ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug), book=BOOK_URL.get(slug))
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     hl_intro = '<p class="hl-intro">' + x["hl_p"] + '</p>' if x.get("hl_p") else ""
