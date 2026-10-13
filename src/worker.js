@@ -260,19 +260,55 @@ async function notifyCall(env, row, base) {
 }
 
 // ---------------------------------------------------------------- admin
-function authed(request, env) {
-  if (!env.ADMIN_PASSWORD) return "unconfigured";
-  const h = request.headers.get("authorization") || "";
-  if (!h.startsWith("Basic ")) return false;
-  try {
-    const [, pass = ""] = atob(h.slice(6)).split(/:(.*)/s);
-    // constant-time-ish compare
-    if (pass.length !== env.ADMIN_PASSWORD.length) return false;
-    let d = 0; for (let i = 0; i < pass.length; i++) d |= pass.charCodeAt(i) ^ env.ADMIN_PASSWORD.charCodeAt(i);
-    return d === 0;
-  } catch { return false; }
+// ---- sign in: a page with a password box, then a signed cookie (no browser pop-up login)
+const SESSION_DAYS = 30;
+const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+async function sign(env, msg) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("dd-session|" + env.ADMIN_PASSWORD), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
 }
-const challenge = () => new Response("Sign in", { status: 401, headers: { "www-authenticate": 'Basic realm="Divine Detailers leads", charset="UTF-8"' } });
+const same = (a, b) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
+const cookieOf = (request, name) => (request.headers.get("cookie") || "").split(/;\s*/).map(c => c.split(/=(.*)/s)).find(c => c[0] === name)?.[1] || "";
+async function authed(request, env) {
+  if (!env.ADMIN_PASSWORD) return "unconfigured";
+  const [exp = "", sig = ""] = cookieOf(request, "dd_session").split(".");
+  if (!/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
+  return same(sig, await sign(env, exp));
+}
+const safeNext = n => (typeof n === "string" && /^\/(?!\/)[\w\-./?=&%#]*$/.test(n) && !n.startsWith("/login") ? n : "/");
+const loginHtml = (err, next) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Sign in | Divine Detailers</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07090c;color:#e8eaed;font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px}
+.box{width:min(380px,100%);background:#0d1116;border:1px solid #1d2229;border-radius:18px;padding:28px 24px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:22px}h1 b{color:#32cd32}p{margin:0;color:#8a9099;font-size:14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px}
+input{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:12px;padding:14px;font:inherit;min-height:50px}input:focus{outline:2px solid #32cd32;outline-offset:1px}
+button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:14px;font:inherit;font-weight:700;min-height:50px;cursor:pointer}.err{background:#3b1d1d;color:#ff9a9a;border-radius:10px;padding:10px 12px;font-size:14px}</style></head>
+<body><form class="box" method="post" action="/login"><h1>Divine Detailers <b>CRM</b></h1><p>Sign in to see your leads.</p>${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
+<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" autofocus required></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
+const htmlRes = (body, status = 200, extra = {}) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex", ...extra } });
+async function loginRoute(p, request, env) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  if (p === "/logout") return new Response(null, { status: 302, headers: { location: "/login", "set-cookie": `dd_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
+  if (!env.ADMIN_PASSWORD) return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
+  const url = new URL(request.url);
+  if (request.method !== "POST") return htmlRes(loginHtml("", safeNext(url.searchParams.get("next"))));
+  const form = await request.formData().catch(() => null);
+  const next = safeNext(form && form.get("next"));
+  const pass = String((form && form.get("password")) || "");
+  // slow down guessing: 8 failures per 15 minutes per address
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  if (env.DB) {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (ip TEXT, at INTEGER)").run();
+    const since = Math.floor(Date.now() / 1000) - 900;
+    const r = await env.DB.prepare("SELECT COUNT(*) n FROM login_fails WHERE ip = ? AND at > ?").bind(ip, since).first();
+    if (r && r.n >= 8) return htmlRes(loginHtml("Too many tries. Wait a few minutes and try again.", next), 429);
+  }
+  if (!same(pass, env.ADMIN_PASSWORD)) {
+    if (env.DB) await env.DB.prepare("INSERT INTO login_fails (ip, at) VALUES (?, ?)").bind(ip, Math.floor(Date.now() / 1000)).run();
+    return htmlRes(loginHtml("That password is not right.", next), 401);
+  }
+  const exp = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400);
+  return new Response(null, { status: 303, headers: { location: next, "set-cookie": `dd_session=${exp}.${await sign(env, exp)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly; SameSite=Lax${secure}`, "cache-control": "no-store" } });
+}
 
 const mmss = n => (n || n === 0 ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : "");
 function callTag(l) {
@@ -302,7 +338,7 @@ const stageName = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
 const crmPrefix = env => ""; // paths are the same on every host
 const badge = n => (n ? `<i class="nb">${n > 99 ? "99+" : n}</i>` : "");
 function nav(on, n = 0) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a></nav>`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/logout" class="so">Sign out</a></nav>`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0) {
@@ -609,6 +645,7 @@ export default {
       if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
+      if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
       if (p === "/favicon.ico" || p.startsWith("/assets/favicon")) return env.ASSETS.fetch(request);
       return new Response("Not found", { status: 404 });
     }
@@ -623,6 +660,11 @@ export default {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return await handleLead(request, env, ctx); }
       catch (e) { console.error("lead error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
+    }
+
+    if (p === "/login" || p === "/logout") {
+      if (crmHost) return Response.redirect(`https://${crmHost}${p}`, 301);
+      return loginRoute(p, request, env);
     }
 
     if (p === "/admin" || p.startsWith("/admin/")) {
@@ -661,7 +703,7 @@ ${BNAV_CSS}
 ${FOLLOW_CSS}
 @media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:4px 14px 20px;gap:18px}.acts{display:grid;grid-template-columns:1fr 1fr}.acts .call{grid-column:1/-1;font-size:17px;padding:14px}}
 </style></head><body>
-<header><h1>Divine Detailers <b>today</b></h1>${nav("today", items.length)}<span class="dt" id="dt"></span></header>
+<header><h1>Divine Detailers <b>today</b></h1>${nav("today", items.length)}<span class="dt"><span id="dt"></span> &middot; <a href="/logout" style="color:#8a9099">Sign out</a></span></header>
 ${bnav("today", items.length)}
 ${FOLLOW_HTML}
 <main id="m"></main>
@@ -697,9 +739,12 @@ draw();
 }
 
 async function adminRoute(p, request, env) {
-  const a = authed(request, env);
+  const a = await authed(request, env);
   if (a === "unconfigured") return new Response("Admin is not configured yet. Set the ADMIN_PASSWORD secret.", { status: 503 });
-  if (!a) return challenge();
+  if (!a) {
+    if (request.method === "GET") { const u = new URL(request.url); return new Response(null, { status: 302, headers: { location: "/login?next=" + encodeURIComponent(u.pathname + u.search), "cache-control": "no-store" } }); }
+    return json({ success: false, message: "Signed out" }, 401);
+  }
   if (!env.DB) return new Response("Lead database is not configured.", { status: 503 });
   if (p === "/admin") return adminPage(env);
   if (p === "/admin/leads.csv") return csv(env);
