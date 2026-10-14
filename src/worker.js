@@ -815,8 +815,11 @@ async function speedPage(env, user) {
   const tc = await todayCount(env);
   const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,gclid,utm_medium,utm_source,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason FROM stage_log ORDER BY id ASC LIMIT 30000").all();
+  // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
+  // Texts, emails, the Contacted button and stage changes do not stop it.
+  const isCallLog = r => /^(called|auto-dial: calling the lead|left a voicemail|spoke to the customer)/i.test(r || "");
   const first = new Map();
-  for (const g of logs) if (!first.has(g.lead_id)) first.set(g.lead_id, g);
+  for (const g of logs) if (!first.has(g.lead_id) && isCallLog(g.reason)) first.set(g.lead_id, g);
   const ms = sql => new Date(sql.replace(" ", "T") + "Z").getTime();
   const iso = sql => new Date(ms(sql)).toISOString();
   const fmt = sql => new Date(ms(sql)).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -826,14 +829,13 @@ async function speedPage(env, user) {
     const g = first.get(l.id);
     if (l.type === "call" && l.answered === 1) { contact = l.created_at; how = "Answered live"; }
     else if (g) { contact = g.at; by = g.by_user || ""; how = g.reason || ""; }
-    else if (l.stage !== "new" && l.stage_changed_at) { contact = l.stage_changed_at; how = "Moved to " + stageName(l.stage); }
     const t = etParts(l.created_at);
     return {
       id: l.id, name: l.name || l.phone || "Unknown", type: l.type, what: [l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
       src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at), cd: new Date(ms(l.created_at)).toLocaleDateString("en-CA", { timeZone: TZ }),
       contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
       secs: contact ? Math.max(0, Math.round((ms(contact) - ms(l.created_at)) / 1000)) : null,
-      after: t.wd === "Sun" || t.h < 9 || t.h >= 18,
+      after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && !["done", "lost"].includes(l.stage),
     };
   });
   const payload = JSON.stringify({ rows, now: Date.now(), today: todayStr() }).replace(/</g, "\\u003c");
@@ -862,7 +864,7 @@ ${bnav("speed", tc, true)}
 <div class="kpis" id="k"></div>
 <h2>By person</h2><div class="who" id="w"></div>
 <h2>Every lead, newest first</h2><div class="list" id="l"></div>
-<p class="note">A lead's clock starts when the form is sent or the call comes in. It stops at the first action logged in the CRM: Call, Text, Email, Contacted or a stage change. An answered call counts as instant. Calls made from a phone without using the CRM buttons are not seen. Business hours are Mon to Sat, 9 AM to 6 PM Eastern.</p>
+<p class="note">A lead's clock starts when the form is sent or the call comes in. It stops only when the lead is actually called: the first tap on a Call button, a logged call result (called, left a voicemail, spoke to the customer) or, later, the auto-dial reaching the lead. Texts, emails, the Contacted button and stage changes do not stop it. An answered inbound call counts as instant. Calls made from a phone without using the CRM buttons are not seen. Business hours are Mon to Sat, 9 AM to 6 PM Eastern.</p>
 </main>
 <script type="application/json" id="data">${payload}</script>
 <script>
@@ -879,23 +881,23 @@ function bounds(){if(range==='custom')return [document.getElementById('cf').valu
 const nice=s=>dt(s).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'});
 function pick(){const b=bounds(),f=b[0],t=b[1];document.getElementById('rl').textContent=(f||t)?((f?nice(f):'the beginning')+(f===t?'':' to '+(t?nice(t):'today'))):'All time';
  return R.filter(r=>(!f||r.cd>=f)&&(!t||r.cd<=t)&&!(bh&&r.after))}
-function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null);
+function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null&&r.open);
  const pct=t=>done.length?Math.round(100*secs.filter(x=>x<=t).length/done.length)+'%':'-';
  const now=Date.now(),waits=wait.map(r=>Math.round((now-new Date(r.created).getTime())/1000));
  document.getElementById('k').innerHTML=
-  '<div class="kpi g"><b>'+(med(secs)==null?'-':dur(med(secs)))+'</b><span>Median time to first contact</span></div>'+
-  '<div class="kpi"><b>'+(avg(secs)==null?'-':dur(avg(secs)))+'</b><span>Average time to first contact</span></div>'+
-  '<div class="kpi"><b>'+pct(300)+'</b><span>Contacted within 5 min</span></div>'+
-  '<div class="kpi"><b>'+pct(3600)+'</b><span>Contacted within 1 hour</span></div>'+
-  '<div class="kpi '+(wait.length?'r':'')+'"><b>'+wait.length+'</b><span>Not contacted yet'+(waits.length?' (longest '+dur(Math.max(...waits))+')':'')+'</span></div>'+
+  '<div class="kpi g"><b>'+(med(secs)==null?'-':dur(med(secs)))+'</b><span>Median time to first call</span></div>'+
+  '<div class="kpi"><b>'+(avg(secs)==null?'-':dur(avg(secs)))+'</b><span>Average time to first call</span></div>'+
+  '<div class="kpi"><b>'+pct(300)+'</b><span>Called within 5 min</span></div>'+
+  '<div class="kpi"><b>'+pct(3600)+'</b><span>Called within 1 hour</span></div>'+
+  '<div class="kpi '+(wait.length?'r':'')+'"><b>'+wait.length+'</b><span>Not called yet'+(waits.length?' (longest '+dur(Math.max(...waits))+')':'')+'</span></div>'+
   '<div class="kpi"><b>'+L.length+'</b><span>Leads in this range</span></div>';
  const by={};done.forEach(r=>{const k=r.by||(r.how==='Answered live'?'answered live':'not recorded');(by[k]=by[k]||[]).push(r.secs)});
  document.getElementById('w').innerHTML=Object.keys(by).sort().map(k=>'<div><h3>'+$(k)+'</h3><b>'+by[k].length+' lead'+(by[k].length===1?'':'s')+'</b> <span>&middot; median '+dur(med(by[k]))+' &middot; avg '+dur(avg(by[k]))+'</span></div>').join('')||'<div class="empty">No contacts recorded yet.</div>';
- document.getElementById('l').innerHTML=L.map(r=>{const w=r.secs==null?Math.round((now-new Date(r.created).getTime())/1000):null;
+ document.getElementById('l').innerHTML=L.map(r=>{const w=r.secs==null&&r.open?Math.round((now-new Date(r.created).getTime())/1000):null;
   return '<div class="row'+(w!=null&&w>900?' late':'')+'"><div class="n"><b>'+$(r.name)+'</b><small>'+(r.type==='call'?'Phone call':'Form')+(r.what?' &middot; '+$(r.what):'')+'</small><small>'+(r.type==='call'&&r.src==='Phone call'?'':$(r.src))+(r.ad?'<span class="pill ad">Ads</span>':'')+(r.after?'<span class="pill ah">After hours</span>':'')+'</small></div>'+
   '<div><label>Created at</label>'+$(r.created_abs)+'</div>'+
-  '<div><label>Attempted contact at</label>'+(r.contact?$(r.contact_abs)+(r.how?'<small style="display:block;color:#8a9099">'+$(r.how)+'</small>':''):'<span class="rt vslow">Not yet</span>')+'</div>'+
-  '<div><label>Time to contact</label><span class="rt '+cls(r.secs!=null?r.secs:w)+'">'+(r.secs!=null?(r.secs===0?'Instant':dur(r.secs)):'Waiting '+dur(w))+'</span></div>'+
+  '<div><label>Attempted contact at</label>'+(r.contact?$(r.contact_abs)+(r.how?'<small style="display:block;color:#8a9099">'+$(r.how)+'</small>':''):(r.open?'<span class="rt vslow">Not called yet</span>':'<span class="rt" style="color:#8a9099">No call logged</span>'))+'</div>'+
+  '<div><label>Time to contact</label><span class="rt '+cls(r.secs!=null?r.secs:w)+'">'+(r.secs!=null?(r.secs===0?'Instant':dur(r.secs)):(w!=null?'Waiting '+dur(w):'-'))+'</span></div>'+
   '<div><label>Contacted by</label>'+(r.by?'<span style="text-transform:capitalize">'+$(r.by)+'</span>':'<span style="color:#586069">-</span>')+'</div></div>'}).join('')||'<div class="empty">No leads in this range.</div>'}
 document.getElementById('f').addEventListener('click',e=>{const b=e.target.closest('button[data-r]');if(!b)return;range=b.dataset.r;document.querySelectorAll('#f [data-r]').forEach(x=>x.classList.toggle('on',x===b));document.getElementById('cr').style.display=range==='custom'?'inline-flex':'none';draw()});
 document.getElementById('bh').addEventListener('click',e=>{bh=!bh;e.currentTarget.classList.toggle('on',bh);draw()});
