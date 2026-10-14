@@ -131,11 +131,12 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   ]);
   return { ok: true, id: j.id };
 }
-// Did the agent pick up and press 1, so the lead was dialed? CallRail's duration includes the time the agent's phone rang (about 24 seconds when nobody answers),
-// so a bare duration is not proof. It counts as connected when CallRail says answered / voicemail, reports talk or recording time, or the call ran longer than DIAL_CONNECT_SECS (default 40).
+// Did the agent press 1, so the lead was dialed? CallRail does not report the keypress, and its answered / voicemail flags can be true when the agent picked up but never pressed 1.
+// So only time is used: the call's duration includes the agent's ring (about 24 seconds when nobody answers) and the "press 1" prompt, so a call that reaches DIAL_CONNECT_SECS (default 40) or more
+// is treated as the lead being dialed, and anything shorter counts as "did not press 1". Tune DIAL_CONNECT_SECS from the durations shown in Test CallRail.
 function callConnected(env, c) {
   const limit = Number(env.DIAL_CONNECT_SECS) > 0 ? Number(env.DIAL_CONNECT_SECS) : 40;
-  return bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.talk_time) || 0) > 0 || (num(c.recording_duration) || 0) > 0 || (num(c.duration) || 0) >= limit;
+  return (num(c.duration) || 0) >= limit || (num(c.recording_duration) || 0) > 0;
 }
 // CallRail posts finished outbound calls here (Outbound Post-Call and Call Modified webhooks): log the call, its result and recording on the lead
 async function handleOutbound(env, c) {
