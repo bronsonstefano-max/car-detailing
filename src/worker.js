@@ -1047,9 +1047,12 @@ export default {
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
+      if (p === "/ads-feed.csv" || p === "/api/ads-feed.csv") return adsFeed(request, env, url);
       if (p === "/favicon.ico" || p.startsWith("/assets/favicon")) return env.ASSETS.fetch(request);
       return new Response("Not found", { status: 404 });
     }
+
+    if (p === "/api/ads-feed.csv") return adsFeed(request, env, url);
 
     if (p === "/api/callrail") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
@@ -1340,6 +1343,17 @@ async function adsCsv(env, url) {
   }
   return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="google-ads-${stage}-jobs-${days}d.csv"`, "cache-control": "no-store" } });
 }
+// A private address Google Ads can fetch on a schedule (Goals > Uploads > Schedules > HTTPS). It is protected with HTTP Basic sign-in:
+// set the secrets ADS_FEED_USER and ADS_FEED_PASS, then give Google Ads the same user name and password. Without them the address does not exist.
+async function adsFeed(request, env, url) {
+  if (!env.ADS_FEED_USER || !env.ADS_FEED_PASS || !env.DB) return new Response("Not found", { status: 404 });
+  const h = request.headers.get("authorization") || "";
+  let ok = false;
+  if (/^basic /i.test(h)) { try { const [u, ...pw] = atob(h.slice(6).trim()).split(":"); ok = safeEqual(u, env.ADS_FEED_USER) && safeEqual(pw.join(":"), env.ADS_FEED_PASS); } catch (e) { ok = false; } }
+  if (!ok) return new Response("Sign in required", { status: 401, headers: { "www-authenticate": 'Basic realm="Divine Detailers ads feed"', "cache-control": "no-store" } });
+  if (!url.searchParams.get("days")) url.searchParams.set("days", "90");
+  return adsCsv(env, url);
+}
 async function adsPage(env, user, url) {
   const tc = await todayCount(env);
   const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
@@ -1374,7 +1388,11 @@ ${bnav("insights", tc, true)}
 <div class="dl"><h2>Download</h2>
 <form method="GET" action="/admin/ads.csv"><input type="hidden" name="days" value="${days}"><input type="hidden" name="stage" value="${stage}"><input name="name" value="${esc(dflt)}" aria-label="Conversion name"><button type="submit">Download CSV (${withId.length} rows)</button></form>
 <span class="note">The conversion name must match the name of the conversion action in Google Ads exactly.</span></div>
-<h2>How to upload it</h2>
+<h2>Automatic upload (no clicking)</h2>
+<p class="note" style="color:#c3c8cf;font-size:14px">Google Ads can fetch this file by itself every day. In Cloudflare add two secrets, <b>ADS_FEED_USER</b> and <b>ADS_FEED_PASS</b> (pick any user name and a long password), and Deploy. Then in Google Ads go to <b>Goals → Uploads → Schedules → +</b>, choose <b>HTTPS</b>, and enter this address plus the same user name and password:</p>
+<p><code style="background:#0d1116;border:1px solid #1d2229;border-radius:8px;padding:8px 10px;display:inline-block;word-break:break-all">https://${esc(url.host)}/${env.CRM_HOST && url.host === env.CRM_HOST ? "" : "api/"}ads-feed.csv?stage=${stage}&amp;name=${encodeURIComponent(dflt)}</code></p>
+<p class="note">Schedule it daily. The address returns the last 90 days of ${stage === "completed" ? "completed" : "booked"} jobs that have a click ID. Google ignores jobs it already has.</p>
+<h2>Or upload it by hand</h2>
 <ol><li>In Google Ads, go to <b>Goals → Conversions → New conversion action → Import → Other data sources or CRMs → Track conversions from clicks</b>. Name it "${esc(dflt)}" (once).</li><li>Go to <b>Goals → Uploads → +</b>, choose the CSV and upload it. Open Google's own template first if it asks, to compare the column names.</li><li>Upload weekly (or daily). Uploading the same job twice is ignored by Google, so overlapping ranges are safe.</li><li>Click IDs expire after 90 days, so upload within that window.</li></ol>
 <h2>Booked jobs from ads that are missing a click ID</h2>
 ${leaks.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Reached stage</th><th>Source</th><th>Value</th></tr>${leakRows}</table></div><p class="note">These are tagged as Google Ads (UTM or call tracking) but no click ID was saved, so Google can't match them. They are left out of the file.</p>` : '<p class="note">None. Every booked job from Google Ads has a click ID.</p>'}
