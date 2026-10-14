@@ -321,15 +321,26 @@ document.querySelectorAll('form[data-step1]').forEach(f => f.addEventListener('s
   if (first && location.hash === '#quote') setTimeout(() => first.focus({ preventScroll: true }), 300);
 })();
 
-// Ad attribution: remember where the visit came from (Google Ads click id, UTM tags) and send it with the lead
+// Ad attribution: remember where the visit came from (Google Ads click id, UTM tags) for 90 days and send it with the lead.
+// Stored in localStorage so a visitor who clicks an ad, leaves and comes back later to ask for a quote is still matched. wbraid / gbraid are the iPhone versions of the click id.
 (() => {
-  const KEYS = ['gclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term'];
-  let a = {};
-  try { a = JSON.parse(sessionStorage.getItem('dd_attr') || '{}'); } catch (_) {}
+  const KEYS = ['gclid', 'gbraid', 'wbraid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term'];
+  const CLICK = ['gclid', 'gbraid', 'wbraid'], TTL = 90 * 864e5, now = Date.now();
+  let a = {}, t = 0;
+  try {
+    const st = JSON.parse(localStorage.getItem('dd_attr2') || 'null');
+    if (st && st.t && now - st.t < TTL) { a = st.a || {}; t = st.t; }
+  } catch (_) {}
+  if (!Object.keys(a).length) { try { a = JSON.parse(sessionStorage.getItem('dd_attr') || '{}'); } catch (_) {} }
   const q = new URLSearchParams(location.search);
-  KEYS.forEach(k => { if (q.get(k)) a[k] = q.get(k).slice(0, 200); });
+  // a new ad click replaces the older one (and its tags) so the lead is credited to the most recent click
+  if (CLICK.some(k => q.get(k))) { a = {}; t = now; }
+  KEYS.forEach(k => { if (q.get(k)) a[k] = q.get(k).slice(0, 300); });
   if (!a.referrer && document.referrer && !document.referrer.includes(location.host)) a.referrer = document.referrer.slice(0, 300);
   if (!a.page) a.page = location.pathname;
+  if (!t) t = now;
+  try { localStorage.setItem('dd_attr2', JSON.stringify({ t, a })); } catch (_) {}
   try { sessionStorage.setItem('dd_attr', JSON.stringify(a)); } catch (_) {}
   window.ddAttribution = () => Object.assign({}, a, { page: a.page });
 })();
+

@@ -68,6 +68,7 @@ async function ensureTable(db) {
   const dcols = (await db.prepare("PRAGMA table_info(dial_log)").all()).results.map(c => c.name);
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
   if (dcols.length && !dcols.includes("flagged")) await db.prepare("ALTER TABLE dial_log ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0").run();
+  if (!cols.includes("gbraid")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN gbraid TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN wbraid TEXT")]);
   if (!cols.includes("reminded_at")) await db.prepare("ALTER TABLE leads ADD COLUMN reminded_at TEXT").run();
   if (!cols.includes("follow_up")) {
     await db.batch([
@@ -341,6 +342,24 @@ async function verifyShopNumber(env, body) {
   } catch (e) { return { ok: false, message: "Could not reach CallRail." }; }
 }
 
+// One person, one source: a form lead and a phone call from the same number (last 90 days) share the ad click that brought them. Whichever record is missing the click ID gets it from the other.
+async function linkByPhone(env, id) {
+  const me = await env.DB.prepare("SELECT id, phone, gclid, gbraid, wbraid, utm_source, utm_medium, utm_campaign, utm_term FROM leads WHERE id = ?").bind(id).first();
+  const d10 = me ? digitsOf(me.phone).slice(-10) : "";
+  if (!me || d10.length < 10) return;
+  const others = (await env.DB.prepare("SELECT id, gclid, gbraid, wbraid, utm_source, utm_medium, utm_campaign, utm_term FROM leads WHERE id != ? AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND created_at >= datetime('now','-90 days') AND replace(replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')',''),'+','') LIKE ? ORDER BY id DESC LIMIT 10").bind(id, "%" + d10).all()).results || [];
+  const give = (from, to) => {
+    const plain = (!to.utm_medium || to.utm_medium === "call") && !!from.utm_medium && from.utm_medium !== "call";
+    return [
+      env.DB.prepare("UPDATE leads SET gclid = ?, gbraid = ?, wbraid = ?, utm_campaign = CASE WHEN COALESCE(utm_campaign,'') = '' THEN ? ELSE utm_campaign END, utm_term = CASE WHEN COALESCE(utm_term,'') = '' THEN ? ELSE utm_term END" + (plain ? ", utm_source = ?, utm_medium = ?" : "") + " WHERE id = ?")
+        .bind(...[from.gclid || "", from.gbraid || "", from.wbraid || "", from.utm_campaign || "", from.utm_term || "", ...(plain ? [from.utm_source || "", from.utm_medium || ""] : []), to.id]),
+      env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind("Ad click linked: the same phone number came in earlier or later with a Google Ads click", to.id),
+    ];
+  };
+  if (!hasClick(me)) { const src = others.find(hasClick); if (src) await env.DB.batch(give(src, me)); }
+  else { const miss = others.filter(o => !hasClick(o)); if (miss.length) await env.DB.batch(miss.flatMap(o => give(me, o))); }
+}
+
 async function handleCallrail(request, env, url, ctx) {
   if (!env.CALLRAIL_KEY) return json({ success: false, message: "CALLRAIL_KEY is not set" }, 503);
   const reject = async (why) => { try { if (env.DB) { await ensureTable(env.DB); await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("REJECTED: " + why).run(); } } catch (e) { /* ignore */ } };
@@ -373,7 +392,7 @@ async function handleCallrail(request, env, url, ctx) {
     created: sqlTime(c.start_time || c.created_at), name, phone, call_id: callId,
     duration: num(c.duration), recording: rec, answered, tracking: clean(c.tracking_phone_number || c.formatted_tracking_phone_number || "", 40),
     page: clean(c.landing_page_url || c.last_requested_url || "", 500), referrer: clean(c.referrer_domain || c.referrer || "", 300),
-    gclid: clean(c.gclid || "", 300), utm_source: clean(c.utm_source || src, 200), utm_medium: clean(c.utm_medium || (c.medium || "call"), 200),
+    gclid: clean(c.gclid || "", 300), gbraid: clean(c.gbraid || "", 300), wbraid: clean(c.wbraid || "", 300), utm_source: clean(c.utm_source || src, 200), utm_medium: clean(c.utm_medium || (c.medium || "call"), 200),
     utm_campaign: clean(c.utm_campaign || c.campaign || "", 200), utm_term: clean(c.utm_term || c.keywords || "", 200),
     message: [dir === "outbound" ? "Outbound call" : "", voicemail ? "Left a voicemail" : answered === 0 ? "Missed call, call back" : "", c.first_call === true || c.first_call === "true" ? "First-time caller" : "", [c.customer_city, c.customer_state].filter(Boolean).join(", ")].filter(Boolean).join(" · "),
   };
@@ -384,9 +403,10 @@ async function handleCallrail(request, env, url, ctx) {
     await env.DB.prepare("UPDATE leads SET duration = ?, recording = ?, answered = ? WHERE id = ?").bind(row.duration, row.recording, row.answered, existing.id).run();
     return json({ success: true, updated: true });
   }
-  const insC = await env.DB.prepare(`INSERT INTO leads (created_at,type,name,phone,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,call_id,duration,recording,answered,tracking_number,email)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .bind(row.created, "call", row.name, row.phone, row.message, row.page, row.referrer, row.gclid, row.utm_source, row.utm_medium, row.utm_campaign, row.utm_term, row.call_id, row.duration, row.recording, row.answered, row.tracking, "").run();
+  const insC = await env.DB.prepare(`INSERT INTO leads (created_at,type,name,phone,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,duration,recording,answered,tracking_number,email)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(row.created, "call", row.name, row.phone, row.message, row.page, row.referrer, row.gclid, row.gbraid, row.wbraid, row.utm_source, row.utm_medium, row.utm_campaign, row.utm_term, row.call_id, row.duration, row.recording, row.answered, row.tracking, "").run();
+  if (insC.meta && insC.meta.last_row_id) ctx.waitUntil(linkByPhone(env, insC.meta.last_row_id).catch(() => {}));
   ctx.waitUntil(notifyCall(env, { id: insC.meta && insC.meta.last_row_id, name: row.name, phone: row.phone, answered: row.answered, message: row.message, utm_source: row.utm_source, utm_campaign: row.utm_campaign, recording: row.recording }, url.origin));
   return json({ success: true });
 }
@@ -415,7 +435,7 @@ async function handleLead(request, env, ctx) {
   const type = data["form-name"] === "newsletter" || data.type === "newsletter" ? "newsletter" : "quote";
   const lead = { type };
   for (const f of FIELDS) lead[f] = clean(data[f], f === "message" ? MAX.message : MAX.default);
-  for (const f of ["page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term"]) lead[f] = clean(data[f], 500);
+  for (const f of ["page", "referrer", "gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term"]) lead[f] = clean(data[f], 500);
 
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(lead.email);
   if (!emailOk) return json({ success: false, message: "Please enter a valid email" }, 422);
@@ -434,12 +454,13 @@ async function handleLead(request, env, ctx) {
     if (r && r.n >= 6) return json({ success: false, message: "Too many requests. Please call us." }, 429);
   }
 
-  const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,ip,user_agent)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,ip,user_agent)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(type, lead.name, lead.email, lead.phone, lead.service, lead.also_interested, lead.make, lead.year, lead.model, lead.message,
-      lead.page, lead.referrer, lead.gclid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, ip, clean(request.headers.get("user-agent") || "", 300)).run();
+      lead.page, lead.referrer, lead.gclid, lead.gbraid, lead.wbraid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, ip, clean(request.headers.get("user-agent") || "", 300)).run();
 
   const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
+  if (newLead.id) ctx.waitUntil(linkByPhone(env, newLead.id).catch(() => {}));
   ctx.waitUntil(notify(env, newLead, new URL(request.url).origin));
   // optional: ring the agent's phone straight away and connect them to the new lead (AUTO_DIAL=1, AUTO_DIAL_AGENT=giordani)
   if (env.AUTO_DIAL === "1" && type === "quote" && newLead.id && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDial(env, newLead));
@@ -723,12 +744,13 @@ function when(sqlUtc) {
   const abs = d.toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   return { ago, abs };
 }
+const hasClick = l => !!(l && (l.gclid || l.gbraid || l.wbraid));
 function sourceOf(l) {
-  if (l.type === "call" && !l.gclid && l.utm_medium !== "cpc") {
+  if (l.type === "call" && !hasClick(l) && l.utm_medium !== "cpc") {
     const g = /google ads|adwords|ppc|paid/i.test(l.utm_source || "");
     return { label: g ? "Google Ads" : (l.utm_source || "Phone call"), ad: g, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
   }
-  if (l.gclid || l.utm_medium === "cpc") return { label: "Google Ads", ad: true, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
+  if (hasClick(l) || l.utm_medium === "cpc") return { label: "Google Ads", ad: true, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
   if (l.utm_source) return { label: l.utm_source, ad: false, detail: l.utm_campaign || "" };
   if (l.referrer) { try { return { label: new URL(l.referrer).hostname.replace(/^www\./, ""), ad: false, detail: "" }; } catch { /* ignore */ } }
   return { label: "Direct", ad: false, detail: "" };
@@ -819,7 +841,7 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
   const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
   const byLead = {}; for (const g of logs) (byLead[g.lead_id] = byLead[g.lead_id] || []).push(g);
   const data = results.map(l => ({ ...l, followup: l.follow_up || "", log: (byLead[l.id] || []).map(g => ({ ...g, at: when(g.at).abs })), dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
@@ -954,7 +976,7 @@ draw();
 async function csv(env) {
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC").all();
-  const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes", "duration", "answered", "recording"];
+  const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes", "duration", "answered", "recording"];
   const q = v => { let s = String(v ?? ""); if (/^(=|@|[+\-][^\d(\s])/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
   const body = [cols.join(","), ...results.map(r => cols.map(c => q(r[c])).join(","))].join("\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="divine-detailers-leads.csv"', "cache-control": "no-store" } });
@@ -1161,7 +1183,7 @@ const CHART_JS = `function bars(id,items){const mx=Math.max(1,...items.map(i=>i.
 const BOOKED = ["booked", "working", "done"];
 async function speedRows(env) {
   await ensureTable(env.DB);
-  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,utm_medium,utm_source,utm_campaign,utm_term,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
+  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason, to_stage FROM stage_log ORDER BY id ASC LIMIT 30000").all();
   // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
   // Texts, emails, the Contacted button and stage changes do not stop it.
@@ -1442,7 +1464,7 @@ drawSpend();draw();
 async function todayPage(env, user = "") {
   await ensureTable(env.DB);
   const today = todayStr();
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage IN ('new','nocontact') OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY created_at DESC, id DESC LIMIT 300").bind(today).all();
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,gbraid,wbraid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage IN ('new','nocontact') OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY created_at DESC, id DESC LIMIT 300").bind(today).all();
   const items = results.map(l => ({ ...l, ago: when(l.created_at).ago, src: sourceOf(l).label, ad: sourceOf(l).ad, vm: /voicemail/i.test(l.message || "") }));
   const payload = JSON.stringify({ today, cfg: cfgOf(env), items }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Today | Divine Detailers</title>
