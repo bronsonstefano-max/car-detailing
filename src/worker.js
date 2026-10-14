@@ -1048,7 +1048,7 @@ export default {
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -1596,7 +1596,7 @@ ${bnav("today", items.length, user === OWNER)}
 ${FOLLOW_HTML}
 ${OUTCOME_HTML}
 <main id="m"></main>
-<div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button><button class="btn" id="ta">Send test alert</button>${user === OWNER ? '<button class="btn" id="tc">Test CallRail</button><button class="btn" id="vs">Verify shop number</button><button class="btn" id="vo">Verify another number</button>' : ""}<pre id="tr" style="flex:1 1 100%;white-space:pre-wrap;color:#c3c8cf;font-size:12.5px;margin:0"></pre></div>
+<div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button><button class="btn" id="ta">Send test alert</button>${user === OWNER ? '<button class="btn" id="tc">Test CallRail</button><button class="btn" id="vs">Verify shop number</button><button class="btn" id="vo">Verify another number</button><a class="btn" href="/admin/leads.csv">Download all leads (CSV)</a><button class="btn" id="pg" style="border-color:#7a2b2b;color:#ff8a8a">Delete ALL leads</button>' : ""}<pre id="tr" style="flex:1 1 100%;white-space:pre-wrap;color:#c3c8cf;font-size:12.5px;margin:0"></pre></div>
 <script type="application/json" id="data">${payload}</script>
 <script>
 const D=JSON.parse(document.getElementById('data').textContent),CFG=D.cfg,TODAY=D.today;let items=D.items;
@@ -1628,6 +1628,7 @@ document.getElementById('m').addEventListener('click',async e=>{const b=e.target
 draw();
 async function vfy(btn,phone){btn.disabled=true;const tr=document.getElementById('tr');tr.textContent='Asking CallRail to verify '+(phone||'the shop number')+'...';try{const r=await post('/admin/verifyshop',phone?{phone:phone,name:'Divine Detailers test line'}:{});const j=await r.json();tr.textContent=j.success&&j.already?('The number '+j.number+' is already verified. Set CALLRAIL_CALLER_ID to it in Cloudflare.'):j.success?('CallRail is calling '+j.number+' now.\\nAnswer that phone and key in this code on the keypad: '+(j.code||'(no code returned: '+j.raw+')')+'\\nIf you miss the call, tap this button again.'):('Could not start the verification: '+(j.message||'unknown error'))}catch(_){tr.textContent='Could not reach the server.'}btn.disabled=false}
 const vsb=document.getElementById('vs');if(vsb)vsb.onclick=e=>vfy(e.target,'');
+const pgb=document.getElementById('pg');if(pgb)pgb.onclick=async e=>{const w=prompt('This permanently deletes EVERY lead and its history. Download the CSV first if you want a copy.\\n\\nType DELETE to confirm.');if(w!=='DELETE')return;e.target.disabled=true;const tr=document.getElementById('tr');try{const r=await post('/admin/purge',{confirm:'DELETE'});const j=await r.json();tr.textContent=j.success?('Deleted '+j.deleted+' leads. Reloading...'):('Could not delete: '+(j.message||'error'));if(j.success)setTimeout(()=>location.reload(),900)}catch(_){tr.textContent='Could not reach the server.'}e.target.disabled=false};
 const vob=document.getElementById('vo');if(vob)vob.onclick=e=>{const n=(prompt('Phone number to verify as a caller ID (10 digits)')||'').replace(/[^\\d]/g,'');if(n.length>=10)vfy(e.target,'+1'+n.slice(-10))};
 const tcb=document.getElementById('tc');if(tcb)tcb.onclick=async e=>{e.target.disabled=true;const tr=document.getElementById('tr');tr.textContent='Checking CallRail...';try{const r=await post('/admin/callrailtest',{});const j=await r.json();const yn=v=>v?'yes':'NO';const L=['Token set: '+yn(j.token_set)+' | Account ID set: '+yn(j.account_id_set)+' | Caller ID set: '+yn(j.caller_id_set),'Giordani phone set: '+yn(j.agent_giordani)+' | Bronson phone set: '+yn(j.agent_bronson)+' | Recording: '+(j.recording?'on':'off')+' | Auto-dial: '+(j.auto_dial?'on':'off')];
  if(j.accounts_status!==undefined){L.push('CallRail accounts (status '+j.accounts_status+'):');(j.accounts||[]).forEach(a=>L.push('  '+a.id+'  '+a.name));if(j.accounts_error)L.push('  '+j.accounts_error)}
@@ -1670,6 +1671,15 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
   const user = typeof a === "string" ? a : "";
+  if (p === "/admin/purge" && request.method === "POST") {
+    // owner only, and only with the word DELETE typed in: removes every lead and its history, call log and webhook log (ad spend and logins are kept)
+    if (a !== OWNER) return json({ success: false }, 403);
+    const b = await request.json().catch(() => ({}));
+    if (b.confirm !== "DELETE") return json({ success: false, message: "Confirmation word missing." }, 400);
+    const n = (await env.DB.prepare("SELECT COUNT(*) n FROM leads").first() || {}).n || 0;
+    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log"), env.DB.prepare("DELETE FROM dial_log"), env.DB.prepare("DELETE FROM hook_log"), env.DB.prepare("DELETE FROM leads")]);
+    return json({ success: true, deleted: n });
+  }
   if (p === "/admin/verifyshop" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); const res = await verifyShopNumber(env, await request.json().catch(() => ({}))); return json({ success: res.ok, ...res }); }
   if (p === "/admin/callrailtest" && request.method === "POST") return a === OWNER ? json({ success: true, ...(await callrailTest(env)) }) : json({ success: false }, 403);
   if (p === "/admin/outcome" && request.method === "POST") {
