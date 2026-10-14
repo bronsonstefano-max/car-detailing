@@ -194,7 +194,7 @@ async function callrailTest(env) {
       out.caller_id_match = hit ? hit.name : "";
       // a verified outbound caller ID (for example the shop's own number) is not a tracking number: ask CallRail for those too (best effort)
       try {
-        const rc = await fetch(`${base}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/caller_ids.json?per_page=100`, { headers: h });
+        const rc = await fetch(`${base}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/caller_ids.json?company_id=${companyId}&per_page=100`, { headers: h });
         out.callerids_status = rc.status;
         const jc = await rc.json().catch(() => ({}));
         const list = jc.caller_ids || jc.outbound_caller_ids || [];
@@ -240,7 +240,7 @@ async function verifyShopNumber(env, body) {
     let { r, j } = await post();
     if (!r.ok && /taken/i.test(JSON.stringify(j))) {
       // the number is already registered: if it is verified we are done, if it is still waiting for a code remove it and register it again
-      const rl = await fetch(`${base}/v3/a/${acct}/caller_ids.json?per_page=100`, { headers: h });
+      const rl = await fetch(`${base}/v3/a/${acct}/caller_ids.json?company_id=${companyId}&per_page=100`, { headers: h });
       const jl = await rl.json().catch(() => ({}));
       const found = (jl.caller_ids || jl.outbound_caller_ids || []).find(c => digitsOf(c.phone_number || c.formatted_phone_number || "").slice(-10) === digitsOf(number).slice(-10));
       if (!found) return { ok: false, message: `CallRail says the number is taken, but it is not in this account's list (status ${rl.status}). Ask CallRail support to release it.` };
