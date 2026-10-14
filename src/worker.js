@@ -18,11 +18,13 @@ const MAX = { default: 300, message: 4000 };
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const STAGES = [["new", "New lead"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["lost", "Lost"]];
+const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["lost", "Lost"]];
 const STAGE_KEYS = STAGES.map(x => x[0]);
+const isNewish = st => st === "new" || st === "nocontact"; // still needs its first real conversation
 // What can happen next at each stage: [label, stage it moves the lead to (or null to stay)]
 const FOLLOWUPS = {
   new: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Spoke to the customer", "contacted"], ["Wrong number or spam", "lost"]],
+  nocontact: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Spoke to the customer", "contacted"], ["Wrong number or spam", "lost"]],
   contacted: [["Needs a quote", null], ["Waiting on the customer", null], ["Quote sent", "quoted"], ["Not interested", "lost"], ["No response", "lost"]],
   quoted: [["Invoice sent", null], ["Waiting on a decision", null], ["Sent a reminder", null], ["Accepted, deposit paid", "booked"], ["Too expensive", "lost"], ["Not interested", "lost"], ["Went with another shop", "lost"], ["No response", "lost"]],
   booked: [["Drop-off confirmed", null], ["Rescheduled", null], ["Car dropped off", "working"], ["Cancelled", "lost"]],
@@ -150,13 +152,16 @@ async function handleOutbound(env, c) {
   const at = sqlTime(c.start_time) || new Date().toISOString().slice(0, 19).replace("T", " ");
   const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
   if (!cur) return json({ success: true, ignored: true });
-  const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, cur.stage === "new" && dialed ? "contacted" : cur.stage, reason, when, by);
+  const leadAnswered = answered && !vm;
+  // the call's result moves the lead: the lead answered -> Contacted; voicemail or no answer -> Not contacted (only leads that were still new or not contacted)
+  const target = isNewish(cur.stage) && dialed ? (leadAnswered ? "contacted" : "nocontact") : cur.stage;
+  const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, target, reason, when, by);
   const stmts = [env.DB.prepare("UPDATE dial_log SET done = 1 WHERE call_id = ?").bind(callId)];
   if (dialed) {
     stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
     stmts.push(row("Call result: " + (vm ? "Left a voicemail" : answered ? "Answered" : "No answer"), at));
-    if (cur.stage === "new") stmts.push(env.DB.prepare("UPDATE leads SET stage = 'contacted', contacted = 1, stage_changed_at = datetime('now') WHERE id = ?").bind(leadId));
-  } else stmts.push(row("Dial not connected (the agent did not answer or did not press 1, so the lead was not called)", at));
+    if (target !== cur.stage) stmts.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(target, leadAnswered ? 1 : 0, leadId));
+  } else stmts.push(row("Agent missed the auto-dial (did not answer or did not press 1, so the lead was not called)", at));
   await env.DB.batch(stmts);
   if (!dialed && dl && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
     const ld = await env.DB.prepare("SELECT name, phone FROM leads WHERE id = ?").bind(leadId).first() || {};
@@ -599,18 +604,18 @@ const badge = n => (n ? `<i class="nb">${n > 99 ? "99+" : n}</i>` : "");
 const OWNER = "bronson"; // only this login sees the Speed page
 const SPEED_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2M9 2h6M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"/></svg>';
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
-  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>Insights</a>` : ""}</nav>`;
+  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M7 7c-1 3 0 6 3 9s6 4 9 3"/></svg>Missed</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>Insights</a>` : ""}</nav>`;
 }
 const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" });
 const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
 async function todayCount(env) {
   try {
     await ensureTable(env.DB);
-    const r = await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE type != 'newsletter' AND (stage = 'new' OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost')))").bind(todayStr()).first();
+    const r = await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE type != 'newsletter' AND (stage IN ('new','nocontact') OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost')))").bind(todayStr()).first();
     return r ? r.n : 0;
   } catch { return 0; }
 }
@@ -669,13 +674,13 @@ async function adminPage(env, user = "") {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all();
-  const open = results.filter(l => l.stage === "new" && l.type === "quote").length;
+  const open = results.filter(l => isNewish(l.stage) && l.type === "quote").length;
   const ads = results.filter(l => sourceOf(l).ad).length;
   const cards = results.map(l => {
     const t = when(l.created_at), src = sourceOf(l);
     const veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
-    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : l.stage === "new" ? "new" : ""}" data-id="${l.id}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.stage === "new" ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
+    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : isNewish(l.stage) ? "new" : ""}" data-id="${l.id}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${isNewish(l.stage) ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
       <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
         <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}${callTag(l)}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}${l.follow_up ? `<span class="tag fu">${esc(l.follow_up)}</span>` : ""}</div></div>
       <div class="grid">
@@ -816,7 +821,7 @@ const M=window.matchMedia('(max-width:700px)');let cur='new';
 function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="tel:'+$(tel)+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
 function draw(){
   let open=0,won=0,booked=0;
-  S.forEach(([k])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);if(k==='new')open=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot});
+  S.forEach(([k])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);if(k==='new'||k==='nocontact')open+=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot});
   document.getElementById('sum').innerHTML='<div class="stat g"><b>'+open+'</b><span>new to contact</span></div><div class="stat"><b>'+money(booked)+'</b><span>booked + done</span></div><div class="stat"><b>'+money(won)+'</b><span>completed</span></div>';
   const tabs=document.getElementById('tabs');
   if(M.matches){
@@ -943,6 +948,7 @@ export default {
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
+      if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/insights" || p === "/admin/insights") return adminRoute("/admin/insights", request, env);
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
@@ -1124,7 +1130,7 @@ async function speedRows(env) {
       lost: l.stage === "lost" ? (lostLog && lostLog.reason && lostLog.reason !== "Moved" ? lostLog.reason : "No reason logged") : "",
       booked_days: bookedLog ? Math.max(0, (ms(bookedLog.at) - ms(l.created_at)) / 864e5) : null, qv: l.stage === "quoted" ? (l.value || 0) : 0,
       outs: gl.filter(g => RESULT.test(g.reason || "")).map(g => ({ h: etParts(g.at).h, ok: /answered/i.test(g.reason || "") })),
-      attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
+      attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, missed: gl.filter(g => /^agent missed the auto-dial/i.test(g.reason || "")).length, reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
       after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && !["done", "lost"].includes(l.stage),
     };
   });
@@ -1187,7 +1193,8 @@ function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r
   '<div class="kpi"><b>'+L.length+'</b><span>Leads in this range</span></div>'+
   '<div class="kpi g"><b>'+(calledF.length?Math.round(100*reachedF.length/calledF.length)+'%':'-')+'</b><span>Contact rate: form leads reached &divide; form leads called</span></div>'+
   '<div class="kpi"><b>'+reachedF.length+' of '+calledF.length+'</b><span>Form leads reached (picked up) out of those called</span></div>'+
-  '<div class="kpi"><b>'+(calledF.length?(calledF.reduce((a,r)=>a+Math.max(1,r.attempts),0)/calledF.length).toFixed(1):'-')+'</b><span>Calls per form lead</span></div>';
+  '<div class="kpi"><b>'+(calledF.length?(calledF.reduce((a,r)=>a+Math.max(1,r.attempts),0)/calledF.length).toFixed(1):'-')+'</b><span>Calls per form lead</span></div>'+
+  '<div class="kpi '+(L.reduce((a,r)=>a+(r.missed||0),0)?'r':'')+'"><b>'+L.reduce((a,r)=>a+(r.missed||0),0)+'</b><span>Auto-dials the agent missed (see Missed dials)</span></div>';
  const BK=[['1 min',-1,60],['1&ndash;5 min',60,300],['5&ndash;15 min',300,900],['15&ndash;30 min',900,1800],['30&ndash;60 min',1800,3600],['1&ndash;2 hr',3600,7200],['2&ndash;4 hr',7200,14400],['4&ndash;24 hr',14400,86400],['24 hr +',86400,Infinity]];
  bars('c1',BK.map((b,i)=>{const n=done.filter(r=>r.secs>b[1]&&r.secs<=b[2]).length;return {l:b[0],v:n,t:n,s:done.length?Math.round(100*n/done.length)+'%':'',c:i<2?'':i<4?'mid':'low'}}).concat([{l:'Not called yet',v:wait.length,t:wait.length,s:'',c:'mute'}]));
  const by={};done.forEach(r=>{const k=r.by||(r.how==='Answered live'?'answered live':'not recorded');(by[k]=by[k]||[]).push(r.secs)});
@@ -1206,6 +1213,45 @@ draw();setInterval(draw,60000);
 }
 
 // ---- Contact rate and booked jobs by how fast the lead was first called (owner only)
+
+// Owner-only board: every auto-dial where the agent did not answer or did not press 1, and whether the lead was called afterwards
+async function missedPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  const miss = (await env.DB.prepare(`SELECT s.lead_id, s.at miss_at, s.by_user, l.name, l.phone, l.service, l.stage,
+      (SELECT MIN(x.at) FROM stage_log x WHERE x.lead_id = s.lead_id AND x.at > s.at AND (x.reason LIKE 'Called%' OR x.reason LIKE 'Call result:%' OR x.reason LIKE 'Left a voicemail%' OR x.reason LIKE 'Spoke to the customer%')) called_at
+    FROM stage_log s JOIN leads l ON l.id = s.lead_id
+    WHERE s.reason LIKE 'Agent missed the auto-dial%' AND COALESCE(l.ip,'') != 'demo' ORDER BY s.at DESC LIMIT 200`).all()).results || [];
+  const tot = (await env.DB.prepare("SELECT COUNT(*) n FROM dial_log d JOIN leads l ON l.id = d.lead_id WHERE d.source = 'auto' AND COALESCE(l.ip,'') != 'demo'").first() || {}).n || 0;
+  const ms = t => Date.parse(String(t).replace(" ", "T") + "Z");
+  const mins = r => r.called_at ? Math.max(0, Math.round((ms(r.called_at) - ms(r.miss_at)) / 60000)) : null;
+  const waiting = miss.filter(r => !r.called_at), later = miss.filter(r => r.called_at);
+  const lag = later.map(mins).sort((a, b) => a - b), med = lag.length ? lag[Math.floor(lag.length / 2)] : null;
+  const row = r => `<tr><td><a href="/admin/pipeline#id=${r.lead_id}">${esc(r.name || prettyPhone(r.phone))}</a><br><span class="note">${esc(prettyPhone(r.phone))}${r.service ? " &middot; " + esc(r.service) : ""}</span></td><td>${esc(when(r.miss_at).abs)}<br><span class="note">${esc(r.by_user || "")}</span></td><td>${r.called_at ? "Called " + mins(r) + " min later" : '<b style="color:#ff6b6b">Not called yet</b>'}</td><td>${esc(stageNameOf(r.stage))}</td></tr>`;
+  const stageNameOf = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
+  const tbl = rs => rs.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Missed at</th><th>What happened next</th><th>Stage</th></tr>${rs.map(row).join("")}</table></div>` : '<p class="note">Nothing here.</p>';
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Missed dials | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:26px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:6px 0 0}.note{color:#7c838d;font-size:12.5px}
+.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:10px 12px;border-bottom:1px solid #1b1f25;vertical-align:top}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}.tb a{color:#32cd32;text-decoration:none;font-weight:600}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>missed dials</b></h1>${nav("missed", tc, true)}</header>
+${bnav("missed", tc, true)}
+<main>
+<div class="kpis"><div class="kpi"><b>${tot}</b><span>auto-dials placed</span></div><div class="kpi ${miss.length ? "" : "g"}"><b>${miss.length}</b><span>missed by the agent${tot ? " (" + Math.round(miss.length * 100 / tot) + "%)" : ""}</span></div><div class="kpi ${waiting.length ? "" : "g"}"><b>${waiting.length}</b><span>still not called</span></div><div class="kpi"><b>${med === null ? "-" : med + " min"}</b><span>median time to call back</span></div></div>
+<h2>Missed and still not called</h2>${tbl(waiting)}
+<h2>Missed, then called later</h2>${tbl(later)}
+<p class="note">A dial is missed when the agent's phone was rung and nobody answered or pressed 1, so the lead was never called. The lead stays in the normal pipeline so it can still be worked. Only the owner login sees this page.</p>
+</main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
 async function ratePage(env, user) {
   const rows = await speedRows(env);
   const tc = await todayCount(env);
@@ -1244,7 +1290,7 @@ const money=n=>n?'$'+Number(n).toLocaleString('en-US'):'$0',pc=(a,b)=>b?Math.rou
 function draw(){const L=pick().filter(r=>r.type==='quote'&&r.secs!=null);
  const g=BK.map(b=>{const x=L.filter(r=>r.secs>b[1]&&r.secs<=b[2]);return {l:b[0],n:x.length,rc:x.filter(r=>r.reached).length,bk:x.filter(r=>r.booked).length,val:x.filter(r=>r.booked).reduce((a,r)=>a+(r.value||0),0)}});
  const tot={n:L.length,rc:L.filter(r=>r.reached).length,bk:L.filter(r=>r.booked).length,val:L.filter(r=>r.booked).reduce((a,r)=>a+(r.value||0),0)};
- document.getElementById('k').innerHTML='<div class="kpi g"><b>'+(tot.n?pc(tot.rc,tot.n)+'%':'-')+'</b><span>Contact rate (reached &divide; called)</span></div><div class="kpi"><b>'+tot.rc+' of '+tot.n+'</b><span>Form leads reached</span></div><div class="kpi g"><b>'+(tot.n?pc(tot.bk,tot.n)+'%':'-')+'</b><span>Booked rate (booked &divide; called)</span></div><div class="kpi"><b>'+tot.bk+'</b><span>Booked jobs ('+money(tot.val)+')</span></div>';
+ document.getElementById('k').innerHTML='<div class="kpi g"><b>'+(tot.n?pc(tot.rc,tot.n)+'%':'-')+'</b><span>Contact rate (reached &divide; called)</span></div><div class="kpi"><b>'+tot.rc+' of '+tot.n+'</b><span>Form leads reached</span></div><div class="kpi g"><b>'+(tot.n?pc(tot.bk,tot.n)+'%':'-')+'</b><span>Booked rate (booked &divide; called)</span></div><div class="kpi"><b>'+tot.bk+'</b><span>Booked jobs ('+money(tot.val)+')</span></div>'+'<div class="kpi"><b>'+pick().reduce((a,r)=>a+(r.missed||0),0)+'</b><span>Auto-dials the agent missed (never reached the lead)</span></div>';
  const fast=L.filter(r=>r.secs<=300),slow=L.filter(r=>r.secs>3600),f=a=>({n:a.length,rc:pc(a.filter(r=>r.reached).length,a.length),bk:pc(a.filter(r=>r.booked).length,a.length)});
  const F=f(fast),S=f(slow);
  document.getElementById('ins').innerHTML=(F.n>=3&&S.n>=3)?('Leads called within <b>5 minutes</b> were reached <b>'+F.rc+'%</b> of the time and booked <b>'+F.bk+'%</b> (out of '+F.n+'). Leads called after <b>1 hour</b> were reached <b>'+S.rc+'%</b> and booked <b>'+S.bk+'%</b> (out of '+S.n+').'):'Not enough called leads yet to compare fast and slow calls. This fills in as leads are called and their results are logged.';
@@ -1330,7 +1376,7 @@ drawSpend();draw();
 async function todayPage(env, user = "") {
   await ensureTable(env.DB);
   const today = todayStr();
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage = 'new' OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY created_at DESC, id DESC LIMIT 300").bind(today).all();
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage IN ('new','nocontact') OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY created_at DESC, id DESC LIMIT 300").bind(today).all();
   const items = results.map(l => ({ ...l, ago: when(l.created_at).ago, src: sourceOf(l).label, ad: sourceOf(l).ad, vm: /voicemail/i.test(l.message || "") }));
   const payload = JSON.stringify({ today, cfg: cfgOf(env), items }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Today | Divine Detailers</title>
@@ -1371,11 +1417,12 @@ ${TPL_JS}
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
 const fmtD=d=>{const p=d.split('-');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1]+' '+(+p[2])};
 document.getElementById('dt').textContent=new Date(TODAY+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-function group(){return {miss:items.filter(l=>l.type==='call'&&l.answered===0&&l.stage==='new'),late:items.filter(l=>l.stage!=='new'&&l.follow_up_date&&l.follow_up_date<TODAY),due:items.filter(l=>l.stage!=='new'&&l.follow_up_date===TODAY),nw:items.filter(l=>l.stage==='new'&&!(l.type==='call'&&l.answered===0))}}
+const NW=l=>l.stage==='new'||l.stage==='nocontact';
+function group(){return {miss:items.filter(l=>l.type==='call'&&l.answered===0&&NW(l)),late:items.filter(l=>!NW(l)&&l.follow_up_date&&l.follow_up_date<TODAY),due:items.filter(l=>!NW(l)&&l.follow_up_date===TODAY),nw:items.filter(l=>NW(l)&&!(l.type==='call'&&l.answered===0))}}
 function row(l,kind){const veh=[l.year,l.make,l.model].filter(Boolean).join(' '),tel=(l.phone||'').replace(/[^\\d+]/g,''),t=tplFor(l)[0],msg=tplFill(t,l).body;
   const why=kind==='miss'?(l.vm?'Left a voicemail':'Missed call')+(l.src?' &middot; '+$(l.src):''):kind==='nw'?(l.type==='call'?'Called in':$(l.service||'Quote request'))+(veh?' &middot; '+$(veh):''):($(l.follow_up||'Follow up')+' &middot; '+(kind==='late'?'was due '+fmtD(l.follow_up_date):'due today')+(l.service?' &middot; '+$(l.service):''));
   return '<div class="row" data-id="'+l.id+'"><div class="hd"><div><b>'+$(l.name||l.phone||l.email||'Unknown caller')+'</b><small>'+$(l.ago)+(l.ad?' &middot; <span class="pill ad">Ads</span>':'')+'</small></div><a class="op" href="/admin/pipeline#id='+l.id+'">Details</a></div><div class="why">'+why+'</div>'+(l.message&&kind!=='miss'?'<p class="msg">&ldquo;'+$(l.message.slice(0,180))+'&rdquo;</p>':'')+
-  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'" data-act="call">Call '+$(l.phone)+'</a><a class="btn" href="'+$(smsHref(l.phone,msg))+'" data-act="text">Text</a>':'')+(l.stage==='new'?'<button class="btn dn" data-act="done">Contacted</button>':'<button class="btn dn" data-act="done">Done</button><button class="btn" data-act="snooze">Tomorrow</button>')+'</div></div>'}
+  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'" data-act="call">Call '+$(l.phone)+'</a><a class="btn" href="'+$(smsHref(l.phone,msg))+'" data-act="text">Text</a>':'')+(NW(l)?'<button class="btn dn" data-act="done">Contacted</button>':'<button class="btn dn" data-act="done">Done</button><button class="btn" data-act="snooze">Tomorrow</button>')+'</div></div>'}
 function sec(cls,title,ls,kind){return ls.length?'<section class="'+cls+'"><h2>'+title+' <i>'+ls.length+'</i></h2><div class="rows">'+ls.map(l=>row(l,kind)).join('')+'</div></section>':''}
 function draw(){const g=group();const h=sec('miss','Return these calls',g.miss,'miss')+sec('new','New leads nobody has contacted',g.nw,'nw')+sec('late','Overdue follow-ups',g.late,'late')+sec('due','Follow-ups due today',g.due,'due');
   document.getElementById('m').innerHTML=h||'<div class="all"><b>All caught up</b>No calls to return, no new leads, no follow-ups due.</div>';
@@ -1385,7 +1432,7 @@ document.getElementById('m').addEventListener('click',async e=>{const b=e.target
   if(a==='call'){markCall(l.id,l.name||l.phone);post('/admin/touch',{id:l.id,label:'Called'});return}
   if(a==='text'){post('/admin/touch',{id:l.id,label:'Texted: '+tplFor(l)[0].label});return}
   if(a==='snooze'){const d=new Date(TODAY+'T12:00:00');d.setDate(d.getDate()+1);const v=d.toISOString().slice(0,10);b.disabled=true;const o=await post('/admin/stage',{id:l.id,follow_date:v});if(o.ok){l.follow_up_date=v;items=items.filter(x=>x.id!==l.id);draw()}else b.disabled=false;return}
-  if(a==='done'){b.disabled=true;let st=l.stage;if(st==='new'){const o=await post('/admin/stage',{id:l.id,stage:'contacted'});if(!o.ok){b.disabled=false;return}st='contacted'}
+  if(a==='done'){b.disabled=true;let st=l.stage;if(st==='new'||st==='nocontact'){const o=await post('/admin/stage',{id:l.id,stage:'contacted'});if(!o.ok){b.disabled=false;return}st='contacted'}
     const nx=await askNext(lab,st);const o2=await post('/admin/stage',{id:l.id,followup:nx?nx.followup:undefined,follow_date:nx?nx.follow_date:''});
     if(o2.ok){const j=await o2.json();l.stage=j.stage;l.follow_up_date=j.follow_up_date;l.follow_up=j.followup;if(!(j.follow_up_date&&j.follow_up_date<=TODAY&&!['done','lost'].includes(j.stage)))items=items.filter(x=>x.id!==l.id);draw()}else b.disabled=false}})
 draw();
@@ -1424,6 +1471,7 @@ async function adminRoute(p, request, env) {
     await env.DB.prepare("INSERT INTO ad_spend (month, amount) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET amount = excluded.amount").bind(b.month, b.amount).run();
     return json({ success: true });
   }
+  if (p === "/admin/missed") return a === OWNER ? missedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
@@ -1436,7 +1484,11 @@ async function adminRoute(p, request, env) {
     if (!Number.isInteger(b.id) || !ok) return json({ success: false }, 400);
     const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(b.id).first();
     if (!cur) return json({ success: false }, 404);
-    await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, cur.stage, "Call result: " + b.outcome, user).run();
+    // same rule as the auto-dial: answered -> Contacted, no answer or voicemail -> Not contacted (only for leads that were still new or not contacted)
+    const tgt = isNewish(cur.stage) ? (b.outcome === "Answered" ? "contacted" : /^(No answer|Left a voicemail)$/.test(b.outcome) ? "nocontact" : cur.stage) : cur.stage;
+    const st2 = [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, tgt, "Call result: " + b.outcome, user)];
+    if (tgt !== cur.stage) st2.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(tgt, tgt === "contacted" ? 1 : 0, b.id));
+    await env.DB.batch(st2);
     return json({ success: true });
   }
   if (p === "/admin/touch" && request.method === "POST") {
@@ -1445,7 +1497,7 @@ async function adminRoute(p, request, env) {
     const cur = await env.DB.prepare("SELECT stage, follow_up_date FROM leads WHERE id = ?").bind(b.id).first();
     if (!cur) return json({ success: false }, 404);
     // a first text or email counts as contacting them
-    const stage = cur.stage === "new" ? "contacted" : cur.stage;
+    const stage = isNewish(cur.stage) ? "contacted" : cur.stage;
     const stmts = [
       env.DB.prepare("UPDATE leads SET stage = ?, contacted = 1" + (stage !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(stage, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, stage, clean(b.label, 120), user),
