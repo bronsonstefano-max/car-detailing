@@ -90,3 +90,7 @@ Each pipeline stage has its own list of next steps (for example Quote sent: Invo
 Set the variable `NTFY_TOPIC` (a long private name, for example `dd-leads-x7k29qpm`) in the Cloudflare dashboard. Everyone who installs the free ntfy app (iPhone or Android) and subscribes to that topic gets a notification within a second of every new lead and missed call or voicemail. Tapping it opens the CRM's Today page. Several topics can be listed, separated by commas.
 
 If ntfy answers 429 (daily quota), create a free account at ntfy.sh, make an access token (Account, Access tokens) and add it as the secret `NTFY_TOKEN`. Messages then count against your own quota. Use a long random topic name, since anyone who knows it can read the alerts.
+
+## Owner pages and reminders
+- Signed in as `bronson` there are three extra pages: **Speed** (time to first call), **Contact rate** (reached and booked rate by how fast a lead was called) and **Insights** (funnel, revenue, sources and Google Ads return, services, lost reasons, busiest hours, best time to call). Enter the monthly Google Ads spend at the bottom of Insights.
+- A cron trigger runs every minute and sends one reminder (push, email, text and the Zapier webhook, whichever are set up) when a lead has not been called within `REMIND_MINUTES` (default 10; set to 0 to turn reminders off). Reminders only go out during business hours, so overnight leads get a single reminder when the shop opens. If a deploy ever fails because of the cron trigger, delete the `triggers` line in `wrangler.jsonc`.

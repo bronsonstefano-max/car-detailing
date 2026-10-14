@@ -48,6 +48,7 @@ async function ensureTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS stage_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, from_stage TEXT, to_stage TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS stage_log_lead ON stage_log (lead_id)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS ad_spend (month TEXT PRIMARY KEY, amount REAL NOT NULL DEFAULT 0)").run();
   const slCols = (await db.prepare("PRAGMA table_info(stage_log)").all()).results.map(c => c.name);
   if (!slCols.includes("by_user")) await db.prepare("ALTER TABLE stage_log ADD COLUMN by_user TEXT").run();
   // upgrade tables created before the pipeline existed
@@ -60,6 +61,7 @@ async function ensureTable(db) {
       db.prepare("UPDATE leads SET stage = 'contacted' WHERE contacted = 1"),
     ]);
   }
+  if (!cols.includes("reminded_at")) await db.prepare("ALTER TABLE leads ADD COLUMN reminded_at TEXT").run();
   if (!cols.includes("follow_up")) {
     await db.batch([
       db.prepare("ALTER TABLE leads ADD COLUMN follow_up TEXT"),
@@ -404,11 +406,11 @@ const badge = n => (n ? `<i class="nb">${n > 99 ? "99+" : n}</i>` : "");
 const OWNER = "bronson"; // only this login sees the Speed page
 const SPEED_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2M9 2h6M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"/></svg>';
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
-  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a>` : ""}</nav>`;
+  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>Insights</a>` : ""}</nav>`;
 }
 const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" });
 const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
@@ -422,8 +424,8 @@ async function todayCount(env) {
 const BNAV_CSS = `.bnav{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.navtabs a.on .nb,.bnav a.on .nb{background:#04120a;color:#32cd32}.bnav .nb{margin:0;position:absolute;top:2px;right:calc(50% - 26px)}.bnav a{position:relative}
 @media(max-width:700px){
   .navtabs{display:none!important}
-  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:6px 10px calc(6px + env(safe-area-inset-bottom,0px));gap:8px}
-  .bnav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border-radius:12px;color:#8a9099;text-decoration:none;font-size:12px;font-weight:600;min-height:52px;justify-content:center}
+  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));gap:3px}
+  .bnav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border-radius:12px;color:#8a9099;text-decoration:none;font-size:11px;font-weight:600;min-height:52px;justify-content:center}
   .bnav a.on{color:#04120a;background:#32cd32}.bnav a{min-width:0}.bnav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   body{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 }`;
@@ -696,7 +698,40 @@ async function csv(env) {
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="divine-detailers-leads.csv"', "cache-control": "no-store" } });
 }
 
+// ---- Reminder: leads nobody has called yet (runs every minute from a Cloudflare cron trigger)
+// REMIND_MINUTES: how long a lead may wait before a reminder goes out (default 10, set to 0 to turn reminders off)
+// Reminders only go out during business hours (Mon to Sat, 9 to 6 Eastern), so overnight leads get one reminder when the shop opens.
+async function remindStale(env) {
+  if (!env.DB) return;
+  const mins = env.REMIND_MINUTES === undefined || env.REMIND_MINUTES === "" ? 10 : Number(env.REMIND_MINUTES);
+  if (!(mins > 0)) return;
+  const nowSql = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  if (env.REMIND_ALWAYS !== "1" && (p.weekday === "Sun" || Number(p.hour) < 9 || Number(p.hour) >= 18)) return;
+  await ensureTable(env.DB);
+  const { results } = await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.created_at FROM leads l
+    WHERE l.type != 'newsletter' AND l.stage = 'new' AND l.reminded_at IS NULL AND COALESCE(l.ip,'') != 'demo'
+      AND NOT (l.type = 'call' AND l.answered = 1)
+      AND l.created_at <= datetime('now', ?) AND l.created_at >= datetime('now', '-2 days')
+      AND NOT EXISTS (SELECT 1 FROM stage_log s WHERE s.lead_id = l.id AND (s.reason LIKE 'Called%' OR s.reason LIKE 'Call result%' OR s.reason LIKE 'Left a voicemail%' OR s.reason LIKE 'Spoke to the customer%' OR s.reason LIKE 'Auto-dial: calling the lead%'))
+    ORDER BY l.created_at ASC LIMIT 20`).bind(`-${Math.round(mins)} minutes`).all();
+  if (!results.length) return;
+  await env.DB.batch(results.map(r => env.DB.prepare("UPDATE leads SET reminded_at = ? WHERE id = ?").bind(nowSql, r.id)));
+  const waited = r => { const m = Math.round((Date.now() - new Date(r.created_at.replace(" ", "T") + "Z").getTime()) / 60000); return m < 90 ? `${m} min` : `${Math.round(m / 60)} hr`; };
+  const list = results.map(r => `${r.name || r.phone} (${waited(r)})`).join(", ");
+  const link = env.CRM_HOST ? `https://${env.CRM_HOST}/today` : "";
+  const text = `${results.length === 1 ? "REMINDER: 1 lead has not been called yet" : `REMINDER: ${results.length} leads have not been called yet`}: ${list}. ${link}`.trim();
+  const html = `<p style="font-size:16px"><b>${esc(text.replace(link, "").trim())}</b></p>${link ? `<p><a href="${esc(link)}">Open today's list</a></p>` : ""}`;
+  await Promise.all([
+    alertTeam(env, { subject: "Leads waiting to be called", text, html, push: { title: "Leads waiting to be called", message: list, click: link || undefined } }),
+    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "reminder", text, crm_link: link, leads: results.map(r => ({ id: r.id, name: r.name, phone: r.phone, phone_display: prettyPhone(r.phone), call_link: goLink(env, "", r.id, r.phone), waiting: waited(r) })) }) }).catch(() => {}) : null,
+  ]);
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(remindStale(env).catch(e => console.error("reminder error", e && e.message)));
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname.replace(/\/+$/, "") || "/";
@@ -714,10 +749,11 @@ export default {
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
+      if (p === "/insights" || p === "/admin/insights") return adminRoute("/admin/insights", request, env);
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/outcome" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/outcome" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -859,7 +895,7 @@ const CHART_JS = `function bars(id,items){const mx=Math.max(1,...items.map(i=>i.
 const BOOKED = ["booked", "working", "done"];
 async function speedRows(env) {
   await ensureTable(env.DB);
-  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,utm_medium,utm_source,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
+  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,utm_medium,utm_source,utm_campaign,utm_term,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason, to_stage FROM stage_log ORDER BY id ASC LIMIT 30000").all();
   // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
   // Texts, emails, the Contacted button and stage changes do not stop it.
@@ -882,12 +918,18 @@ async function speedRows(env) {
     const gl = byLead.get(l.id) || [];
     const reachedLog = gl.find(g => REACHED.test(g.reason || ""));
     const results = gl.map(g => { const m = RESULT.exec(g.reason || ""); return m ? { by: g.by_user || "", res: m[1] } : null; }).filter(Boolean);
+    const lostLog = [...gl].reverse().find(g => g.to_stage === "lost"), bookedLog = gl.find(g => BOOKED.includes(g.to_stage));
+    const so = sourceOf(l);
     return {
       id: l.id, name: l.name || l.phone || "Unknown", type: l.type, what: [l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
       src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at), cd: new Date(ms(l.created_at)).toLocaleDateString("en-CA", { timeZone: TZ }),
       contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
       secs: contact ? Math.max(0, Math.round((ms(contact) - ms(l.created_at)) / 1000)) : null,
       booked: BOOKED.includes(l.stage) || gl.some(g => BOOKED.includes(g.to_stage)), value: l.value || 0,
+      service: l.service || "Not set", stage: l.stage, h: t.h, srckey: so.ad ? "Google Ads" + (l.utm_campaign ? " \u00b7 " + l.utm_campaign : "") : so.label,
+      lost: l.stage === "lost" ? (lostLog && lostLog.reason && lostLog.reason !== "Moved" ? lostLog.reason : "No reason logged") : "",
+      booked_days: bookedLog ? Math.max(0, (ms(bookedLog.at) - ms(l.created_at)) / 864e5) : null, qv: l.stage === "quoted" ? (l.value || 0) : 0,
+      outs: gl.filter(g => RESULT.test(g.reason || "")).map(g => ({ h: etParts(g.at).h, ok: /answered/i.test(g.reason || "") })),
       attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
       after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && !["done", "lost"].includes(l.stage),
     };
@@ -1020,6 +1062,77 @@ draw();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
+// ---- Insights (owner only): funnel, revenue, sources and ad return, services, lost reasons, busiest hours, best time to call
+async function insightsPage(env, user) {
+  const rows = await speedRows(env);
+  const tc = await todayCount(env);
+  const spend = Object.fromEntries((await env.DB.prepare("SELECT month, amount FROM ad_spend").all()).results.map(r => [r.month, r.amount]));
+  const payload = JSON.stringify({ rows, today: todayStr(), spend }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Insights | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
+${RANGE_CSS}
+${CHART_CSS}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:24px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}.kpi.r b{color:#ff8a8a}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:10px 0 0}h2 small{text-transform:none;letter-spacing:0;color:#7c838d;font-weight:400;font-size:12.5px;margin-left:6px}.note{color:#7c838d;font-size:12.5px}
+.hb{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:8px}.hb div{display:grid;grid-template-columns:minmax(110px,32%) 1fr 60px;gap:10px;align-items:center;font-size:14px}.hb i{display:block;height:14px;background:#32cd32;border-radius:4px;min-width:2px}.hb i.r{background:#ff8a8a}.hb span:last-child{text-align:right;color:#aab0b9}
+.sp{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:12px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}.sp label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}.sp input{width:100%;background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:10px;font:inherit;font-size:16px;min-height:44px}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}.hb div{grid-template-columns:90px 1fr 48px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>insights</b></h1>${nav("insights", tc, true)}</header>
+${bnav("insights", tc, true)}
+<main>
+${RANGE_HTML}
+<div class="kpis" id="k"></div>
+<h2>Lead funnel<small>how many leads make it through each step</small></h2><div class="chart" id="fn"></div>
+<h2>Google Ads return<small>uses the monthly ad spend you enter at the bottom</small></h2><div class="kpis" id="ads"></div>
+<h2>Where leads come from</h2><div class="tbw"><table class="tb" id="src"></table></div>
+<h2>Which services bring the money</h2><div class="tbw"><table class="tb" id="svc"></table></div>
+<h2>Why leads are lost<small>the reason picked when a lead moves to Lost</small></h2><div class="hb" id="lost"></div>
+<h2>When leads arrive<small>number of leads by hour of day, Eastern time (purple = outside business hours)</small></h2><div class="chart" id="hr"></div>
+<h2>Best time to call<small>share of logged calls that were answered, by hour of day (needs at least 3 calls in an hour)</small></h2><div class="chart" id="bt"></div>
+<h2>Monthly Google Ads spend<small>type the amount spent each month; it is saved automatically</small></h2><div class="sp" id="sp"></div>
+<p class="note">Revenue uses the job value you enter on each lead in the Pipeline, and "booked" means the lead is in Booked, In the shop or Completed (or was). Numbers get more reliable as more leads are logged. Small groups can swing a lot.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+const D=JSON.parse(document.getElementById('data').textContent),R=D.rows,TODAY=D.today;let SP=D.spend||{};
+${RANGE_JS}
+${CHART_JS}
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>'$'+Math.round(n||0).toLocaleString('en-US'),pc=(a,b)=>b?Math.round(100*a/b)+'%':'-',med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);return b.length%2?b[i]:(b[i-1]+b[i])/2};
+function spendFor(f,t){let tot=0;for(const m in SP){const y=+m.slice(0,4),mo=+m.slice(5,7),dim=new Date(Date.UTC(y,mo,0)).getUTCDate(),first=m+'-01',last=m+'-'+String(dim).padStart(2,'0'),lo=f&&f>first?f:first,hi=t&&t<last?t:last;if(lo>hi)continue;tot+=SP[m]*(((dt(hi)-dt(lo))/864e5)+1)/dim}return tot}
+function tbl(id,head,body){document.getElementById(id).innerHTML='<tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+(body.length?body.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+head.length+'" style="text-align:center;color:#7c838d">No leads in this range</td></tr>')}
+function hb(id,items,red){const mx=Math.max(1,...items.map(i=>i[1]));document.getElementById(id).innerHTML=items.length?items.map(i=>'<div><span>'+$(i[0])+'</span><span><i class="'+(red?'r':'')+'" style="width:'+Math.max(2,Math.round(100*i[1]/mx))+'%"></i></span><span>'+i[1]+'</span></div>').join(''):'<span style="color:#7c838d">Nothing to show in this range</span>'}
+function groupBy(L,fn){const m={};L.forEach(r=>{const k=fn(r);(m[k]=m[k]||[]).push(r)});return Object.entries(m).sort((a,b)=>b[1].length-a[1].length)}
+function stats(x){const b=x.filter(r=>r.booked),called=x.filter(r=>r.type==='quote'&&r.secs!=null),rev=b.reduce((a,r)=>a+(r.value||0),0),vals=b.filter(r=>r.value>0);return {n:x.length,b:b.length,rev:rev,avg:vals.length?rev/vals.length:0,calledF:called.length,reachedF:called.filter(r=>r.reached).length}}
+function draw(){const L=pick(),S=stats(L),f=bounds()[0],t=bounds()[1];
+ const lost=L.filter(r=>r.stage==='lost').length,quoted=L.reduce((a,r)=>a+r.qv,0),days=med(L.filter(r=>r.booked_days!=null).map(r=>r.booked_days));
+ document.getElementById('k').innerHTML='<div class="kpi"><b>'+S.n+'</b><span>Leads</span></div><div class="kpi g"><b>'+S.b+'</b><span>Booked jobs ('+pc(S.b,S.n)+' of leads)</span></div><div class="kpi g"><b>'+money(S.rev)+'</b><span>Booked revenue</span></div><div class="kpi"><b>'+(S.avg?money(S.avg):'-')+'</b><span>Average job value</span></div><div class="kpi"><b>'+money(quoted)+'</b><span>Quoted, waiting on a decision</span></div><div class="kpi"><b>'+(days==null?'-':days<1?'Same day':days.toFixed(1)+' days')+'</b><span>Median time from lead to booked</span></div><div class="kpi '+(lost?'r':'')+'"><b>'+lost+'</b><span>Leads lost</span></div>';
+ const called=L.filter(r=>r.secs!=null),reached=L.filter(r=>r.reached||(r.type==='call'&&r.how==='Answered live')),done=L.filter(r=>r.stage==='done');
+ const fun=[['Leads',L.length],['Called',called.length],['Reached',reached.length],['Booked',S.b],['Completed',done.length]];
+ bars('fn',fun.map((x,i)=>({l:x[0],v:x[1],t:x[1],s:i===0?'':pc(x[1],fun[i-1][1])+' of '+fun[i-1][0].toLowerCase(),c:'',small:false})));
+ const ads=L.filter(r=>r.ad),as=stats(ads),sp=spendFor(f,t);
+ document.getElementById('ads').innerHTML=sp>0&&ads.length?'<div class="kpi"><b>'+money(sp)+'</b><span>Ad spend in this range</span></div><div class="kpi"><b>'+ads.length+'</b><span>Leads from Google Ads</span></div><div class="kpi g"><b>'+money(sp/ads.length)+'</b><span>Cost per lead</span></div><div class="kpi g"><b>'+(as.b?money(sp/as.b):'-')+'</b><span>Cost per booked job</span></div><div class="kpi g"><b>'+(sp?(as.rev/sp).toFixed(1)+'x':'-')+'</b><span>Return on ad spend ('+money(as.rev)+' booked)</span></div>':'<div class="note">Enter your monthly Google Ads spend at the bottom of the page to see cost per lead, cost per booked job and return on ad spend.</div>';
+ tbl('src',['Source','Leads','Reached','Booked','Booked rate','Revenue'],groupBy(L,r=>r.srckey).map(([k,x])=>{const a=stats(x);return [$(k),a.n,a.calledF?a.reachedF+' of '+a.calledF:'-',a.b,pc(a.b,a.n),money(a.rev)]}));
+ tbl('svc',['Service','Leads','Booked','Booked rate','Revenue','Avg job'],groupBy(L,r=>r.service).map(([k,x])=>{const a=stats(x);return [$(k),a.n,a.b,pc(a.b,a.n),money(a.rev),a.avg?money(a.avg):'-']}));
+ hb('lost',groupBy(L.filter(r=>r.stage==='lost'),r=>r.lost).map(([k,x])=>[k,x.length]),true);
+ const hrs=Array.from({length:24},(_,h)=>L.filter(r=>r.h===h).length),lab=h=>(h%12||12)+(h<12?'a':'p');
+ bars('hr',hrs.map((n,h)=>({l:lab(h),v:n,t:n||'',c:h>=9&&h<18?'':'mute'})));
+ const outs=[].concat(...L.map(r=>r.outs||[])),bt=Array.from({length:24},(_,h)=>{const x=outs.filter(o=>o.h===h);return {h:h,n:x.length,a:x.filter(o=>o.ok).length}});
+ const btItems=bt.filter(x=>x.n>0).map(x=>({l:lab(x.h),v:x.n>=3?Math.round(100*x.a/x.n):0,t:x.n>=3?Math.round(100*x.a/x.n)+'%':'-',s:x.a+' of '+x.n,c:x.n>=3?'':'mute',small:x.n<5}));
+ document.getElementById('bt').innerHTML=btItems.length?'':'<div class="note" style="padding:14px">No call results logged in this range yet. Answer the popup after tapping Call and this fills in.</div>';if(btItems.length)bars('bt',btItems)}
+function drawSpend(){const el=document.getElementById('sp'),ms=[];let d=TODAY.slice(0,7);for(let i=0;i<6;i++){ms.push(d);const dd=dt(d+'-01');dd.setUTCMonth(dd.getUTCMonth()-1);d=ds(dd).slice(0,7)}
+ el.innerHTML=ms.map(m=>'<div><label>'+dt(m+'-01').toLocaleDateString('en-US',{timeZone:'UTC',month:'long',year:'numeric'})+'</label><input type="number" min="0" step="1" inputmode="numeric" data-m="'+m+'" value="'+(SP[m]||'')+'" placeholder="$0"></div>').join('')}
+document.getElementById('sp').addEventListener('change',async e=>{const i=e.target.closest('input[data-m]');if(!i)return;const v=Math.max(0,Number(i.value)||0);SP[i.dataset.m]=v;try{await fetch('/admin/adspend',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({month:i.dataset.m,amount:v})})}catch(_){}draw()});
+drawSpend();draw();
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
 async function todayPage(env, user = "") {
   await ensureTable(env.DB);
   const today = todayStr();
@@ -1103,6 +1216,14 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/today") return todayPage(env, a);
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/insights") return a === OWNER ? insightsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/adspend" && request.method === "POST") {
+    if (a !== OWNER) return json({ success: false }, 403);
+    const b = await request.json().catch(() => ({}));
+    if (typeof b.month !== "string" || !/^\d{4}-\d{2}$/.test(b.month) || !Number.isFinite(b.amount) || b.amount < 0 || b.amount > 10000000) return json({ success: false }, 400);
+    await env.DB.prepare("INSERT INTO ad_spend (month, amount) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET amount = excluded.amount").bind(b.month, b.amount).run();
+    return json({ success: true });
+  }
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);

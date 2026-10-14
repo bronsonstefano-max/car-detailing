@@ -13,6 +13,8 @@
   // Workers & Pages > this Worker > Settings > Domains & Routes > Add > Custom domain.
   // Only CRM_HOST lives here. Everything else (NOTIFY_TO, NOTIFY_FROM, ALERT_SMS_TO, AUTO_REPLY, GOOGLE_REVIEW_URL and the secrets)
   // is set in the dashboard under Settings > Variables and Secrets, so a deploy never overwrites it.
+  // Every minute, remind about leads that nobody has called yet (see remindStale in src/worker.js; REMIND_MINUTES sets the wait, 0 turns it off)
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "CRM_HOST": "crm.divinedetailers.com"
   }
