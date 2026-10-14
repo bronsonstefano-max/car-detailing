@@ -585,16 +585,18 @@ function askNext(name,stage){return new Promise(res=>{const d=document.getElemen
 
 // After someone taps Call, ask (when they come back to the CRM) whether the lead answered. This feeds the contact rate on the Speed page.
 const OUTCOMES = [["Answered", "Answered"], ["No answer", "No answer"], ["Left a voicemail", "Voicemail"], ["Wrong number", "Wrong number"]];
-const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">Skip</button></div></div></dialog>`;
+const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
 const OUTCOME_JS = `
 const OUTC=${JSON.stringify(OUTCOMES)};
-function markCall(id,name){try{localStorage.setItem('dd_pc',JSON.stringify({id:id,name:name||'this lead',t:Date.now()}))}catch(_){}}
-function askOutcome(){let p=null;try{p=JSON.parse(localStorage.getItem('dd_pc')||'null')}catch(_){}
-  const d=document.getElementById('odlg');if(!p||!d||d.open)return;const age=Date.now()-p.t;
-  if(age>6*36e5){try{localStorage.removeItem('dd_pc')}catch(_){}return}if(age<4000)return;
+function pcq(){try{const a=JSON.parse(localStorage.getItem('dd_pcq')||'[]');return Array.isArray(a)?a:[]}catch(_){return []}}
+function pcs(a){try{localStorage.setItem('dd_pcq',JSON.stringify(a))}catch(_){}}
+function markCall(id,name){const a=pcq().filter(x=>x.id!==id);a.push({id:id,name:name||'this lead',t:Date.now()});pcs(a)}
+function askOutcome(){const d=document.getElementById('odlg');if(!d||d.open)return;const now=Date.now();let a=pcq().filter(x=>now-x.t<=6*36e5);if(a.length!==pcq().length)pcs(a);
+  const p=a.find(x=>now-x.t>=4000);if(!p)return;
+  const done=()=>{pcs(pcq().filter(x=>x.id!==p.id));d.close();setTimeout(askOutcome,300)};
   document.getElementById('ot').textContent='Did '+p.name+' answer?';const g=document.getElementById('og');g.innerHTML='';
-  OUTC.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.onclick=async()=>{b.disabled=true;try{await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:p.id,outcome:v})})}catch(_){}try{localStorage.removeItem('dd_pc')}catch(_){}d.close()};g.appendChild(b)});
-  document.getElementById('os').onclick=()=>{try{localStorage.removeItem('dd_pc')}catch(_){}d.close()};d.showModal()}
+  OUTC.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.onclick=async()=>{b.disabled=true;try{await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:p.id,outcome:v})})}catch(_){}done()};g.appendChild(b)});
+  document.getElementById('os').onclick=done;d.showModal()}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(askOutcome,400)});window.addEventListener('focus',()=>setTimeout(askOutcome,400));window.addEventListener('pageshow',()=>setTimeout(askOutcome,600));setTimeout(askOutcome,800);
 `;
 
@@ -1130,7 +1132,7 @@ async function speedRows(env) {
       lost: l.stage === "lost" ? (lostLog && lostLog.reason && lostLog.reason !== "Moved" ? lostLog.reason : "No reason logged") : "",
       booked_days: bookedLog ? Math.max(0, (ms(bookedLog.at) - ms(l.created_at)) / 864e5) : null, qv: l.stage === "quoted" ? (l.value || 0) : 0,
       outs: gl.filter(g => RESULT.test(g.reason || "")).map(g => ({ h: etParts(g.at).h, ok: /answered/i.test(g.reason || "") })),
-      attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, to_reach: reachedLog ? Math.max(1, gl.slice(0, gl.indexOf(reachedLog) + 1).filter(g => ATTEMPT.test(g.reason || "")).length) : null, missed: gl.filter(g => /^agent missed the auto-dial/i.test(g.reason || "")).length, reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
+      attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, to_reach: reachedLog ? Math.max(1, gl.slice(0, gl.indexOf(reachedLog) + 1).filter(g => ATTEMPT.test(g.reason || "")).length) : null, missed: gl.filter(g => /^agent missed the auto-dial/i.test(g.reason || "")).length, unrecorded: Math.max(0, gl.filter(g => /^called$/i.test(g.reason || "")).length - Math.max(0, results.length - gl.filter(g => /^called via callrail/i.test(g.reason || "")).length)), reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
       after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && !["done", "lost"].includes(l.stage),
     };
   });
@@ -1290,7 +1292,7 @@ const money=n=>n?'$'+Number(n).toLocaleString('en-US'):'$0',pc=(a,b)=>b?Math.rou
 function draw(){const L=pick().filter(r=>r.type==='quote'&&r.secs!=null);
  const g=BK.map(b=>{const x=L.filter(r=>r.secs>b[1]&&r.secs<=b[2]);return {l:b[0],n:x.length,rc:x.filter(r=>r.reached).length,bk:x.filter(r=>r.booked).length,val:x.filter(r=>r.booked).reduce((a,r)=>a+(r.value||0),0)}});
  const tot={n:L.length,rc:L.filter(r=>r.reached).length,bk:L.filter(r=>r.booked).length,val:L.filter(r=>r.booked).reduce((a,r)=>a+(r.value||0),0)};
- document.getElementById('k').innerHTML='<div class="kpi g"><b>'+(tot.n?pc(tot.rc,tot.n)+'%':'-')+'</b><span>Contact rate (reached &divide; called)</span></div><div class="kpi"><b>'+tot.rc+' of '+tot.n+'</b><span>Form leads reached</span></div><div class="kpi"><b>'+(tot.rc?(L.filter(r=>r.reached).reduce((a,r)=>a+(r.to_reach||1),0)/tot.rc).toFixed(1):'-')+'</b><span>Avg calls per contact (calls it took to reach a lead)</span></div><div class="kpi g"><b>'+(tot.n?pc(tot.bk,tot.n)+'%':'-')+'</b><span>Booked rate (booked &divide; called)</span></div><div class="kpi"><b>'+tot.bk+'</b><span>Booked jobs ('+money(tot.val)+')</span></div>'+'<div class="kpi"><b>'+pick().reduce((a,r)=>a+(r.missed||0),0)+'</b><span>Auto-dials the agent missed (never reached the lead)</span></div>';
+ document.getElementById('k').innerHTML='<div class="kpi g"><b>'+(tot.n?pc(tot.rc,tot.n)+'%':'-')+'</b><span>Contact rate (reached &divide; called)</span></div><div class="kpi"><b>'+tot.rc+' of '+tot.n+'</b><span>Form leads reached</span></div><div class="kpi"><b>'+(tot.rc?(L.filter(r=>r.reached).reduce((a,r)=>a+(r.to_reach||1),0)/tot.rc).toFixed(1):'-')+'</b><span>Avg calls per contact (calls it took to reach a lead)</span></div><div class="kpi g"><b>'+(tot.n?pc(tot.bk,tot.n)+'%':'-')+'</b><span>Booked rate (booked &divide; called)</span></div><div class="kpi"><b>'+tot.bk+'</b><span>Booked jobs ('+money(tot.val)+')</span></div>'+'<div class="kpi"><b>'+pick().reduce((a,r)=>a+(r.missed||0),0)+'</b><span>Auto-dials the agent missed (never reached the lead)</span></div><div class="kpi '+(pick().reduce((a,r)=>a+(r.unrecorded||0),0)?'r':'')+'"><b>'+pick().reduce((a,r)=>a+(r.unrecorded||0),0)+'</b><span>Manual calls with no answer recorded (not counted above)</span></div>';
  const fast=L.filter(r=>r.secs<=300),slow=L.filter(r=>r.secs>3600),f=a=>({n:a.length,rc:pc(a.filter(r=>r.reached).length,a.length),bk:pc(a.filter(r=>r.booked).length,a.length)});
  const F=f(fast),S=f(slow);
  document.getElementById('ins').innerHTML=(F.n>=3&&S.n>=3)?('Leads called within <b>5 minutes</b> were reached <b>'+F.rc+'%</b> of the time and booked <b>'+F.bk+'%</b> (out of '+F.n+'). Leads called after <b>1 hour</b> were reached <b>'+S.rc+'%</b> and booked <b>'+S.bk+'%</b> (out of '+S.n+').'):'Not enough called leads yet to compare fast and slow calls. This fills in as leads are called and their results are logged.';
