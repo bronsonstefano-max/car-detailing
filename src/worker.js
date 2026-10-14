@@ -452,7 +452,7 @@ function sourceOf(l) {
 async function adminPage(env) {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
-  const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY id DESC LIMIT 500").all();
+  const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all();
   const open = results.filter(l => l.stage === "new" && l.type === "quote").length;
   const ads = results.filter(l => sourceOf(l).ad).length;
   const cards = results.map(l => {
@@ -531,7 +531,7 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 async function pipelinePage(env) {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY id DESC LIMIT 1000").all();
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
   const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
   const byLead = {}; for (const g of logs) (byLead[g.lead_id] = byLead[g.lead_id] || []).push(g);
   const data = results.map(l => ({ ...l, followup: l.follow_up || "", log: (byLead[l.id] || []).map(g => ({ ...g, at: when(g.at).abs })), dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
@@ -662,7 +662,7 @@ draw();
 
 async function csv(env) {
   await ensureTable(env.DB);
-  const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY id DESC").all();
+  const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC").all();
   const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes", "duration", "answered", "recording"];
   const q = v => { let s = String(v ?? ""); if (/^(=|@|[+\-][^\d(\s])/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
   const body = [cols.join(","), ...results.map(r => cols.map(c => q(r[c])).join(","))].join("\n");
@@ -782,7 +782,7 @@ async function demoRoute(request, env) {
 async function todayPage(env) {
   await ensureTable(env.DB);
   const today = todayStr();
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage = 'new' OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY id ASC LIMIT 300").bind(today).all();
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage = 'new' OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY created_at DESC, id DESC LIMIT 300").bind(today).all();
   const items = results.map(l => ({ ...l, ago: when(l.created_at).ago, src: sourceOf(l).label, ad: sourceOf(l).ad, vm: /voicemail/i.test(l.message || "") }));
   const payload = JSON.stringify({ today, cfg: cfgOf(env), items }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Today | Divine Detailers</title>
