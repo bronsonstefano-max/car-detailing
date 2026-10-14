@@ -192,7 +192,7 @@ async function retryAuto(env, callId, leadId, user) {
   if (!lead || !isNewish(lead.stage)) return true;
   const res = await placeCall(env, lead, user || "giordani", "auto", 2);
   if (!res.ok) {
-    await env.DB.prepare("UPDATE dial_log SET retried = 0 WHERE call_id = ?").bind(callId).run();
+    // the second ring is tried once only: retried stays 1 so a failure is not repeated every minute
     await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind("Auto-dial: second ring failed: " + res.message.slice(0, 150), user || "giordani", leadId).run().catch(() => {});
     return false;
   }
@@ -213,7 +213,12 @@ async function retryDials(env) {
       const connected = callConnected(env, c);
       try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind(("RETRY CHECK: " + JSON.stringify({ id: row.call_id, answered: c.answered, voicemail: c.voicemail, duration: c.duration, talk_time: c.talk_time, call_type: c.call_type, retry: !connected })).slice(0, 300)).run(); } catch (e) { /* ignore */ }
       if (connected) continue;
-      await retryAuto(env, row.call_id, row.lead_id, row.by_user);
+      if (!(await retryAuto(env, row.call_id, row.lead_id, row.by_user))) {
+        const ld = await env.DB.prepare("SELECT name, phone FROM leads WHERE id = ?").bind(row.lead_id).first() || {};
+        const link = env.CRM_HOST ? `https://${env.CRM_HOST}/today` : "";
+        const text = `AUTO-DIAL NOT ANSWERED: the first ring was missed and the second ring could not be placed, so ${ld.name || ld.phone || "the new lead"} (${prettyPhone(ld.phone)}) was not called. Call them now. ${link}`.trim();
+        await alertTeam(env, { subject: "Auto-dial not answered: call the lead", text, html: `<p><b>${esc(text.replace(link, "").trim())}</b></p>`, push: { title: "Auto-dial not answered", message: `${ld.name || ld.phone || "New lead"}: call them now`, click: link || undefined } }).catch(() => {});
+      }
     } catch (e) { console.error("retry error", e && e.message); }
   }
 }
