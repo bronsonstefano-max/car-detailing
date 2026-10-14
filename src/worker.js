@@ -150,7 +150,7 @@ async function handleOutbound(env, c) {
   if (already) return json({ success: true, updated: true });
   const answered = bool(c.answered) === 1, vm = bool(c.voicemail) === 1, dur = num(c.duration) || 0;
   // the lead was dialed when the agent pressed 1: CallRail then reports an answer, a voicemail or some talk time
-  const dialed = answered || vm || dur > 0;
+  const dialed = answered || vm || dur > 0 || (num(c.talk_time) || 0) > 0;
   const at = sqlTime(c.start_time) || new Date().toISOString().slice(0, 19).replace("T", " ");
   const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
   if (!cur) return json({ success: true, ignored: true });
@@ -202,7 +202,9 @@ async function retryDials(env) {
       const c = await r.json().catch(() => null);
       if (!c || !(c.id || c.call_id)) continue;
       // the lead was reached or is on the line: no second ring
-      if (bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.duration) || 0) > 0) continue;
+      const connected = bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.duration) || 0) > 0 || (num(c.talk_time) || 0) > 0;
+      try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind(("RETRY CHECK: " + JSON.stringify({ id: row.call_id, answered: c.answered, voicemail: c.voicemail, duration: c.duration, talk_time: c.talk_time, call_type: c.call_type, retry: !connected })).slice(0, 300)).run(); } catch (e) { /* ignore */ }
+      if (connected) continue;
       await retryAuto(env, row.call_id, row.lead_id, row.by_user);
     } catch (e) { console.error("retry error", e && e.message); }
   }
