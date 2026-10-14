@@ -15,7 +15,11 @@
   // is set in the dashboard under Settings > Variables and Secrets, so a deploy never overwrites it.
   // Every minute, remind about leads that nobody has called yet (see remindStale in src/worker.js; REMIND_MINUTES sets the wait, 0 turns it off)
   "triggers": { "crons": ["* * * * *"] },
+  // Keep variables that were added in the Cloudflare dashboard (agent phones, AUTO_DIAL, ...) when this file is deployed.
+  "keep_vars": true,
   "vars": {
-    "CRM_HOST": "crm.divinedetailers.com"
+    "CRM_HOST": "crm.divinedetailers.com",
+    // not a secret: it only says which CallRail account to use (the API token is a secret)
+    "CALLRAIL_ACCOUNT_ID": "ACC01a135f9ac4a74739ee1e37a1504c9d3"
   }
 }
