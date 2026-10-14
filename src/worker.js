@@ -156,7 +156,7 @@ async function handleOutbound(env, c) {
     stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
     stmts.push(row("Call result: " + (vm ? "Left a voicemail" : answered ? "Answered" : "No answer"), at));
     if (cur.stage === "new") stmts.push(env.DB.prepare("UPDATE leads SET stage = 'contacted', contacted = 1, stage_changed_at = datetime('now') WHERE id = ?").bind(leadId));
-  } else stmts.push(row("Dial not connected (nobody pressed 1)", at));
+  } else stmts.push(row("Dial not connected (the agent did not answer or did not press 1, so the lead was not called)", at));
   await env.DB.batch(stmts);
   if (!dialed && dl && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
     const ld = await env.DB.prepare("SELECT name, phone FROM leads WHERE id = ?").bind(leadId).first() || {};
@@ -165,6 +165,23 @@ async function handleOutbound(env, c) {
     await alertTeam(env, { subject: "Auto-dial not answered: call the lead", text, html: `<p><b>${esc(text.replace(link, "").trim())}</b></p>${link ? `<p><a href="${esc(link)}">Open today's list</a></p>` : ""}`, push: { title: "Auto-dial not answered", message: `${ld.name || ld.phone || "New lead"}: call them now`, click: link || undefined } }).catch(() => {});
   }
   return json({ success: true, logged: true });
+}
+
+// Backup for the webhook: every minute ask CallRail how each requested call ended (4 to 90 minutes after it was requested) and log it the same way
+async function pollDials(env) {
+  if (!dialOn(env) || !env.DB) return;
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare("SELECT call_id FROM dial_log WHERE done = 0 AND created_at <= datetime('now','-4 minutes') AND created_at >= datetime('now','-90 minutes') ORDER BY created_at LIMIT 8").all()).results || [];
+  for (const row of rows) {
+    try {
+      const r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls/${encodeURIComponent(row.call_id)}.json`, { headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}` } });
+      if (!r.ok) continue;
+      const c = await r.json().catch(() => null);
+      if (!c || !(c.id || c.call_id)) continue;
+      try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("POLLED: " + JSON.stringify({ id: c.id, answered: c.answered, voicemail: c.voicemail, duration: c.duration }).slice(0, 300)).run(); } catch (e) { /* ignore */ }
+      await handleOutbound(env, { ...c, id: row.call_id });
+    } catch (e) { console.error("poll error", e && e.message); }
+  }
 }
 
 // Shows whether the CallRail click-to-call settings are in place and asks CallRail for the account id and tracking numbers (owner only)
@@ -907,6 +924,7 @@ async function remindStale(env) {
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(remindStale(env).catch(e => console.error("reminder error", e && e.message)));
+    ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
