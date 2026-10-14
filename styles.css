@@ -766,3 +766,5 @@ a.map-card:hover em{color:#fff;border-color:#fff}
 .qform .vm{grid-column:span 1}
 .qform .opt{color:var(--muted);font-size:.75rem}
 @media(max-width:860px){.qform .vm{grid-column:1/-1}}
+
+.qform .consent{grid-column:1/-1;margin:2px 0 0;font-size:.78rem;line-height:1.45;color:var(--muted)}.qform .consent a{color:inherit;text-decoration:underline}.copy a{color:inherit;text-decoration:underline;margin-left:6px}
