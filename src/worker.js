@@ -67,6 +67,7 @@ async function ensureTable(db) {
   }
   const dcols = (await db.prepare("PRAGMA table_info(dial_log)").all()).results.map(c => c.name);
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
+  if (dcols.length && !dcols.includes("flagged")) await db.prepare("ALTER TABLE dial_log ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0").run();
   if (!cols.includes("reminded_at")) await db.prepare("ALTER TABLE leads ADD COLUMN reminded_at TEXT").run();
   if (!cols.includes("follow_up")) {
     await db.batch([
@@ -198,7 +199,7 @@ async function retryDials(env) {
   for (const row of rows) {
     try {
       const r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls/${encodeURIComponent(row.call_id)}.json`, { headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}` } });
-      if (!r.ok) continue;
+      if (!r.ok) { await logOnce(env, `RETRY CHECK FAILED: CallRail returned status ${r.status} for call ${row.call_id}`); continue; }
       const c = await r.json().catch(() => null);
       if (!c || !(c.id || c.call_id)) continue;
       // the lead was reached or is on the line: no second ring
@@ -210,6 +211,23 @@ async function retryDials(env) {
   }
 }
 
+async function logOnce(env, text) {
+  try { const has = await env.DB.prepare("SELECT 1 x FROM hook_log WHERE summary = ?").bind(text).first(); if (!has) await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind(text).run(); } catch (e) { /* ignore */ }
+}
+// Auto-dials with no result after 12 minutes: say so on the lead and alert, instead of leaving the history silent
+async function flagSilentDials(env) {
+  if (!env.DB) return;
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare("SELECT d.call_id, d.lead_id, d.by_user, l.name, l.phone FROM dial_log d JOIN leads l ON l.id = d.lead_id WHERE d.source = 'auto' AND d.done = 0 AND d.flagged = 0 AND d.created_at <= datetime('now','-12 minutes') AND d.created_at >= datetime('now','-6 hours') LIMIT 10").all()).results || [];
+  for (const row of rows) {
+    const claim = await env.DB.prepare("UPDATE dial_log SET flagged = 1 WHERE call_id = ? AND flagged = 0").bind(row.call_id).run();
+    if (!claim.meta || !claim.meta.changes) continue;
+    await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind("No result from CallRail for this auto-dial after 12 minutes (the call may not have connected, or the CallRail report did not arrive). Check the lead and call them.", row.by_user || "", row.lead_id).run().catch(() => {});
+    const link = env.CRM_HOST ? `https://${env.CRM_HOST}/today` : "";
+    const text = `AUTO-DIAL RESULT UNKNOWN: no report from CallRail for ${row.name || row.phone || "a new lead"} (${prettyPhone(row.phone)}). Check it and call them if needed. ${link}`.trim();
+    await alertTeam(env, { subject: "Auto-dial result unknown", text, html: `<p><b>${esc(text.replace(link, "").trim())}</b></p>`, push: { title: "Auto-dial result unknown", message: `${row.name || row.phone || "Lead"}: check and call`, click: link || undefined } }).catch(() => {});
+  }
+}
 // Backup for the webhook: every minute ask CallRail how each requested call ended (4 to 90 minutes after it was requested) and log it the same way
 async function pollDials(env) {
   if (!dialOn(env) || !env.DB) return;
@@ -218,7 +236,7 @@ async function pollDials(env) {
   for (const row of rows) {
     try {
       const r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls/${encodeURIComponent(row.call_id)}.json`, { headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}` } });
-      if (!r.ok) continue;
+      if (!r.ok) { await logOnce(env, `POLL FAILED: CallRail returned status ${r.status} for call ${row.call_id}` + (r.status === 403 ? " (the API key may not be allowed to read calls)" : "")); continue; }
       const c = await r.json().catch(() => null);
       if (!c || !(c.id || c.call_id)) continue;
       try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("POLLED: " + JSON.stringify({ id: c.id, answered: c.answered, voicemail: c.voicemail, duration: c.duration }).slice(0, 300)).run(); } catch (e) { /* ignore */ }
@@ -970,6 +988,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(remindStale(env).catch(e => console.error("reminder error", e && e.message)));
     ctx.waitUntil(retryDials(env).catch(e => console.error("retry error", e && e.message)));
+    ctx.waitUntil(flagSilentDials(env).catch(e => console.error("flag error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
   },
   async fetch(request, env, ctx) {
