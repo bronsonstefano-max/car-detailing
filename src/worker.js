@@ -65,6 +65,8 @@ async function ensureTable(db) {
       db.prepare("UPDATE leads SET stage = 'contacted' WHERE contacted = 1"),
     ]);
   }
+  const dcols = (await db.prepare("PRAGMA table_info(dial_log)").all()).results.map(c => c.name);
+  if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
   if (!cols.includes("reminded_at")) await db.prepare("ALTER TABLE leads ADD COLUMN reminded_at TEXT").run();
   if (!cols.includes("follow_up")) {
     await db.batch([
@@ -109,7 +111,7 @@ function inBusinessHours(d = new Date()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(d).map(x => [x.type, x.value]));
   return !(p.weekday === "Sun" || Number(p.hour) < 9 || Number(p.hour) >= 18);
 }
-async function placeCall(env, lead, user, source) {
+async function placeCall(env, lead, user, source, attempt = 1) {
   if (!dialOn(env)) return { ok: false, message: "Calling through CallRail is not set up yet." };
   const agent = agentPhone(env, user), customer = e164(lead.phone);
   if (!agent) return { ok: false, message: `No cell number is saved for ${user}. Add AGENT_PHONE_${String(user).toUpperCase()} in Cloudflare.` };
@@ -123,8 +125,8 @@ async function placeCall(env, lead, user, source) {
   } catch (e) { return { ok: false, message: "Could not reach CallRail." }; }
   if (!r.ok || !j.id) return { ok: false, message: `CallRail refused the call (status ${r.status})` + (Object.keys(j).length ? ": " + JSON.stringify(j).slice(0, 220) : ".") };
   await env.DB.batch([
-    env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source) VALUES (?,?,?,?)").bind(j.id, lead.id, user, source),
-    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(source === "auto" ? "Auto-dial requested (calling your phone first)" : "Dial requested (calling your phone first)", user, lead.id),
+    env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source, attempt) VALUES (?,?,?,?,?)").bind(j.id, lead.id, user, source, attempt),
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(attempt > 1 ? "Auto-dial: ringing the agent a second time (first ring not answered)" : source === "auto" ? "Auto-dial requested (calling your phone first)" : "Dial requested (calling your phone first)", user, lead.id),
   ]);
   return { ok: true, id: j.id };
 }
@@ -132,7 +134,7 @@ async function placeCall(env, lead, user, source) {
 async function handleOutbound(env, c) {
   const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
   if (!callId) return json({ success: false, message: "No call id" }, 422);
-  const dl = await env.DB.prepare("SELECT lead_id, by_user, done FROM dial_log WHERE call_id = ?").bind(callId).first();
+  const dl = await env.DB.prepare("SELECT lead_id, by_user, done, attempt, retried, source FROM dial_log WHERE call_id = ?").bind(callId).first();
   let leadId = dl ? dl.lead_id : null, by = dl ? dl.by_user || "" : "";
   if (!leadId) {
     const d10 = digitsOf(c.customer_phone_number || c.formatted_customer_phone_number || "").slice(-10);
@@ -156,20 +158,54 @@ async function handleOutbound(env, c) {
   // the call's result moves the lead: the lead answered -> Contacted; voicemail or no answer -> Not contacted (only leads that were still new or not contacted)
   const target = isNewish(cur.stage) && dialed ? (leadAnswered ? "contacted" : "nocontact") : cur.stage;
   const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, target, reason, when, by);
+  const willRetry = !dialed && !!dl && dl.source === "auto" && dl.attempt === 1 && !dl.retried && dialOn(env) && env.AUTO_DIAL === "1" && env.AUTO_DIAL_RETRY !== "0" && isNewish(cur.stage);
   const stmts = [env.DB.prepare("UPDATE dial_log SET done = 1 WHERE call_id = ?").bind(callId)];
   if (dialed) {
     stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
     stmts.push(row("Call result: " + (vm ? "Left a voicemail" : answered ? "Answered" : "No answer"), at));
     if (target !== cur.stage) stmts.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(target, leadAnswered ? 1 : 0, leadId));
-  } else stmts.push(row("Agent missed the auto-dial (did not answer or did not press 1, so the lead was not called)", at));
+  } else if ((dl && dl.retried) || willRetry) stmts.push(row("Auto-dial: first ring not answered, ringing the agent again", at));
+  else stmts.push(row("Agent missed the auto-dial (did not answer or did not press 1, so the lead was not called)" + (dl && dl.attempt > 1 ? " after two rings" : ""), at));
   await env.DB.batch(stmts);
-  if (!dialed && dl && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
+  if (willRetry && await retryAuto(env, callId, leadId, dl.by_user).catch(() => false)) return json({ success: true, logged: true, retry: true });
+  if (!dialed && dl && !dl.retried && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
     const ld = await env.DB.prepare("SELECT name, phone FROM leads WHERE id = ?").bind(leadId).first() || {};
     const link = env.CRM_HOST ? `https://${env.CRM_HOST}/today` : "";
     const text = `AUTO-DIAL NOT ANSWERED: nobody pressed 1, so ${ld.name || ld.phone || "the new lead"} (${prettyPhone(ld.phone)}) was not called. Call them now. ${link}`.trim();
     await alertTeam(env, { subject: "Auto-dial not answered: call the lead", text, html: `<p><b>${esc(text.replace(link, "").trim())}</b></p>${link ? `<p><a href="${esc(link)}">Open today's list</a></p>` : ""}`, push: { title: "Auto-dial not answered", message: `${ld.name || ld.phone || "New lead"}: call them now`, click: link || undefined } }).catch(() => {});
   }
   return json({ success: true, logged: true });
+}
+
+async function retryAuto(env, callId, leadId, user) {
+  const claim = await env.DB.prepare("UPDATE dial_log SET retried = 1 WHERE call_id = ? AND retried = 0").bind(callId).run();
+  if (!claim.meta || !claim.meta.changes) return true;
+  const lead = await env.DB.prepare("SELECT id, name, phone, stage FROM leads WHERE id = ?").bind(leadId).first();
+  if (!lead || !isNewish(lead.stage)) return true;
+  const res = await placeCall(env, lead, user || "giordani", "auto", 2);
+  if (!res.ok) {
+    await env.DB.prepare("UPDATE dial_log SET retried = 0 WHERE call_id = ?").bind(callId).run();
+    await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind("Auto-dial: second ring failed: " + res.message.slice(0, 150), user || "giordani", leadId).run().catch(() => {});
+    return false;
+  }
+  return true;
+}
+// Rings the agent a second time when the first auto-dial ring was not picked up (AUTO_DIAL_RETRY=0 turns this off)
+async function retryDials(env) {
+  if (!dialOn(env) || !env.DB || env.AUTO_DIAL !== "1" || env.AUTO_DIAL_RETRY === "0") return;
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare("SELECT d.call_id, d.lead_id, d.by_user FROM dial_log d WHERE d.source = 'auto' AND d.attempt = 1 AND d.retried = 0 AND d.done = 0 AND d.created_at <= datetime('now','-100 seconds') AND d.created_at >= datetime('now','-8 minutes') LIMIT 5").all()).results || [];
+  for (const row of rows) {
+    try {
+      const r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls/${encodeURIComponent(row.call_id)}.json`, { headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}` } });
+      if (!r.ok) continue;
+      const c = await r.json().catch(() => null);
+      if (!c || !(c.id || c.call_id)) continue;
+      // the lead was reached or is on the line: no second ring
+      if (bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.duration) || 0) > 0) continue;
+      await retryAuto(env, row.call_id, row.lead_id, row.by_user);
+    } catch (e) { console.error("retry error", e && e.message); }
+  }
 }
 
 // Backup for the webhook: every minute ask CallRail how each requested call ended (4 to 90 minutes after it was requested) and log it the same way
@@ -931,6 +967,7 @@ async function remindStale(env) {
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(remindStale(env).catch(e => console.error("reminder error", e && e.message)));
+    ctx.waitUntil(retryDials(env).catch(e => console.error("retry error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
   },
   async fetch(request, env, ctx) {
