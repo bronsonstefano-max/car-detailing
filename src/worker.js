@@ -259,10 +259,11 @@ async function verifyShopNumber(env, body) {
 
 async function handleCallrail(request, env, url, ctx) {
   if (!env.CALLRAIL_KEY) return json({ success: false, message: "CALLRAIL_KEY is not set" }, 503);
-  if (!safeEqual(url.searchParams.get("key") || "", env.CALLRAIL_KEY)) return json({ success: false }, 401);
+  const reject = async (why) => { try { if (env.DB) { await ensureTable(env.DB); await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("REJECTED: " + why).run(); } } catch (e) { /* ignore */ } };
+  if (!safeEqual(url.searchParams.get("key") || "", env.CALLRAIL_KEY)) { await reject("wrong or missing key in the webhook URL"); return json({ success: false }, 401); }
   if (!env.DB) return json({ success: false, message: "Lead storage is not configured" }, 503);
   let c;
-  try { c = await request.json(); } catch { return json({ success: false, message: "Bad request" }, 400); }
+  try { c = await request.json(); } catch { await reject("body was not JSON (method " + request.method + ")"); return json({ success: false, message: "Bad request" }, 400); }
   await ensureTable(env.DB);
   // keep a short record of what CallRail sends (no names or numbers), so a broken webhook can be diagnosed from the CRM
   let lg = null;
