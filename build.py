@@ -291,6 +291,8 @@ def build_assets():
 
 # CallRail call tracking: swaps the phone number on the page for a tracking number (set to "" to turn it off)
 CALLRAIL_SRC = "https://cdn.callrail.com/companies/865473736/7dd16a198431c7d95229/12/swap.js"
+GA4_ID = "G-MJXY53KT26"
+GA4 = f'<script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>\n<script>window.dataLayer=window.dataLayer||[];function gtag(){{dataLayer.push(arguments);}}gtag("js",new Date());gtag("config","{GA4_ID}");</script>\n' if GA4_ID else ""
 CALLRAIL = f'<link rel="preconnect" href="https://cdn.callrail.com">\n<script src="{CALLRAIL_SRC}" defer></script>\n' if CALLRAIL_SRC else ""
 
 def page(fname, title, desc, body, active=None, noindex=False):
@@ -312,7 +314,7 @@ def page(fname, title, desc, body, active=None, noindex=False):
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 {preload}<link rel="stylesheet" href="{CSS_URL}">
-{CALLRAIL}</head>
+{GA4}{CALLRAIL}</head>
 <body>
 {header(active)}
 <main class="page">

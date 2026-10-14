@@ -221,9 +221,14 @@ if (yr) yr.textContent = new Date().getFullYear();
 // Analytics hooks (GTM / gtag read window.dataLayer): call taps and form leads are separate events
 (() => {
   window.dataLayer = window.dataLayer || [];
+  // one place for every tracked event: Tag Manager reads the dataLayer push, the Google tag (gtag) reads the event call
+  window.ddTrack = (name, params) => {
+    window.dataLayer.push(Object.assign({ event: name }, params));
+    try { if (typeof window.gtag === 'function') window.gtag('event', name, params || {}); } catch (_) {}
+  };
   document.addEventListener('click', e => {
     const a = e.target.closest && e.target.closest('a[href^="tel:"]');
-    if (a) window.dataLayer.push({ event: 'call_click', location: a.closest('header') ? 'header' : a.classList.contains('callfab') ? 'floating_bar' : 'page' });
+    if (a) window.ddTrack('call_click', { location: a.closest('header') ? 'header' : a.classList.contains('callfab') ? 'floating_bar' : 'page' });
   });
   // Thank-you page: tailor the message (name and service come from sessionStorage, never the URL), fire one lead event
   if (document.getElementById('thH1')) {
@@ -247,7 +252,7 @@ if (yr) yr.textContent = new Date().getFullYear();
       const blocks = [...document.querySelectorAll('.th-svc')];
       const hit = blocks.find(b => b.dataset.svc === svc) || blocks.find(b => b.dataset.svc === 'Other');
       blocks.forEach(b => { b.hidden = b !== hit; });
-      window.dataLayer.push({ event: 'form_lead', form: type, service: svc, also: lead.also || '' });
+      window.ddTrack('form_lead', { form: type, service: svc, also: lead.also || '' });
     }
   }
 })();
@@ -303,7 +308,7 @@ document.querySelectorAll('form[data-step1]').forEach(f => f.addEventListener('s
   e.preventDefault();
   const d = {}; ['name', 'email', 'phone', 'service'].forEach(k => { const x = f.querySelector('[name=' + k + ']'); d[k] = x ? x.value.trim() : ''; });
   try { sessionStorage.setItem('dd_step1', JSON.stringify(d)); } catch (_) {}
-  window.dataLayer = window.dataLayer || []; window.dataLayer.push({ event: 'quote_step1', service: d.service });
+  window.dataLayer = window.dataLayer || []; (window.ddTrack || (() => {}))('quote_step1', { service: d.service });
   window.location.href = 'contact.html#quote';
 }));
 (() => {
