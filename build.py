@@ -177,6 +177,7 @@ def quote_form_short(fid=None, select_default=None):
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
   <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
   <label>Service interested in*<select name="service" required><option value="">Select…</option>{opts}</select></label>
+  <p class="consent">By submitting, you agree that {SITE['name']} may contact you by phone, call or text about your request (message and data rates may apply; reply STOP to opt out), and you agree to our <a href="privacy-policy.html">Privacy Policy</a> and <a href="terms.html">Terms</a>. Calls may be recorded for quality.</p>
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
 
@@ -200,6 +201,7 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
   <label>Vehicle year*<select name="year" required><option value="">Select year…</option>{years}</select></label>
   <label class="vm">Vehicle model*<input name="model" data-model placeholder="e.g. M3, Model Y" autocomplete="off" required></label>
   {extra}
+  <p class="consent">By submitting, you agree that {SITE['name']} may contact you by phone, call or text about your request (message and data rates may apply; reply STOP to opt out), and you agree to our <a href="privacy-policy.html">Privacy Policy</a> and <a href="terms.html">Terms</a>. Calls may be recorded for quality.</p>
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
 
@@ -263,7 +265,7 @@ def footer():
       <form name="newsletter" method="POST" action="thanks.html" {form_attrs()} data-form>{form_extra("newsletter")}<input name="email" type="email" placeholder="Your email" required aria-label="Your email"><button class="btn" type="submit">Join Now</button></form>
       <small>By subscribing, you agree to our <a href="privacy-policy.html">Privacy Policy</a> and consent to receive updates from {SITE['name']}.</small></div>
   </div>
-  <div class="copy">&copy; <span id="yr">2026</span> {SITE['name']}. All rights reserved.</div>
+  <div class="copy">&copy; <span id="yr">2026</span> {SITE['name']}. All rights reserved. <a href="privacy-policy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
 </footer>'''
 
 FONT_URL = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Special+Gothic+Expanded+One&display=swap"
@@ -956,6 +958,8 @@ def build_privacy():
 <h2>Third-Party Use of Cookies and Tracking Technologies</h2><p>Some content or applications on the Website may be served by third parties including advertisers and analytics providers. These third parties may use cookies or web beacons to collect information about you. We do not control these third parties&rsquo; tracking technologies. If you have questions about targeted content, please contact the responsible provider directly.</p>
 <h2>How We Use Your Information</h2><p>We use the information we collect to respond to your service inquiries, send appointment confirmations and service updates, send promotional communications if you have opted in, improve our Website, carry out our contractual obligations, and fulfill any other purpose for which you provide the information.</p>
 <h2>Disclosure of Your Information</h2><p>We do not sell, trade, or rent your personal information to third parties for their own marketing purposes. We may disclose your information to service providers who support our business under confidentiality obligations, to comply with legal requirements, or to protect the rights and safety of {n}, our customers, or others.</p>
+<h2>Call Tracking and Recording</h2><p>We use a call tracking service so we can see which of our marketing brings in phone calls. When you call the number shown on our Website, the service may record the call, your phone number, the time and length of the call, and the page or ad that led you to us. Calls may be recorded or monitored for quality and training purposes. If we record a call, we will tell you at the start of the call.</p>
+<h2>Advertising and Analytics</h2><p>We use Google Analytics and Google Ads to understand how visitors use our Website and to measure whether our advertising works. These services use cookies and similar technologies, and may receive information such as the page you visited, the ad you clicked, and your approximate location. When you send us a request, we may match the information you give us (such as your phone number or email) with the ad that brought you to us, to measure results. You can learn more about how Google uses information at <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">policies.google.com/technologies/partner-sites</a> and opt out of ad personalization in your Google account settings.</p>
 <h2>Your Choices</h2><ul><li><strong>Email.</strong> You may unsubscribe from marketing emails at any time by clicking the unsubscribe link in any email we send.</li><li><strong>SMS.</strong> You may opt out of text messages at any time by replying STOP to any message from us.</li><li><strong>Cookies.</strong> You can set your browser to refuse cookies, though some Website functionality may be affected.</li></ul>
 <h2>Accessing and Correcting Your Information</h2><p>You may contact us to request access to, correction of, or deletion of any personal information you have provided to us. We may not accommodate a request to change information if we believe the change would violate any law or legal requirement.</p>
 <h2>California Privacy Rights</h2><p>California Civil Code Section 1798.83 permits users who are California residents to request certain information regarding our disclosure of personal information to third parties for their direct marketing purposes. To make such a request, please contact us using the information below.</p>
@@ -965,6 +969,30 @@ def build_privacy():
 <div class="ticker" aria-hidden="true"><div class="ticker-run">{"<span>Contact us <i>&#8600;</i></span>"*16}</div></div>
 <section class="sec"><div class="wrap">{map_block()[0]}</div></section>''' + cta_banner()
     page("privacy-policy.html", f"Privacy Policy | {n}", "Divine Detailers privacy policy.", body)
+
+def build_terms():
+    body = inner_hero("Terms of <em>service</em>", "Last updated: October 2026", ['<a href="index.html">Home</a>', "Terms of Service"], buttons=False)
+    n = SITE['name']
+    body += f'''<section class="sec"><div class="wrap"><article class="article legal">
+<p>These Terms of Service (&ldquo;Terms&rdquo;) apply to your use of the {n} website (the &ldquo;Website&rdquo;) and to quotes, bookings and services requested through it. By using the Website or requesting a quote, you agree to these Terms. If you do not agree, please do not use the Website.</p>
+<h2>About Us</h2><p>{n} provides window tint, paint protection film (PPF), ceramic coating, paint correction, vinyl wrap and detailing services at our shop in {SITE['addr2']}.</p>
+<h2>Quotes and Estimates</h2><p>Quotes and estimates given through the Website, by phone, text or email are based on the information you provide, such as the vehicle, the service and its condition. They are not a binding offer. The final price and scope are confirmed in writing before work begins, and may change if the vehicle&rsquo;s condition or your requested work differs from what was described.</p>
+<h2>Booking and Appointments</h2><p>An appointment is confirmed only when we confirm it with you. Please give us as much notice as you can if you need to cancel or reschedule. Any deposit, cancellation or rescheduling terms will be stated in your quote or booking confirmation.</p>
+<h2>Services and Warranties</h2><p>Coatings, films and tint carry the manufacturer&rsquo;s warranty that applies to the product installed, and we stand behind our own workmanship. The specific warranty and care instructions for your service will be given to you with your quote or invoice. Warranties do not cover damage caused by accidents, misuse, improper washing or care, or work done by others.</p>
+<h2>Your Vehicle</h2><p>You confirm that you own the vehicle or are authorized to request work on it. Please remove valuables before drop-off. We take reasonable care of every vehicle in our shop, and will tell you promptly if we find damage or a pre-existing condition that affects the work.</p>
+<h2>Payment</h2><p>Payment terms are stated in your quote or invoice. Payment is due when the work is complete unless we agree otherwise in writing.</p>
+<h2>Calls, Texts and Emails</h2><p>If you submit a form or call us, you agree that we may contact you by phone, text message or email about your request. Message and data rates may apply, and you can reply STOP to any text to opt out. Calls to and from us may be recorded or monitored for quality and training, and we will tell you at the start of the call if it is being recorded. See our <a href="privacy-policy.html">Privacy Policy</a> for how we handle your information.</p>
+<h2>Using the Website</h2><p>You agree to use the Website only for lawful purposes and to give accurate information in any form. You must not attempt to disrupt the Website, access it without permission, or use it to send spam or harmful content.</p>
+<h2>Content and Intellectual Property</h2><p>The text, photos, videos, logos and design on the Website belong to {n} or are used with permission. You may not copy or reuse them without our written permission.</p>
+<h2>Disclaimers</h2><p>The Website and its content are provided &ldquo;as is&rdquo; for general information. Photos and videos of past work are examples, and results vary with the vehicle, the product and how it is cared for. We do not guarantee that the Website will always be available or free of errors.</p>
+<h2>Limitation of Liability</h2><p>To the fullest extent allowed by law, {n} is not liable for indirect, incidental or consequential damages arising from your use of the Website. Our liability for services is limited to the amount you paid for the service in question, except where the law does not allow that limit.</p>
+<h2>Governing Law</h2><p>These Terms are governed by the laws of the State of Florida, and any dispute will be handled in the courts located in Miami-Dade County, Florida.</p>
+<h2>Changes to These Terms</h2><p>We may update these Terms from time to time. The updated version will be posted on this page with a new date, and applies from the date it is posted.</p>
+<div class="legal-card"><h2>Contact Us</h2><p>Questions about these Terms? Contact us:</p><p><strong>{n}</strong></p><p><a href="mailto:{SITE['email']}">{SITE['email']}</a></p><p><a href="tel:{SITE['tel']}">{SITE['phone']}</a></p></div>
+</article></div></section>
+<div class="ticker" aria-hidden="true"><div class="ticker-run">{"<span>Contact us <i>&#8600;</i></span>"*16}</div></div>
+<section class="sec"><div class="wrap">{map_block()[0]}</div></section>''' + cta_banner()
+    page("terms.html", f"Terms of Service | {n}", "Divine Detailers terms of service.", body)
 
 FAQ_WRAP = [
     ("How long does a vinyl wrap last?", "With proper care, a quality wrap commonly lasts several years. Climate, parking and how the car is washed all affect how long it looks its best."),
@@ -1030,5 +1058,5 @@ if __name__ == "__main__":
     build_home(); build_services_hub()
     for s, t, d in SERVICES:
         build_service(s, t, d)
-    build_brands(); build_projects(); build_about(); build_blog(); build_post(); build_contact(); build_privacy(); build_thanks()
+    build_brands(); build_projects(); build_about(); build_blog(); build_post(); build_contact(); build_privacy(); build_terms(); build_thanks()
     print("built", len(SERVICES) + 11, "pages")
