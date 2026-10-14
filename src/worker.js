@@ -48,6 +48,7 @@ async function ensureTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS stage_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, from_stage TEXT, to_stage TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS stage_log_lead ON stage_log (lead_id)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS dial_log (call_id TEXT PRIMARY KEY, lead_id INTEGER, by_user TEXT, source TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), done INTEGER NOT NULL DEFAULT 0)").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS ad_spend (month TEXT PRIMARY KEY, amount REAL NOT NULL DEFAULT 0)").run();
   const slCols = (await db.prepare("PRAGMA table_info(stage_log)").all()).results.map(c => c.name);
   if (!slCols.includes("by_user")) await db.prepare("ALTER TABLE stage_log ADD COLUMN by_user TEXT").run();
@@ -96,6 +97,75 @@ function safeEqual(a, b) {
   let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return d === 0;
 }
+// ---- Click-to-call through CallRail: CallRail rings the agent's phone first ("press 1 to connect"), then dials the lead from the tracking number.
+// Needs CALLRAIL_API_TOKEN (secret), CALLRAIL_ACCOUNT_ID, CALLRAIL_CALLER_ID (a tracking number or verified outbound caller ID, +1...) and the agent's cell in AGENT_PHONE_GIORDANI / AGENT_PHONE_BRONSON.
+// CALL_RECORDING=1 records the calls and plays CALL_GREETING first (Florida needs everyone on the call to agree to recording).
+const dialOn = env => !!(env.CALLRAIL_API_TOKEN && env.CALLRAIL_ACCOUNT_ID && env.CALLRAIL_CALLER_ID);
+const agentPhone = (env, user) => e164(env["AGENT_PHONE_" + String(user || "").toUpperCase()] || "");
+function inBusinessHours(d = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(d).map(x => [x.type, x.value]));
+  return !(p.weekday === "Sun" || Number(p.hour) < 9 || Number(p.hour) >= 18);
+}
+async function placeCall(env, lead, user, source) {
+  if (!dialOn(env)) return { ok: false, message: "Calling through CallRail is not set up yet." };
+  const agent = agentPhone(env, user), customer = e164(lead.phone);
+  if (!agent) return { ok: false, message: `No cell number is saved for ${user}. Add AGENT_PHONE_${String(user).toUpperCase()} in Cloudflare.` };
+  if (digitsOf(customer).length < 11) return { ok: false, message: "This lead has no valid phone number." };
+  const body = { caller_id: e164(env.CALLRAIL_CALLER_ID), business_phone_number: agent, customer_phone_number: customer, recording_enabled: env.CALL_RECORDING === "1" };
+  if (body.recording_enabled) body.outbound_greeting_text = env.CALL_GREETING || "This call may be recorded for quality and training purposes.";
+  let r, j;
+  try {
+    r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls.json`, { method: "POST", headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    j = await r.json().catch(() => ({}));
+  } catch (e) { return { ok: false, message: "Could not reach CallRail." }; }
+  if (!r.ok || !j.id) return { ok: false, message: "CallRail refused the call" + (j.error ? ": " + String(j.error).slice(0, 160) : ` (${r.status}).`) };
+  await env.DB.batch([
+    env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source) VALUES (?,?,?,?)").bind(j.id, lead.id, user, source),
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(source === "auto" ? "Auto-dial requested (calling your phone first)" : "Dial requested (calling your phone first)", user, lead.id),
+  ]);
+  return { ok: true, id: j.id };
+}
+// CallRail posts finished outbound calls here (Outbound Post-Call and Call Modified webhooks): log the call, its result and recording on the lead
+async function handleOutbound(env, c) {
+  const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
+  if (!callId) return json({ success: false, message: "No call id" }, 422);
+  const dl = await env.DB.prepare("SELECT lead_id, by_user, done FROM dial_log WHERE call_id = ?").bind(callId).first();
+  let leadId = dl ? dl.lead_id : null, by = dl ? dl.by_user || "" : "";
+  if (!leadId) {
+    const d10 = digitsOf(c.customer_phone_number || c.formatted_customer_phone_number || "").slice(-10);
+    if (d10.length < 10) return json({ success: true, ignored: true });
+    const m = await env.DB.prepare("SELECT id FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND replace(replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')',''),'+','') LIKE ? ORDER BY created_at DESC, id DESC LIMIT 1").bind("%" + d10).first();
+    if (!m) return json({ success: true, ignored: true });
+    leadId = m.id; by = "callrail app";
+    await env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source) VALUES (?,?,?,?)").bind(callId, leadId, by, "app").run();
+  }
+  const rec = clean(c.recording_player || c.recording || "", 500);
+  if (rec) await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = ?").bind(rec, leadId).run();
+  const already = dl ? dl.done : (await env.DB.prepare("SELECT done FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).done;
+  if (already) return json({ success: true, updated: true });
+  const answered = bool(c.answered) === 1, vm = bool(c.voicemail) === 1, dur = num(c.duration) || 0;
+  // the lead was dialed when the agent pressed 1: CallRail then reports an answer, a voicemail or some talk time
+  const dialed = answered || vm || dur > 0;
+  const at = sqlTime(c.start_time) || new Date().toISOString().slice(0, 19).replace("T", " ");
+  const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
+  if (!cur) return json({ success: true, ignored: true });
+  const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, cur.stage === "new" && dialed ? "contacted" : cur.stage, reason, when, by);
+  const stmts = [env.DB.prepare("UPDATE dial_log SET done = 1 WHERE call_id = ?").bind(callId)];
+  if (dialed) {
+    stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
+    stmts.push(row("Call result: " + (vm ? "Left a voicemail" : answered ? "Answered" : "No answer"), at));
+    if (cur.stage === "new") stmts.push(env.DB.prepare("UPDATE leads SET stage = 'contacted', contacted = 1, stage_changed_at = datetime('now') WHERE id = ?").bind(leadId));
+  } else stmts.push(row("Dial not connected (nobody pressed 1)", at));
+  await env.DB.batch(stmts);
+  if (!dialed && dl && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
+    const ld = await env.DB.prepare("SELECT name, phone FROM leads WHERE id = ?").bind(leadId).first() || {};
+    const link = env.CRM_HOST ? `https://${env.CRM_HOST}/today` : "";
+    const text = `AUTO-DIAL NOT ANSWERED: nobody pressed 1, so ${ld.name || ld.phone || "the new lead"} (${prettyPhone(ld.phone)}) was not called. Call them now. ${link}`.trim();
+    await alertTeam(env, { subject: "Auto-dial not answered: call the lead", text, html: `<p><b>${esc(text.replace(link, "").trim())}</b></p>${link ? `<p><a href="${esc(link)}">Open today's list</a></p>` : ""}`, push: { title: "Auto-dial not answered", message: `${ld.name || ld.phone || "New lead"}: call them now`, click: link || undefined } }).catch(() => {});
+  }
+  return json({ success: true, logged: true });
+}
+
 async function handleCallrail(request, env, url, ctx) {
   if (!env.CALLRAIL_KEY) return json({ success: false, message: "CALLRAIL_KEY is not set" }, 503);
   if (!safeEqual(url.searchParams.get("key") || "", env.CALLRAIL_KEY)) return json({ success: false }, 401);
@@ -103,6 +173,7 @@ async function handleCallrail(request, env, url, ctx) {
   let c;
   try { c = await request.json(); } catch { return json({ success: false, message: "Bad request" }, 400); }
   await ensureTable(env.DB);
+  if (String(c.direction || "").toLowerCase() === "outbound") return handleOutbound(env, c);
   const phone = clean(c.customer_phone_number || c.caller_number || c.formatted_customer_phone_number || c.customer_phone || "", 40);
   let name = clean(c.customer_name || c.resolved_customer_name || c.caller_name || "", 120);
   if (/^(unknown|anonymous|private|null)$/i.test(name) || name === phone) name = "";
@@ -182,7 +253,10 @@ async function handleLead(request, env, ctx) {
     .bind(type, lead.name, lead.email, lead.phone, lead.service, lead.also_interested, lead.make, lead.year, lead.model, lead.message,
       lead.page, lead.referrer, lead.gclid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, ip, clean(request.headers.get("user-agent") || "", 300)).run();
 
-  ctx.waitUntil(notify(env, { ...lead, id: ins.meta && ins.meta.last_row_id }, new URL(request.url).origin));
+  const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
+  ctx.waitUntil(notify(env, newLead, new URL(request.url).origin));
+  // optional: ring the agent's phone straight away and connect them to the new lead (AUTO_DIAL=1, AUTO_DIAL_AGENT=giordani)
+  if (env.AUTO_DIAL === "1" && type === "quote" && newLead.id && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(placeCall(env, newLead, (env.AUTO_DIAL_AGENT || "giordani").toLowerCase(), "auto").catch(() => {}));
   return json({ success: true });
 }
 
@@ -654,7 +728,7 @@ const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction',
 function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
   const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
   dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
-  (isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+(l.recording?' &middot; <a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a>':'')+'</div>':'')+
+  (!isCall&&l.recording?'<div style="font-size:14px"><a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a></div>':'')+(isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+(l.recording?' &middot; <a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a>':'')+'</div>':'')+
   '<div class="g2"><div><label>Service</label>'+$(l.service||'-')+(l.also_interested?'<div style="color:#8a9099;font-size:13px">also: '+$(l.also_interested)+'</div>':'')+'</div><div><label>Vehicle</label>'+$(veh||'-')+'</div>'+(l.detail?'<div><label>Campaign</label>'+$(l.detail)+'</div>':'')+(l.page?'<div><label>Landed on</label>'+$(l.page)+'</div>':'')+'</div>'+
   (l.message?'<p class="msg">&ldquo;'+$(l.message)+'&rdquo;</p>':'')+
   '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+'</div>'+
@@ -707,7 +781,7 @@ async function remindStale(env) {
   if (!(mins > 0)) return;
   const nowSql = new Date().toISOString().slice(0, 19).replace("T", " ");
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date()).map(x => [x.type, x.value]));
-  if (env.REMIND_ALWAYS !== "1" && (p.weekday === "Sun" || Number(p.hour) < 9 || Number(p.hour) >= 18)) return;
+  if (env.REMIND_ALWAYS !== "1" && !inBusinessHours()) return;
   await ensureTable(env.DB);
   const { results } = await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.created_at FROM leads l
     WHERE l.type != 'newsletter' AND l.stage = 'new' AND l.reminded_at IS NULL AND COALESCE(l.ip,'') != 'demo'
