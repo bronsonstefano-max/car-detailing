@@ -131,6 +131,12 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   ]);
   return { ok: true, id: j.id };
 }
+// Did the agent pick up and press 1, so the lead was dialed? CallRail's duration includes the time the agent's phone rang (about 24 seconds when nobody answers),
+// so a bare duration is not proof. It counts as connected when CallRail says answered / voicemail, reports talk or recording time, or the call ran longer than DIAL_CONNECT_SECS (default 40).
+function callConnected(env, c) {
+  const limit = Number(env.DIAL_CONNECT_SECS) > 0 ? Number(env.DIAL_CONNECT_SECS) : 40;
+  return bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.talk_time) || 0) > 0 || (num(c.recording_duration) || 0) > 0 || (num(c.duration) || 0) >= limit;
+}
 // CallRail posts finished outbound calls here (Outbound Post-Call and Call Modified webhooks): log the call, its result and recording on the lead
 async function handleOutbound(env, c) {
   const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
@@ -151,7 +157,7 @@ async function handleOutbound(env, c) {
   if (already) return json({ success: true, updated: true });
   const answered = bool(c.answered) === 1, vm = bool(c.voicemail) === 1, dur = num(c.duration) || 0;
   // the lead was dialed when the agent pressed 1: CallRail then reports an answer, a voicemail or some talk time
-  const dialed = answered || vm || dur > 0 || (num(c.talk_time) || 0) > 0;
+  const dialed = callConnected(env, c);
   const at = sqlTime(c.start_time) || new Date().toISOString().slice(0, 19).replace("T", " ");
   const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
   if (!cur) return json({ success: true, ignored: true });
@@ -203,7 +209,7 @@ async function retryDials(env) {
       const c = await r.json().catch(() => null);
       if (!c || !(c.id || c.call_id)) continue;
       // the lead was reached or is on the line: no second ring
-      const connected = bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.duration) || 0) > 0 || (num(c.talk_time) || 0) > 0;
+      const connected = callConnected(env, c);
       try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind(("RETRY CHECK: " + JSON.stringify({ id: row.call_id, answered: c.answered, voicemail: c.voicemail, duration: c.duration, talk_time: c.talk_time, call_type: c.call_type, retry: !connected })).slice(0, 300)).run(); } catch (e) { /* ignore */ }
       if (connected) continue;
       await retryAuto(env, row.call_id, row.lead_id, row.by_user);
@@ -239,7 +245,7 @@ async function pollDials(env) {
       if (!r.ok) { await logOnce(env, `POLL FAILED: CallRail returned status ${r.status} for call ${row.call_id}` + (r.status === 403 ? " (the API key may not be allowed to read calls)" : "")); continue; }
       const c = await r.json().catch(() => null);
       if (!c || !(c.id || c.call_id)) continue;
-      try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("POLLED: " + JSON.stringify({ id: c.id, answered: c.answered, voicemail: c.voicemail, duration: c.duration }).slice(0, 300)).run(); } catch (e) { /* ignore */ }
+      try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("POLLED: " + JSON.stringify(Object.fromEntries(Object.entries(c).filter(([k, v]) => v !== null && v !== "" && !/recording|url|name|city|state|country|zip|email|phone_number|company|tags|note/i.test(k) || /recording_duration|business_phone/i.test(k)).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 40) : v]))).slice(0, 600)).run(); } catch (e) { /* ignore */ }
       await handleOutbound(env, { ...c, id: row.call_id });
     } catch (e) { console.error("poll error", e && e.message); }
   }
