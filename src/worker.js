@@ -125,10 +125,10 @@ async function handleCallrail(request, env, url, ctx) {
     await env.DB.prepare("UPDATE leads SET duration = ?, recording = ?, answered = ? WHERE id = ?").bind(row.duration, row.recording, row.answered, existing.id).run();
     return json({ success: true, updated: true });
   }
-  await env.DB.prepare(`INSERT INTO leads (created_at,type,name,phone,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,call_id,duration,recording,answered,tracking_number,email)
+  const insC = await env.DB.prepare(`INSERT INTO leads (created_at,type,name,phone,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,call_id,duration,recording,answered,tracking_number,email)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(row.created, "call", row.name, row.phone, row.message, row.page, row.referrer, row.gclid, row.utm_source, row.utm_medium, row.utm_campaign, row.utm_term, row.call_id, row.duration, row.recording, row.answered, row.tracking, "").run();
-  ctx.waitUntil(notifyCall(env, { name: row.name, phone: row.phone, answered: row.answered, message: row.message, utm_source: row.utm_source, utm_campaign: row.utm_campaign, recording: row.recording }, url.origin));
+  ctx.waitUntil(notifyCall(env, { id: insC.meta && insC.meta.last_row_id, name: row.name, phone: row.phone, answered: row.answered, message: row.message, utm_source: row.utm_source, utm_campaign: row.utm_campaign, recording: row.recording }, url.origin));
   return json({ success: true });
 }
 
@@ -175,12 +175,12 @@ async function handleLead(request, env, ctx) {
     if (r && r.n >= 6) return json({ success: false, message: "Too many requests. Please call us." }, 429);
   }
 
-  await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,ip,user_agent)
+  const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_source,utm_medium,utm_campaign,utm_term,ip,user_agent)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(type, lead.name, lead.email, lead.phone, lead.service, lead.also_interested, lead.make, lead.year, lead.model, lead.message,
       lead.page, lead.referrer, lead.gclid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, ip, clean(request.headers.get("user-agent") || "", 300)).run();
 
-  ctx.waitUntil(notify(env, lead, new URL(request.url).origin));
+  ctx.waitUntil(notify(env, { ...lead, id: ins.meta && ins.meta.last_row_id }, new URL(request.url).origin));
   return json({ success: true });
 }
 
@@ -239,6 +239,8 @@ const digitsOf = p => String(p || "").replace(/\D/g, "");
 const e164 = p => { const d = digitsOf(p); return d.length === 10 ? "+1" + d : d.length === 11 && d[0] === "1" ? "+" + d : d ? "+" + d : ""; };
 const prettyPhone = p => { const d = digitsOf(p).slice(-10); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(p || ""); };
 const callLink = (base, p) => (digitsOf(p).length >= 10 ? `${base}/call/${digitsOf(p)}` : "");
+// Link to the call page inside the CRM (needs a sign in, and logs who tapped Call). Falls back to the public page when there is no lead id.
+const goLink = (env, base, id, p) => (id ? (env.CRM_HOST ? `https://${env.CRM_HOST}/go/${id}` : `${base}/admin/go/${id}`) : callLink(base, p));
 function callPage(num) {
   const d = digitsOf(num);
   if (d.length < 10 || d.length > 15) return new Response("Not found", { status: 404 });
@@ -255,7 +257,7 @@ async function notify(env, lead, base) {
   const link = crmLink(env, base, "/admin/pipeline");
   // `text` is a ready-written line, so Zapier (or anything else) can pass it straight on as an SMS or chat message
   const line = lead.type === "newsletter" ? `Newsletter signup: ${lead.email}` : `NEW LEAD: ${lead.name}, ${lead.service}${veh ? ", " + veh : ""}. ${lead.phone}. Call now. ${link}`;
-  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...lead, text: line, crm_link: link, phone_e164: e164(lead.phone), phone_display: prettyPhone(lead.phone), call_link: callLink(base, lead.phone) }) }).catch(() => {}));
+  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...lead, text: line, crm_link: link, phone_e164: e164(lead.phone), phone_display: prettyPhone(lead.phone), call_link: goLink(env, base, lead.id, lead.phone) }) }).catch(() => {}));
   if (lead.type === "newsletter") {
     jobs.push(sendEmail(env, { to: env.NOTIFY_TO, subject: `Newsletter signup: ${lead.email}`, html: `<p>${esc(lead.email)} joined the newsletter.</p>` }));
   } else {
@@ -293,7 +295,7 @@ async function notifyCall(env, row, base) {
   await Promise.all([
     alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html,
       push: { title: `${vm ? "Voicemail" : "Missed call"}: ${who}`, message: [row.phone, src].filter(Boolean).join(" | ") + ". Call them back.", click: link } }),
-    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: callLink(base, row.phone) }) }).catch(() => {}) : null,
+    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: goLink(env, base, row.id, row.phone) }) }).catch(() => {}) : null,
   ]);
 }
 
@@ -692,6 +694,7 @@ export default {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
+      if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
@@ -786,6 +789,26 @@ async function demoRoute(request, env) {
   return json({ success: true, added: stmts.length });
 }
 
+// Tap-to-call page inside the CRM: one big Call button that logs who called, plus Text and a link to the lead
+async function goPage(env, id, user) {
+  await ensureTable(env.DB);
+  const l = await env.DB.prepare("SELECT id,name,phone,email,service,make,year,model,message,stage FROM leads WHERE id = ?").bind(id).first();
+  if (!l) return new Response("Lead not found", { status: 404 });
+  const veh = [l.year, l.make, l.model].filter(Boolean).join(" "), tel = e164(l.phone), label = prettyPhone(l.phone);
+  const first = (l.name || "").trim().split(/\s+/)[0] || "there";
+  const sms = `sms:${tel}?&body=${encodeURIComponent(`Hi ${first}, this is ${SHOP.name}. Thanks for reaching out${l.service ? " about " + l.service.toLowerCase() : ""}. When is a good time to talk? Call or text me anytime at ${SHOP.phone}.`)}`;
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Call ${esc(l.name || label)}</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07090c;color:#e8eaed;font:17px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px;text-align:center}
+main{width:min(420px,100%);display:flex;flex-direction:column;gap:12px}h1{margin:0;font-size:26px}p{margin:0;color:#98a0aa}
+a.b{display:block;border-radius:16px;padding:20px;font-weight:800;text-decoration:none;font-size:22px;border:1px solid #2a313a;background:#151a21;color:#e8eaed}a.b.c{background:#32cd32;border-color:#32cd32;color:#04120a;font-size:24px;padding:24px}
+.s{font-size:15px;font-weight:600;padding:16px}.m{background:#0d1116;border-left:3px solid #32cd32;border-radius:0 10px 10px 0;padding:10px 12px;text-align:left;color:#d6d9de;font-size:15px}</style></head>
+<body><main><h1>${esc(l.name || label)}</h1><p>${esc([l.service, veh].filter(Boolean).join(" · ") || "New lead")}</p>${l.message ? `<div class="m">&ldquo;${esc(l.message.slice(0, 240))}&rdquo;</div>` : ""}
+<a class="b c" id="call" href="tel:${esc(tel)}">Call ${esc(label)}</a><a class="b" id="text" href="${esc(sms)}">Text</a><a class="b s" href="/admin/pipeline#id=${l.id}">Open in the CRM</a>
+<p style="font-size:13px">Signed in as ${esc(user)}. Tapping Call or Text logs it on this lead.</p></main>
+<script>for(const [id,label] of [['call','Called'],['text','Texted: First reply']])document.getElementById(id).addEventListener('click',()=>{try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:${l.id},label:label})})}catch(_){}});</script></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
 // ---- Speed to lead (owner only): how fast every lead got its first contact attempt, and by whom
 async function speedPage(env, user) {
   await ensureTable(env.DB);
@@ -807,20 +830,20 @@ async function speedPage(env, user) {
     const t = etParts(l.created_at);
     return {
       id: l.id, name: l.name || l.phone || "Unknown", type: l.type, what: [l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
-      src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at),
+      src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at), cd: new Date(ms(l.created_at)).toLocaleDateString("en-CA", { timeZone: TZ }),
       contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
       secs: contact ? Math.max(0, Math.round((ms(contact) - ms(l.created_at)) / 1000)) : null,
       after: t.wd === "Sun" || t.h < 9 || t.h >= 18,
     };
   });
-  const payload = JSON.stringify({ rows, now: Date.now() }).replace(/</g, "\\u003c");
+  const payload = JSON.stringify({ rows, now: Date.now(), today: todayStr() }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Speed to lead | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
 header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
-.filters{display:flex;gap:8px;flex-wrap:wrap}.chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}#cr input{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:9px 10px;font:inherit;color-scheme:dark;min-height:42px}.chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:26px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}.kpi.r b{color:#ff8a8a}
 .who{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.who div{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:12px 14px}.who h3{margin:0 0 4px;font-size:15px;text-transform:capitalize}.who span{color:#8a9099;font-size:13px}
 h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:6px 0 0}
@@ -834,7 +857,8 @@ ${BNAV_CSS}
 <header><h1>Divine Detailers <b>speed to lead</b></h1>${nav("speed", tc, true)}</header>
 ${bnav("speed", tc, true)}
 <main>
-<div class="filters" id="f"><button class="chip" data-r="7">Last 7 days</button><button class="chip on" data-r="30">Last 30 days</button><button class="chip" data-r="0">All time</button><button class="chip" id="bh">Business hours only</button></div>
+<div class="filters" id="f"><button class="chip" data-r="today">Today</button><button class="chip" data-r="yesterday">Yesterday</button><button class="chip" data-r="week">This week</button><button class="chip" data-r="lastweek">Last week</button><button class="chip" data-r="month">This month</button><button class="chip" data-r="lastmonth">Last month</button><button class="chip on" data-r="last7">Last 7 days</button><button class="chip" data-r="last30">Last 30 days</button><button class="chip" data-r="all">All time</button><button class="chip" data-r="custom">Custom dates</button></div>
+<div class="filters"><span id="cr" style="display:none;gap:8px;align-items:center"><input type="date" id="cf" aria-label="From"> <span>to</span> <input type="date" id="ct" aria-label="To"></span><button class="chip" id="bh">Business hours only</button><span class="note" id="rl"></span></div>
 <div class="kpis" id="k"></div>
 <h2>By person</h2><div class="who" id="w"></div>
 <h2>Every lead, newest first</h2><div class="list" id="l"></div>
@@ -842,13 +866,19 @@ ${bnav("speed", tc, true)}
 </main>
 <script type="application/json" id="data">${payload}</script>
 <script>
-const D=JSON.parse(document.getElementById('data').textContent),R=D.rows;let range=30,bh=false;
+const D=JSON.parse(document.getElementById('data').textContent),R=D.rows,TODAY=D.today;let range='last7',bh=false;
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function dur(s){if(s==null)return '';if(s<60)return s+' sec';const m=Math.round(s/60);if(m<60)return m+' min';const h=Math.floor(m/60),mm=m%60;if(h<48)return h+' h'+(mm?' '+mm+' min':'');return Math.round(h/24)+' days'}
 const med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);return b.length%2?b[i]:Math.round((b[i-1]+b[i])/2)};
 const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):null;
 const cls=s=>s==null?'':s<=300?'fast':s<=3600?'slow':'vslow';
-function pick(){const cut=range?Date.now()-range*864e5:0;return R.filter(r=>new Date(r.created).getTime()>=cut&&!(bh&&r.after))}
+const dt=s=>{const p=s.split('-').map(Number);return new Date(Date.UTC(p[0],p[1]-1,p[2]))},ds=d=>d.toISOString().slice(0,10),add=(s,n)=>{const d=dt(s);d.setUTCDate(d.getUTCDate()+n);return ds(d)},mon=s=>add(s,-((dt(s).getUTCDay()+6)%7));
+function bounds(){if(range==='custom')return [document.getElementById('cf').value||null,document.getElementById('ct').value||null];
+ const lm=add(TODAY.slice(0,8)+'01',-1);
+ return ({today:[TODAY,TODAY],yesterday:[add(TODAY,-1),add(TODAY,-1)],week:[mon(TODAY),TODAY],lastweek:[add(mon(TODAY),-7),add(mon(TODAY),-1)],month:[TODAY.slice(0,8)+'01',TODAY],lastmonth:[lm.slice(0,8)+'01',lm],last7:[add(TODAY,-6),TODAY],last30:[add(TODAY,-29),TODAY],all:[null,null]})[range]}
+const nice=s=>dt(s).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'});
+function pick(){const b=bounds(),f=b[0],t=b[1];document.getElementById('rl').textContent=(f||t)?((f?nice(f):'the beginning')+(f===t?'':' to '+(t?nice(t):'today'))):'All time';
+ return R.filter(r=>(!f||r.cd>=f)&&(!t||r.cd<=t)&&!(bh&&r.after))}
 function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null);
  const pct=t=>done.length?Math.round(100*secs.filter(x=>x<=t).length/done.length)+'%':'-';
  const now=Date.now(),waits=wait.map(r=>Math.round((now-new Date(r.created).getTime())/1000));
@@ -867,7 +897,9 @@ function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r
   '<div><label>Attempted contact at</label>'+(r.contact?$(r.contact_abs)+(r.how?'<small style="display:block;color:#8a9099">'+$(r.how)+'</small>':''):'<span class="rt vslow">Not yet</span>')+'</div>'+
   '<div><label>Time to contact</label><span class="rt '+cls(r.secs!=null?r.secs:w)+'">'+(r.secs!=null?(r.secs===0?'Instant':dur(r.secs)):'Waiting '+dur(w))+'</span></div>'+
   '<div><label>Contacted by</label>'+(r.by?'<span style="text-transform:capitalize">'+$(r.by)+'</span>':'<span style="color:#586069">-</span>')+'</div></div>'}).join('')||'<div class="empty">No leads in this range.</div>'}
-document.getElementById('f').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='bh'){bh=!bh;b.classList.toggle('on',bh)}else{range=+b.dataset.r;document.querySelectorAll('#f [data-r]').forEach(x=>x.classList.toggle('on',x===b))}draw()});
+document.getElementById('f').addEventListener('click',e=>{const b=e.target.closest('button[data-r]');if(!b)return;range=b.dataset.r;document.querySelectorAll('#f [data-r]').forEach(x=>x.classList.toggle('on',x===b));document.getElementById('cr').style.display=range==='custom'?'inline-flex':'none';draw()});
+document.getElementById('bh').addEventListener('click',e=>{bh=!bh;e.currentTarget.classList.toggle('on',bh);draw()});
+['cf','ct'].forEach(i=>document.getElementById(i).addEventListener('change',draw));
 draw();setInterval(draw,60000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
@@ -951,6 +983,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/pipeline") return pipelinePage(env, a);
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env, a);
+  if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
