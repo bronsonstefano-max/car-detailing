@@ -232,13 +232,28 @@ async function alertTeam(env, { subject, text, html, push }) {
   ]);
 }
 
+// tap-to-call: Slack and other chat apps make web links tappable but not phone numbers, so we send a link to a page with one big Call button
+const digitsOf = p => String(p || "").replace(/\D/g, "");
+const e164 = p => { const d = digitsOf(p); return d.length === 10 ? "+1" + d : d.length === 11 && d[0] === "1" ? "+" + d : d ? "+" + d : ""; };
+const prettyPhone = p => { const d = digitsOf(p).slice(-10); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(p || ""); };
+const callLink = (base, p) => (digitsOf(p).length >= 10 ? `${base}/call/${digitsOf(p)}` : "");
+function callPage(num) {
+  const d = digitsOf(num);
+  if (d.length < 10 || d.length > 15) return new Response("Not found", { status: 404 });
+  const tel = e164(d), label = prettyPhone(d);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Call ${esc(label)}</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07090c;color:#e8eaed;font:18px system-ui,-apple-system,Segoe UI,sans-serif;padding:20px;text-align:center}
+a.b{display:block;background:#32cd32;color:#04120a;font-weight:800;text-decoration:none;border-radius:16px;padding:22px 28px;font-size:24px;margin-top:18px}p{margin:0;color:#8a9099}</style></head>
+<body><main><p>Tap to call</p><a class="b" href="tel:${esc(tel)}">Call ${esc(label)}</a></main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
 async function notify(env, lead, base) {
   const jobs = [];
   const veh = [lead.year, lead.make, lead.model].filter(Boolean).join(" ");
   const link = crmLink(env, base, "/admin/pipeline");
   // `text` is a ready-written line, so Zapier (or anything else) can pass it straight on as an SMS or chat message
   const line = lead.type === "newsletter" ? `Newsletter signup: ${lead.email}` : `NEW LEAD: ${lead.name}, ${lead.service}${veh ? ", " + veh : ""}. ${lead.phone}. Call now. ${link}`;
-  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...lead, text: line, crm_link: link }) }).catch(() => {}));
+  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...lead, text: line, crm_link: link, phone_e164: e164(lead.phone), phone_display: prettyPhone(lead.phone), call_link: callLink(base, lead.phone) }) }).catch(() => {}));
   if (lead.type === "newsletter") {
     jobs.push(sendEmail(env, { to: env.NOTIFY_TO, subject: `Newsletter signup: ${lead.email}`, html: `<p>${esc(lead.email)} joined the newsletter.</p>` }));
   } else {
@@ -276,7 +291,7 @@ async function notifyCall(env, row, base) {
   await Promise.all([
     alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html,
       push: { title: `${vm ? "Voicemail" : "Missed call"}: ${who}`, message: [row.phone, src].filter(Boolean).join(" | ") + ". Call them back.", click: link } }),
-    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link }) }).catch(() => {}) : null,
+    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: callLink(base, row.phone) }) }).catch(() => {}) : null,
   ]);
 }
 
@@ -691,6 +706,8 @@ export default {
       try { return await handleLead(request, env, ctx); }
       catch (e) { console.error("lead error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
     }
+
+    if (p.startsWith("/call/")) return callPage(p.slice(6));
 
     if (p === "/login" || p === "/logout") {
       if (crmHost) return Response.redirect(`https://${crmHost}${p}`, 301);
