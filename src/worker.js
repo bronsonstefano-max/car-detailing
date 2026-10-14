@@ -1037,6 +1037,8 @@ export default {
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
+      if (p === "/ads" || p === "/admin/ads") return adminRoute("/admin/ads", request, env);
+      if (p === "/ads.csv" || p === "/admin/ads.csv") return adminRoute("/admin/ads.csv", request, env);
       if (p === "/insights" || p === "/admin/insights") return adminRoute("/admin/insights", request, env);
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
@@ -1302,6 +1304,83 @@ draw();setInterval(draw,60000);
 
 // ---- Contact rate and booked jobs by how fast the lead was first called (owner only)
 
+
+// ---- Booked jobs for Google Ads: the offline conversion upload (owner only)
+// One row per booked (or completed) lead that carries a Google click ID, with the time it reached that stage and the job value.
+async function adsData(env, days, stage) {
+  await ensureTable(env.DB);
+  const completed = stage === "completed";
+  const rows = (await env.DB.prepare(`SELECT l.id, l.created_at, l.name, l.phone, l.type, l.value, l.stage, l.gclid, l.gbraid, l.wbraid, l.utm_source, l.utm_medium, l.utm_campaign, l.referrer,
+      (SELECT MIN(s.at) FROM stage_log s WHERE s.lead_id = l.id AND s.to_stage IN (${completed ? "'done'" : "'booked','working','done'"})) AS conv_at
+    FROM leads l WHERE l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND l.stage IN (${completed ? "'done'" : "'booked','working','done'"}) ORDER BY l.id DESC LIMIT 2000`).all()).results || [];
+  const ms = t => Date.parse(String(t).replace(" ", "T") + "Z");
+  const cutoff = Date.now() - days * 864e5;
+  const out = [];
+  for (const r of rows) {
+    const at = r.conv_at || r.created_at;
+    if (ms(at) < cutoff) continue;
+    // a click ID must be at most 90 days old, and the conversion cannot come before the lead
+    const when = Math.max(ms(at), ms(r.created_at));
+    out.push({ ...r, conv_at: new Date(when).toISOString().slice(0, 19).replace("T", " "), has: hasClick(r), ad: sourceOf(r).ad });
+  }
+  return out;
+}
+const etStamp = sql => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date(String(sql).replace(" ", "T") + "Z")).map(x => [x.type, x.value])); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`; };
+async function adsCsv(env, url) {
+  const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
+  const stage = url.searchParams.get("stage") === "completed" ? "completed" : "booked";
+  const name = clean(url.searchParams.get("name") || (stage === "completed" ? "Completed job" : "Booked job"), 100).replace(/[",\r\n]/g, " ");
+  const rows = (await adsData(env, days, stage)).filter(r => r.has);
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = ["Parameters:TimeZone=" + TZ, "Google Click ID,GBRAID,WBRAID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency"];
+  for (const r of rows) {
+    // one click ID per row: gclid first, otherwise the iPhone IDs
+    const g = r.gclid || "", gb = !g ? (r.gbraid || "") : "", wb = !g && !gb ? (r.wbraid || "") : "";
+    lines.push([g, gb, wb, name, etStamp(r.conv_at), Number(r.value) > 0 ? Number(r.value) : 0, "USD"].map(q).join(","));
+  }
+  return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="google-ads-${stage}-jobs-${days}d.csv"`, "cache-control": "no-store" } });
+}
+async function adsPage(env, user, url) {
+  const tc = await todayCount(env);
+  const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
+  const stage = url.searchParams.get("stage") === "completed" ? "completed" : "booked";
+  const rows = await adsData(env, days, stage);
+  const withId = rows.filter(r => r.has), leaks = rows.filter(r => !r.has && r.ad), organic = rows.filter(r => !r.has && !r.ad);
+  const val = withId.reduce((a, r) => a + (Number(r.value) || 0), 0);
+  const money = n => "$" + Math.round(n).toLocaleString("en-US");
+  const dflt = stage === "completed" ? "Completed job" : "Booked job";
+  const link = (d, st, label) => `<a class="rb${d === days && st === stage ? " on" : ""}" href="/admin/ads?days=${d}&stage=${st}">${label}</a>`;
+  const leakRows = leaks.map(r => `<tr><td><a href="/admin/pipeline#id=${r.id}">${esc(r.name || prettyPhone(r.phone))}</a><br><span class="note">${esc(prettyPhone(r.phone))}</span></td><td>${esc(when(r.conv_at).abs)}</td><td>${esc(sourceOf(r).label)}${sourceOf(r).detail ? '<br><span class="note">' + esc(sourceOf(r).detail) + "</span>" : ""}</td><td>${r.value ? money(r.value) : "-"}</td></tr>`).join("");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Google Ads upload | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:26px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}.kpi.r b{color:#ff6b6b}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:6px 0 0}.note{color:#7c838d;font-size:12.5px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rb{color:#aab0b9;text-decoration:none;padding:7px 14px;border-radius:999px;border:1px solid #232932}.rb.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.dl{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px}.dl form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.dl input{background:#07090c;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;padding:10px 12px;font:inherit;min-width:200px}.dl button{background:#32cd32;color:#04120a;border:0;border-radius:10px;padding:11px 18px;font:700 15px system-ui;cursor:pointer}
+ol{margin:0;padding-left:20px;color:#c3c8cf}ol li{margin:4px 0}
+.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:10px 12px;border-bottom:1px solid #1b1f25;vertical-align:top}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}.tb a{color:#32cd32;text-decoration:none;font-weight:600}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>Google Ads upload</b></h1>${nav("insights", tc, true)}</header>
+${bnav("insights", tc, true)}
+<main>
+<div class="bar">${link(7, stage, "Last 7 days")}${link(30, stage, "Last 30 days")}${link(90, stage, "Last 90 days")}<span class="note">&nbsp;|&nbsp;</span>${link(days, "booked", "Booked jobs")}${link(days, "completed", "Completed jobs")}</div>
+<div class="kpis"><div class="kpi"><b>${rows.length}</b><span>${stage === "completed" ? "completed" : "booked"} jobs in range</span></div><div class="kpi g"><b>${withId.length}</b><span>ready to upload (have a Google click ID)</span></div><div class="kpi g"><b>${money(val)}</b><span>value in the upload</span></div><div class="kpi ${leaks.length ? "r" : ""}"><b>${leaks.length}</b><span>from Google Ads but no click ID saved</span></div><div class="kpi"><b>${organic.length}</b><span>not from ads (left out)</span></div></div>
+<div class="dl"><h2>Download</h2>
+<form method="GET" action="/admin/ads.csv"><input type="hidden" name="days" value="${days}"><input type="hidden" name="stage" value="${stage}"><input name="name" value="${esc(dflt)}" aria-label="Conversion name"><button type="submit">Download CSV (${withId.length} rows)</button></form>
+<span class="note">The conversion name must match the name of the conversion action in Google Ads exactly.</span></div>
+<h2>How to upload it</h2>
+<ol><li>In Google Ads, go to <b>Goals → Conversions → New conversion action → Import → Other data sources or CRMs → Track conversions from clicks</b>. Name it "${esc(dflt)}" (once).</li><li>Go to <b>Goals → Uploads → +</b>, choose the CSV and upload it. Open Google's own template first if it asks, to compare the column names.</li><li>Upload weekly (or daily). Uploading the same job twice is ignored by Google, so overlapping ranges are safe.</li><li>Click IDs expire after 90 days, so upload within that window.</li></ol>
+<h2>Booked jobs from ads that are missing a click ID</h2>
+${leaks.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Reached stage</th><th>Source</th><th>Value</th></tr>${leakRows}</table></div><p class="note">These are tagged as Google Ads (UTM or call tracking) but no click ID was saved, so Google can't match them. They are left out of the file.</p>` : '<p class="note">None. Every booked job from Google Ads has a click ID.</p>'}
+</main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
 // Owner-only board: every auto-dial where the agent did not answer or did not press 1, and whether the lead was called afterwards
 async function missedPage(env, user) {
   await ensureTable(env.DB);
@@ -1417,7 +1496,7 @@ ${bnav("insights", tc, true)}
 ${RANGE_HTML}
 <div class="kpis" id="k"></div>
 <h2>Lead funnel<small>how many leads make it through each step</small></h2><div class="chart" id="fn"></div>
-<h2>Google Ads return<small>uses the monthly ad spend you enter at the bottom</small></h2><div class="kpis" id="ads"></div>
+<h2>Google Ads return<small>uses the monthly ad spend you enter at the bottom &middot; <a href="/admin/ads" style="color:#32cd32">Upload booked jobs to Google Ads</a></small></h2><div class="kpis" id="ads"></div>
 <h2>Where leads come from</h2><div class="tbw"><table class="tb" id="src"></table></div>
 <h2>Which services bring the money</h2><div class="tbw"><table class="tb" id="svc"></table></div>
 <h2>Why leads are lost<small>the reason picked when a lead moves to Lost</small></h2><div class="hb" id="lost"></div>
@@ -1561,6 +1640,8 @@ async function adminRoute(p, request, env) {
     await env.DB.prepare("INSERT INTO ad_spend (month, amount) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET amount = excluded.amount").bind(b.month, b.amount).run();
     return json({ success: true });
   }
+  if (p === "/admin/ads") return a === OWNER ? adsPage(env, a, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/missed") return a === OWNER ? missedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
