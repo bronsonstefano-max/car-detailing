@@ -48,6 +48,8 @@ async function ensureTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS stage_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, from_stage TEXT, to_stage TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS stage_log_lead ON stage_log (lead_id)").run();
+  const slCols = (await db.prepare("PRAGMA table_info(stage_log)").all()).results.map(c => c.name);
+  if (!slCols.includes("by_user")) await db.prepare("ALTER TABLE stage_log ADD COLUMN by_user TEXT").run();
   // upgrade tables created before the pipeline existed
   const cols = (await db.prepare("PRAGMA table_info(leads)").all()).results.map(c => c.name);
   if (!cols.includes("stage")) {
@@ -382,12 +384,14 @@ function askNext(name,stage){return new Promise(res=>{const d=document.getElemen
 const stageName = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
 const crmPrefix = env => ""; // paths are the same on every host
 const badge = n => (n ? `<i class="nb">${n > 99 ? "99+" : n}</i>` : "");
-function nav(on, n = 0) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/logout" class="so">Sign out</a></nav>`;
+const OWNER = "bronson"; // only this login sees the Speed page
+const SPEED_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2M9 2h6M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"/></svg>';
+function nav(on, n = 0, owner = false) {
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
-function bnav(on, n = 0) {
-  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a></nav>`;
+function bnav(on, n = 0, owner = false) {
+  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a>` : ""}</nav>`;
 }
 const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" });
 const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
@@ -449,7 +453,7 @@ function sourceOf(l) {
   return { label: "Direct", ad: false, detail: "" };
 }
 
-async function adminPage(env) {
+async function adminPage(env, user = "") {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
   const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all();
@@ -459,7 +463,7 @@ async function adminPage(env) {
     const t = when(l.created_at), src = sourceOf(l);
     const veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
-    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : l.stage === "new" ? "new" : ""}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.stage === "new" ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
+    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : l.stage === "new" ? "new" : ""}" data-id="${l.id}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${l.stage === "new" ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
       <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
         <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}${callTag(l)}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}${l.follow_up ? `<span class="tag fu">${esc(l.follow_up)}</span>` : ""}</div></div>
       <div class="grid">
@@ -509,10 +513,10 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
   .grid{grid-template-columns:1fr 1fr}
 }
 </style></head>
-<body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc)}
+<body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc, user === OWNER)}
 <div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div><div class="stat"><b>${ads}</b><span>from Google Ads</span></div></div></header>
 <div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
-${bnav("leads", tc)}
+${bnav("leads", tc, user === OWNER)}
 ${FOLLOW_HTML}
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
 <script>
@@ -521,6 +525,7 @@ function apply(){const t=q.value.trim().toLowerCase();list.querySelectorAll('.le
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
 ${FOLLOW_JS}
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
+document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 document.addEventListener('change',async e=>{const s=e.target.closest('select.stage');if(!s)return;const to=s.value,id=+s.dataset.id;const nm=(s.closest('.lead').querySelector('h3')||{}).textContent;s.disabled=true;
   const r=await post('/admin/stage',{id,stage:to});if(!r.ok){s.disabled=false;s.value=s.dataset.cur;return}const nx=await askNext(nm,to);if(nx)await post('/admin/stage',{id,followup:nx.followup,follow_date:nx.follow_date});location.reload()});
 </script></body></html>`,
@@ -528,7 +533,7 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 }
 
 
-async function pipelinePage(env) {
+async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
   const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
@@ -579,9 +584,9 @@ ${FOLLOW_CSS}
   .chips{display:flex;flex-wrap:wrap;gap:8px}.chips button{min-height:44px;padding:0 14px;border-radius:999px;border:1px solid #2a313a;background:#12171e;color:#e8eaed;font:inherit;cursor:pointer}.chips button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 }
 </style></head><body>
-<header><h1>Divine Detailers <b>pipeline</b></h1>${nav("pipeline", tc)}<div class="sum" id="sum"></div><button class="addb" id="addb" type="button">+ Add lead</button></header>
+<header><h1>Divine Detailers <b>pipeline</b></h1>${nav("pipeline", tc, user === OWNER)}<div class="sum" id="sum"></div><button class="addb" id="addb" type="button">+ Add lead</button></header>
 <div class="tabs" id="tabs"></div>
-${bnav("pipeline", tc)}
+${bnav("pipeline", tc, user === OWNER)}
 <div class="board" id="board"></div>
 <dialog id="dlg"></dialog>
 ${FOLLOW_HTML}
@@ -621,8 +626,9 @@ board.addEventListener('dragend',()=>{dragId=null;draw()});
 board.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(!c)return;e.preventDefault();board.querySelectorAll('.col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
 board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){const o=await save(l.id,{stage:st},'/admin/stage');if(o){apply(l,o);draw();const nx=await askNext(l.name||l.phone||l.email,l.stage);if(nx){const o2=await save(l.id,{followup:nx.followup,follow_date:nx.follow_date},'/admin/stage');apply(l,o2)}}draw()}else draw()});
 board.addEventListener('click',e=>{if(e.target.closest('[data-stop]'))return;const d=e.target.closest('[data-open]');if(d){open(+d.dataset.open);return}const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
+document.addEventListener('click',e=>{const a=e.target.closest('a[href^=\"tel:\"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction','Vinyl Wraps','Exterior Detailing','Other'];
-function open(id){const l=L.find(x=>x.id===id);if(!l)return;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
+function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
   const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
   dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
   (isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+(l.recording?' &middot; <a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a>':'')+'</div>':'')+
@@ -685,6 +691,7 @@ export default {
     if (onCrm) {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
+      if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
@@ -779,7 +786,93 @@ async function demoRoute(request, env) {
   return json({ success: true, added: stmts.length });
 }
 
-async function todayPage(env) {
+// ---- Speed to lead (owner only): how fast every lead got its first contact attempt, and by whom
+async function speedPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,gclid,utm_medium,utm_source,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
+  const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason FROM stage_log ORDER BY id ASC LIMIT 30000").all();
+  const first = new Map();
+  for (const g of logs) if (!first.has(g.lead_id)) first.set(g.lead_id, g);
+  const ms = sql => new Date(sql.replace(" ", "T") + "Z").getTime();
+  const iso = sql => new Date(ms(sql)).toISOString();
+  const fmt = sql => new Date(ms(sql)).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const etParts = sql => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date(ms(sql))).map(x => [x.type, x.value])); return { wd: p.weekday, h: Number(p.hour) }; };
+  const rows = leads.map(l => {
+    let contact = "", by = "", how = "";
+    const g = first.get(l.id);
+    if (l.type === "call" && l.answered === 1) { contact = l.created_at; how = "Answered live"; }
+    else if (g) { contact = g.at; by = g.by_user || ""; how = g.reason || ""; }
+    else if (l.stage !== "new" && l.stage_changed_at) { contact = l.stage_changed_at; how = "Moved to " + stageName(l.stage); }
+    const t = etParts(l.created_at);
+    return {
+      id: l.id, name: l.name || l.phone || "Unknown", type: l.type, what: [l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+      src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at),
+      contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
+      secs: contact ? Math.max(0, Math.round((ms(contact) - ms(l.created_at)) / 1000)) : null,
+      after: t.wd === "Sun" || t.h < 9 || t.h >= 18,
+    };
+  });
+  const payload = JSON.stringify({ rows, now: Date.now() }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Speed to lead | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
+.filters{display:flex;gap:8px;flex-wrap:wrap}.chip{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:26px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}.kpi.r b{color:#ff8a8a}
+.who{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.who div{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:12px 14px}.who h3{margin:0 0 4px;font-size:15px;text-transform:capitalize}.who span{color:#8a9099;font-size:13px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:6px 0 0}
+.list{display:flex;flex-direction:column;gap:8px}.row{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:12px 14px;display:grid;grid-template-columns:1.4fr 1fr 1fr .8fr .7fr;gap:8px 14px;align-items:start}
+.row.late{border-color:#4a2424}.row .n b{display:block;font-size:16px}.row .n small{color:#8a9099;display:block}
+.row label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}.row .rt{font-weight:700}.rt.fast{color:#32cd32}.rt.slow{color:#ffb86b}.rt.vslow{color:#ff8a8a}.pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#171c23;color:#aab0b9;margin-left:6px}.pill.ad{background:#14263f;color:#8ec0ff}.pill.ah{background:#2a1f3d;color:#c9a8ff}
+.empty{color:#8a9099;padding:24px 0;text-align:center}.note{color:#7c838d;font-size:12.5px}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}.row{grid-template-columns:1fr 1fr}.row .n{grid-column:1/-1}}
+</style></head><body>
+<header><h1>Divine Detailers <b>speed to lead</b></h1>${nav("speed", tc, true)}</header>
+${bnav("speed", tc, true)}
+<main>
+<div class="filters" id="f"><button class="chip" data-r="7">Last 7 days</button><button class="chip on" data-r="30">Last 30 days</button><button class="chip" data-r="0">All time</button><button class="chip" id="bh">Business hours only</button></div>
+<div class="kpis" id="k"></div>
+<h2>By person</h2><div class="who" id="w"></div>
+<h2>Every lead, newest first</h2><div class="list" id="l"></div>
+<p class="note">A lead's clock starts when the form is sent or the call comes in. It stops at the first action logged in the CRM: Call, Text, Email, Contacted or a stage change. An answered call counts as instant. Calls made from a phone without using the CRM buttons are not seen. Business hours are Mon to Sat, 9 AM to 6 PM Eastern.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+const D=JSON.parse(document.getElementById('data').textContent),R=D.rows;let range=30,bh=false;
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function dur(s){if(s==null)return '';if(s<60)return s+' sec';const m=Math.round(s/60);if(m<60)return m+' min';const h=Math.floor(m/60),mm=m%60;if(h<48)return h+' h'+(mm?' '+mm+' min':'');return Math.round(h/24)+' days'}
+const med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);return b.length%2?b[i]:Math.round((b[i-1]+b[i])/2)};
+const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):null;
+const cls=s=>s==null?'':s<=300?'fast':s<=3600?'slow':'vslow';
+function pick(){const cut=range?Date.now()-range*864e5:0;return R.filter(r=>new Date(r.created).getTime()>=cut&&!(bh&&r.after))}
+function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null);
+ const pct=t=>done.length?Math.round(100*secs.filter(x=>x<=t).length/done.length)+'%':'-';
+ const now=Date.now(),waits=wait.map(r=>Math.round((now-new Date(r.created).getTime())/1000));
+ document.getElementById('k').innerHTML=
+  '<div class="kpi g"><b>'+(med(secs)==null?'-':dur(med(secs)))+'</b><span>Median time to first contact</span></div>'+
+  '<div class="kpi"><b>'+(avg(secs)==null?'-':dur(avg(secs)))+'</b><span>Average time to first contact</span></div>'+
+  '<div class="kpi"><b>'+pct(300)+'</b><span>Contacted within 5 min</span></div>'+
+  '<div class="kpi"><b>'+pct(3600)+'</b><span>Contacted within 1 hour</span></div>'+
+  '<div class="kpi '+(wait.length?'r':'')+'"><b>'+wait.length+'</b><span>Not contacted yet'+(waits.length?' (longest '+dur(Math.max(...waits))+')':'')+'</span></div>'+
+  '<div class="kpi"><b>'+L.length+'</b><span>Leads in this range</span></div>';
+ const by={};done.forEach(r=>{const k=r.by||(r.how==='Answered live'?'answered live':'not recorded');(by[k]=by[k]||[]).push(r.secs)});
+ document.getElementById('w').innerHTML=Object.keys(by).sort().map(k=>'<div><h3>'+$(k)+'</h3><b>'+by[k].length+' lead'+(by[k].length===1?'':'s')+'</b> <span>&middot; median '+dur(med(by[k]))+' &middot; avg '+dur(avg(by[k]))+'</span></div>').join('')||'<div class="empty">No contacts recorded yet.</div>';
+ document.getElementById('l').innerHTML=L.map(r=>{const w=r.secs==null?Math.round((now-new Date(r.created).getTime())/1000):null;
+  return '<div class="row'+(w!=null&&w>900?' late':'')+'"><div class="n"><b>'+$(r.name)+'</b><small>'+(r.type==='call'?'Phone call':'Form')+(r.what?' &middot; '+$(r.what):'')+'</small><small>'+(r.type==='call'&&r.src==='Phone call'?'':$(r.src))+(r.ad?'<span class="pill ad">Ads</span>':'')+(r.after?'<span class="pill ah">After hours</span>':'')+'</small></div>'+
+  '<div><label>Created at</label>'+$(r.created_abs)+'</div>'+
+  '<div><label>Attempted contact at</label>'+(r.contact?$(r.contact_abs)+(r.how?'<small style="display:block;color:#8a9099">'+$(r.how)+'</small>':''):'<span class="rt vslow">Not yet</span>')+'</div>'+
+  '<div><label>Time to contact</label><span class="rt '+cls(r.secs!=null?r.secs:w)+'">'+(r.secs!=null?(r.secs===0?'Instant':dur(r.secs)):'Waiting '+dur(w))+'</span></div>'+
+  '<div><label>Contacted by</label>'+(r.by?'<span style="text-transform:capitalize">'+$(r.by)+'</span>':'<span style="color:#586069">-</span>')+'</div></div>'}).join('')||'<div class="empty">No leads in this range.</div>'}
+document.getElementById('f').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='bh'){bh=!bh;b.classList.toggle('on',bh)}else{range=+b.dataset.r;document.querySelectorAll('#f [data-r]').forEach(x=>x.classList.toggle('on',x===b))}draw()});
+draw();setInterval(draw,60000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+async function todayPage(env, user = "") {
   await ensureTable(env.DB);
   const today = todayStr();
   const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND (stage = 'new' OR (COALESCE(follow_up_date,'') != '' AND follow_up_date <= ? AND stage NOT IN ('done','lost'))) ORDER BY created_at DESC, id DESC LIMIT 300").bind(today).all();
@@ -807,8 +900,8 @@ ${BNAV_CSS}
 ${FOLLOW_CSS}
 @media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:4px 14px 20px;gap:18px}.acts{display:grid;grid-template-columns:1fr 1fr}.acts .call{grid-column:1/-1;font-size:17px;padding:14px}}
 </style></head><body>
-<header><h1>Divine Detailers <b>today</b></h1>${nav("today", items.length)}<span class="dt"><span id="dt"></span> &middot; <a href="/logout" style="color:#8a9099">Sign out</a></span></header>
-${bnav("today", items.length)}
+<header><h1>Divine Detailers <b>today</b></h1>${nav("today", items.length, user === OWNER)}<span class="dt"><span id="dt"></span> &middot; <a href="/logout" style="color:#8a9099">Sign out</a></span></header>
+${bnav("today", items.length, user === OWNER)}
 ${FOLLOW_HTML}
 <main id="m"></main>
 <div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button><button class="btn" id="ta">Send test alert</button><pre id="tr" style="flex:1 1 100%;white-space:pre-wrap;color:#c3c8cf;font-size:12.5px;margin:0"></pre></div>
@@ -853,13 +946,15 @@ async function adminRoute(p, request, env) {
     return json({ success: false, message: "Signed out" }, 401);
   }
   if (!env.DB) return new Response("Lead database is not configured.", { status: 503 });
-  if (p === "/admin") return adminPage(env);
+  if (p === "/admin") return adminPage(env, a);
   if (p === "/admin/leads.csv") return csv(env);
-  if (p === "/admin/pipeline") return pipelinePage(env);
+  if (p === "/admin/pipeline") return pipelinePage(env, a);
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
-  if (p === "/admin/today") return todayPage(env);
+  if (p === "/admin/today") return todayPage(env, a);
+  if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
+  const user = typeof a === "string" ? a : "";
   if (p === "/admin/touch" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id) || typeof b.label !== "string") return json({ success: false }, 400);
@@ -869,7 +964,7 @@ async function adminRoute(p, request, env) {
     const stage = cur.stage === "new" ? "contacted" : cur.stage;
     const stmts = [
       env.DB.prepare("UPDATE leads SET stage = ?, contacted = 1" + (stage !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(stage, b.id),
-      env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason) VALUES (?,?,?,?)").bind(b.id, cur.stage, stage, clean(b.label, 120)),
+      env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, stage, clean(b.label, 120), user),
     ];
     await env.DB.batch(stmts);
     const abs = when(new Date().toISOString().slice(0, 19).replace("T", " ")).abs;
@@ -904,7 +999,7 @@ async function adminRoute(p, request, env) {
       }
     }
     const stmts = [env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id)];
-    for (const [f, t, r] of logs) stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason) VALUES (?,?,?,?)").bind(b.id, f, t, r));
+    for (const [f, t, r] of logs) stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, f, t, r, user));
     await env.DB.batch(stmts);
     const abs = when(new Date().toISOString().slice(0, 19).replace("T", " ")).abs;
     return json({ success: true, stage, followup: follow, follow_up_date: date, log: logs.map(([f, t, r]) => ({ from_stage: f, to_stage: t, reason: r, at: abs })).reverse() });
