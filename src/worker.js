@@ -118,7 +118,7 @@ async function placeCall(env, lead, user, source) {
     r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls.json`, { method: "POST", headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) });
     j = await r.json().catch(() => ({}));
   } catch (e) { return { ok: false, message: "Could not reach CallRail." }; }
-  if (!r.ok || !j.id) return { ok: false, message: "CallRail refused the call" + (j.error ? ": " + String(j.error).slice(0, 160) : ` (${r.status}).`) };
+  if (!r.ok || !j.id) return { ok: false, message: `CallRail refused the call (status ${r.status})` + (Object.keys(j).length ? ": " + JSON.stringify(j).slice(0, 220) : ".") };
   await env.DB.batch([
     env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source) VALUES (?,?,?,?)").bind(j.id, lead.id, user, source),
     env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(source === "auto" ? "Auto-dial requested (calling your phone first)" : "Dial requested (calling your phone first)", user, lead.id),
@@ -190,6 +190,20 @@ async function callrailTest(env) {
     } catch (e) { out.trackers_status = 0; }
   }
   return out;
+}
+
+// Rings the agent for a new form lead. A failure is written on the lead's history and sent as an alert, so it is never silent.
+async function autoDial(env, lead) {
+  const agent = (env.AUTO_DIAL_AGENT || "giordani").toLowerCase();
+  let res;
+  try { res = await placeCall(env, lead, agent, "auto"); } catch (e) { res = { ok: false, message: "Unexpected error: " + String((e && e.message) || e).slice(0, 160) }; }
+  if (res.ok) return;
+  try {
+    await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind("Auto-dial failed: " + res.message.slice(0, 200), agent, lead.id).run();
+    const link = env.CRM_HOST ? `https://${env.CRM_HOST}/today` : "";
+    const text = `AUTO-DIAL FAILED for ${lead.name || lead.phone}: ${res.message.slice(0, 160)}. Call the lead by hand. ${link}`.trim();
+    await alertTeam(env, { subject: "Auto-dial failed: call the lead", text, html: `<p><b>${esc(text.replace(link, "").trim())}</b></p>${link ? `<p><a href="${esc(link)}">Open today's list</a></p>` : ""}`, push: { title: "Auto-dial failed", message: `${lead.name || lead.phone}: call by hand. ${res.message.slice(0, 90)}`, click: link || undefined } });
+  } catch (e) { /* nothing more to do */ }
 }
 
 async function handleCallrail(request, env, url, ctx) {
@@ -282,7 +296,7 @@ async function handleLead(request, env, ctx) {
   const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
   ctx.waitUntil(notify(env, newLead, new URL(request.url).origin));
   // optional: ring the agent's phone straight away and connect them to the new lead (AUTO_DIAL=1, AUTO_DIAL_AGENT=giordani)
-  if (env.AUTO_DIAL === "1" && type === "quote" && newLead.id && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(placeCall(env, newLead, (env.AUTO_DIAL_AGENT || "giordani").toLowerCase(), "auto").catch(() => {}));
+  if (env.AUTO_DIAL === "1" && type === "quote" && newLead.id && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDial(env, newLead));
   return json({ success: true });
 }
 
