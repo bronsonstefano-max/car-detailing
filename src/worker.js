@@ -194,6 +194,9 @@ async function callrailTest(env) {
       out.caller_id_match = hit ? hit.name : "";
       // a verified outbound caller ID (for example the shop's own number) is not a tracking number: ask CallRail for those too (best effort)
       try {
+        const rco = await fetch(`${base}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/companies.json`, { headers: h });
+        const jco = await rco.json().catch(() => ({}));
+        const companyId = ((jco.companies || [])[0] || {}).id || "";
         const rc = await fetch(`${base}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/caller_ids.json?company_id=${companyId}&per_page=100`, { headers: h });
         out.callerids_status = rc.status;
         const jc = await rc.json().catch(() => ({}));
