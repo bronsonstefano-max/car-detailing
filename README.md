@@ -94,3 +94,12 @@ If ntfy answers 429 (daily quota), create a free account at ntfy.sh, make an acc
 ## Owner pages and reminders
 - Signed in as `bronson` there are three extra pages: **Speed** (time to first call), **Contact rate** (reached and booked rate by how fast a lead was called) and **Insights** (funnel, revenue, sources and Google Ads return, services, lost reasons, busiest hours, best time to call). Enter the monthly Google Ads spend at the bottom of Insights.
 - A cron trigger runs every minute and sends one reminder (push, email, text and the Zapier webhook, whichever are set up) when a lead has not been called within `REMIND_MINUTES` (default 10; set to 0 to turn reminders off). Reminders only go out during business hours, so overnight leads get a single reminder when the shop opens. If a deploy ever fails because of the cron trigger, delete the `triggers` line in `wrangler.jsonc`.
+
+## Auto-dial new form leads through CallRail
+When a form lead arrives, CallRail rings the agent's phone first ("press 1 to connect"), then dials the lead from your tracking number. Turn it on in the Cloudflare dashboard (Settings, Variables and Secrets):
+- `CALLRAIL_API_TOKEN` (secret): your CallRail API token. `CALLRAIL_ACCOUNT_ID`: your account id.
+- `CALLRAIL_CALLER_ID`: the tracking number (or verified outbound caller ID) the lead will see, like `+17865550123`.
+- `AGENT_PHONE_GIORDANI` (and `AGENT_PHONE_BRONSON`): the cell that CallRail rings first, like `+13055550123`.
+- `AUTO_DIAL=1` turns it on. `AUTO_DIAL_AGENT` picks who gets rung (default `giordani`). It only runs Mon to Sat, 9 to 6 Eastern.
+- `CALL_RECORDING=1` records the calls and plays `CALL_GREETING` first (default: "This call may be recorded for quality and training purposes.").
+- In CallRail add the Outbound Post-Call and Call Modified webhooks pointing at `/api/callrail?key=YOUR_KEY`, the same address as the inbound webhook. The CRM then logs the call, its result and the recording on the lead. If nobody presses 1, the team gets an alert to call the lead by hand.
