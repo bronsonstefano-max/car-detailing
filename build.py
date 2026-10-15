@@ -893,30 +893,34 @@ def build_about():
 <section class="sec"><div class="wrap center"><span class="chip">Visit us</span><h2>Find the shop</h2><p class="lead" style="margin-top:14px">{SITE['addr1']}, {SITE['addr2']}<br>Call <a href="tel:{SITE['tel']}">{SITE['phone']}</a> or <a href="mailto:{SITE['email']}">{SITE['email']}</a></p><p style="margin-top:22px"><a class="btn" href="contact.html">Contact us</a></p></div></section>{cta_banner()}'''
     page("about-us.html", f"About Us | {SITE['name']}", f"Learn about {SITE['name']}, a Miami vehicle protection and detailing shop with 20+ years of experience and 5000+ vehicles completed.", body, "about")
 
-POSTS = [("gloss-vs-matte-ppf", "Gloss PPF vs. Matte PPF: Which Finish Fits Your Style", "Gloss and matte paint protection films are two distinct styling options. Before scheduling PPF installation, consider which finish fits your style and vehicle."),
-         (None, "Ceramic Coating vs. Wax: What Is the Difference?", "A plain-language look at durability, gloss and cost, and which one fits your car."),
-         (None, "How Window Tint Keeps Your Cabin Cool", "How ceramic tint cuts heat and UV, and how to choose the right shade.")]
+from content_blog import POSTS as BLOG_POSTS, DATE as BLOG_DATE
 
 def build_blog():
-    cards = "".join(f'<article class="post">{photo_box(k)}<div class="b"><time>Month 00, 0000</time><h3>{esc(t)}</h3><p>{d}</p><a class="more" href="{(s + ".html") if s else "#"}">Read more</a></div></article>' for (s, t, d), k in zip(POSTS, ["ppf", "ceramic", "tint"]))
+    cards = "".join(f'<article class="post">{photo_box(p["photo"])}<div class="b"><time>{BLOG_DATE}</time><h3>{esc(p["title"])}</h3><p>{esc(p["card"])}</p><a class="more" href="{p["slug"]}.html">Read more</a></div></article>' for p in BLOG_POSTS)
     body = inner_hero("Our <em>blog</em>", "Car care tips and answers from the team at Divine Detailers.", ['<a href="index.html">Home</a>', "Blogs"], buttons=False)
     body += f'<section class="sec"><div class="wrap"><div class="grid3" style="margin-top:0">{cards}</div></div></section>{cta_banner()}'
-    page("blog.html", f"Blog | {SITE['name']}", "Car care tips on ceramic coating, paint protection film and window tint.", body, "blog")
+    page("blog.html", f"Blog | {SITE['name']}", "Car care tips on ceramic coating, paint protection film, window tint, paint correction and detailing in Miami.", body, "blog")
 
 def build_post():
-    body = inner_hero("Gloss PPF vs. Matte PPF: <em>which finish fits your style</em>", "Gloss and matte paint protection films are two distinct styling options.", ['<a href="index.html">Home</a>', '<a href="blog.html">Blogs</a>', "Gloss vs. matte PPF"], buttons=False)
-    body += f'''<section class="sec"><div class="wrap"><article class="article">
-<p>Paint protection film (PPF) protects your paint from rock chips, scratches and road damage. The finish you choose decides how the car looks once it is protected. Here is how to think about gloss and matte (satin) film.</p>
-<h2>Gloss PPF</h2>
-<ul><li>Keeps the factory look and enhances depth and shine on gloss paint.</li><li>Nearly invisible once installed.</li><li>The right choice for most daily drivers.</li></ul>
-<h2>Matte or satin PPF</h2>
-<ul><li>Gives a smooth, non-reflective finish.</li><li>Protects factory matte or satin paint without changing its look.</li><li>Can turn a gloss car into a satin one while it is protected.</li></ul>
-<h2>How to choose</h2>
-<p>Start with your paint. If your car has matte or satin paint, matte film is the right match. If you want to keep a glossy look, choose gloss. If you want a new look, satin film changes the finish without repainting. Whichever you choose, a good install matters as much as the film.</p>
-<h2>Care</h2>
-<p>Wash gently with a pH-neutral soap and a microfiber mitt, and avoid automatic washes with brushes. Matte films should not be waxed or polished, so use products made for matte finishes.</p>
-<p><a class="btn" href="contact.html#quote">Get a PPF quote</a></p></article></div></section>{cta_banner()}'''
-    page("gloss-vs-matte-ppf.html", f"Gloss PPF vs. Matte PPF | {SITE['name']}", "Which paint protection film finish fits your style and vehicle.", body, "blog")
+    for n, p in enumerate(BLOG_POSTS):
+        words = esc(p["title"]).split(" ")
+        k = max(1, len(words) - 3)
+        h1 = " ".join(words[:k]) + " <em>" + " ".join(words[k:]) + "</em>"
+        others = [q for q in BLOG_POSTS if q["slug"] != p["slug"]]
+        # three related posts: the next ones in the list, wrapping around
+        rel = [BLOG_POSTS[(n + d) % len(BLOG_POSTS)] for d in (1, 2, 3)]
+        reading = "".join(f'<li><a href="{q["slug"]}.html">{esc(q["title"])}</a></li>' for q in rel)
+        svc_slug, svc_name = p["service"]
+        body = inner_hero(h1, p["sub"], ['<a href="index.html">Home</a>', '<a href="blog.html">Blogs</a>', esc(p["title"])], buttons=False)
+        body += f'''<section class="sec"><div class="wrap"><article class="article">
+<p style="color:var(--muted);font-size:.85rem">{BLOG_DATE} &middot; By the {SITE['name']} team</p>
+{p["body"]}
+<h2>Learn more</h2>
+<p>See our <a href="{svc_slug}.html">{svc_name.lower()} service page</a> for how we do it, or <a href="contact.html#quote">request a free quote</a> and we will help you choose what fits your vehicle.</p>
+<h2>Keep reading</h2>
+<ul>{reading}</ul>
+<p><a class="btn" href="contact.html#quote">Get a quote</a></p></article></div></section>{cta_banner()}'''
+        page(p["slug"] + ".html", f"{p['title']} | {SITE['name']}", p["card"], body, "blog")
 
 def build_contact():
     cmap = map_block()
@@ -1051,4 +1055,10 @@ if __name__ == "__main__":
     for s, t, d in SERVICES:
         build_service(s, t, d)
     build_projects(); build_about(); build_blog(); build_post(); build_contact(); build_privacy(); build_terms(); build_thanks()
-    print("built", len(SERVICES) + 11, "pages")
+    # sitemap and robots so search engines find every page, the new blog posts included (the thank-you page is left out)
+    import glob
+    pages = sorted(f for f in glob.glob("*.html") if f != "thanks.html")
+    urls = "".join(f"<url><loc>https://divinedetailers.com/{'' if f == 'index.html' else f[:-5]}</loc></url>" for f in pages)
+    open("sitemap.xml", "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>\n')
+    open("robots.txt", "w").write("User-agent: *\nAllow: /\nSitemap: https://divinedetailers.com/sitemap.xml\n")
+    print("built", len(glob.glob("*.html")), "pages")
