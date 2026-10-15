@@ -101,5 +101,5 @@ When a form lead arrives, CallRail rings the agent's phone first ("press 1 to co
 - `CALLRAIL_CALLER_ID`: the tracking number (or verified outbound caller ID) the lead will see, like `+17865550123`.
 - `AGENT_PHONE_GIORDANI` (and `AGENT_PHONE_BRONSON`): the cell that CallRail rings first, like `+13055550123`.
 - `AUTO_DIAL=1` turns it on. `AUTO_DIAL_AGENT` picks who gets rung (default `giordani`). It only runs Mon to Sat, 9 to 6 Eastern.
-- `CALL_RECORDING=1` records the calls and plays `CALL_GREETING` first (default: "This call may be recorded for quality and training purposes.").
+- `CALL_RECORDING=1` records the calls and plays `CALL_GREETING` first (default: "This call may be recorded for quality and training purposes."). Set `CALL_GREETING=off` to record without an announcement (check the recording-consent law for the states the calls reach).
 - In CallRail add the Outbound Post-Call and Call Modified webhooks pointing at `/api/callrail?key=YOUR_KEY`, the same address as the inbound webhook. The CRM then logs the call, its result and the recording on the lead. If nobody presses 1, the team gets an alert to call the lead by hand.
