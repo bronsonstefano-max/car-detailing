@@ -120,7 +120,9 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   if (!agent) return { ok: false, message: `No cell number is saved for ${user}. Add AGENT_PHONE_${String(user).toUpperCase()} in Cloudflare.` };
   if (digitsOf(customer).length < 11) return { ok: false, message: "This lead has no valid phone number." };
   const body = { caller_id: e164(env.CALLRAIL_CALLER_ID), business_phone_number: agent, customer_phone_number: customer, recording_enabled: env.CALL_RECORDING === "1" };
-  if (body.recording_enabled) body.outbound_greeting_text = env.CALL_GREETING || "This call may be recorded for quality and training purposes.";
+  // CALL_GREETING=off records without any announcement (the owner's choice; check the recording-consent law for the states the calls reach)
+  const noGreeting = /^(off|none|no)$/i.test(String(env.CALL_GREETING || "").trim());
+  if (body.recording_enabled && !noGreeting) body.outbound_greeting_text = env.CALL_GREETING || "This call may be recorded for quality and training purposes.";
   let r, j;
   try {
     r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls.json`, { method: "POST", headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) });
