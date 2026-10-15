@@ -142,7 +142,7 @@ function callConnected(env, c) {
 async function handleOutbound(env, c) {
   const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
   if (!callId) return json({ success: false, message: "No call id" }, 422);
-  const dl = await env.DB.prepare("SELECT lead_id, by_user, done, attempt, retried, source FROM dial_log WHERE call_id = ?").bind(callId).first();
+  const dl = await env.DB.prepare("SELECT lead_id, by_user, done, attempt, retried, source, (julianday('now') - julianday(created_at)) * 86400 AS age FROM dial_log WHERE call_id = ?").bind(callId).first();
   let leadId = dl ? dl.lead_id : null, by = dl ? dl.by_user || "" : "";
   if (!leadId) {
     const d10 = digitsOf(c.customer_phone_number || c.formatted_customer_phone_number || "").slice(-10);
@@ -167,6 +167,8 @@ async function handleOutbound(env, c) {
   const target = isNewish(cur.stage) && dialed ? (leadAnswered ? "contacted" : "nocontact") : cur.stage;
   const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, target, reason, when, by);
   const willRetry = !dialed && !!dl && dl.source === "auto" && dl.attempt === 1 && !dl.retried && dialOn(env) && env.AUTO_DIAL === "1" && env.AUTO_DIAL_RETRY !== "0" && isNewish(cur.stage);
+  // a first ring that "failed" within a minute is not acted on yet: the per-minute check decides once the call has had time to ring out (about 100 seconds), so the agent is never rung twice in quick succession
+  if (!dialed && dl && dl.source === "auto" && dl.attempt === 1 && !dl.retried && dl.age < 60) return json({ success: true, deferred: true });
   const stmts = [env.DB.prepare("UPDATE dial_log SET done = 1 WHERE call_id = ?").bind(callId)];
   if (dialed) {
     stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
@@ -299,6 +301,18 @@ async function callrailTest(env) {
   return out;
 }
 
+// The same phone number is never auto-dialed twice within 15 minutes (a double form submission, or a test repeated quickly)
+async function autoDialOnce(env, lead) {
+  const d10 = digitsOf(lead.phone).slice(-10);
+  if (d10.length === 10) {
+    const dup = await env.DB.prepare("SELECT 1 x FROM dial_log d JOIN leads l ON l.id = d.lead_id WHERE d.source = 'auto' AND d.created_at >= datetime('now','-15 minutes') AND l.id != ? AND replace(replace(replace(replace(replace(l.phone,'-',''),' ',''),'(',''),')',''),'+','') LIKE ? LIMIT 1").bind(lead.id, "%" + d10).first().catch(() => null);
+    if (dup) {
+      await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind("Auto-dial skipped: this phone number was already auto-dialed in the last 15 minutes", lead.id).run().catch(() => {});
+      return;
+    }
+  }
+  return autoDial(env, lead);
+}
 // Rings the agent for a new form lead. A failure is written on the lead's history and sent as an alert, so it is never silent.
 async function autoDial(env, lead) {
   const agent = (env.AUTO_DIAL_AGENT || "giordani").toLowerCase();
@@ -468,7 +482,7 @@ async function handleLead(request, env, ctx) {
   if (newLead.id) ctx.waitUntil(linkByPhone(env, newLead.id).catch(() => {}));
   ctx.waitUntil(notify(env, newLead, new URL(request.url).origin));
   // optional: ring the agent's phone straight away and connect them to the new lead (AUTO_DIAL=1, AUTO_DIAL_AGENT=giordani)
-  if (env.AUTO_DIAL === "1" && type === "quote" && newLead.id && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDial(env, newLead));
+  if (env.AUTO_DIAL === "1" && type === "quote" && newLead.id && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDialOnce(env, newLead));
   return json({ success: true });
 }
 
