@@ -1126,12 +1126,12 @@ export default {
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
-      if (p === "/ads-feed.csv" || p === "/api/ads-feed.csv") return adsFeed(request, env, url);
+      if (p === "/ads-feed.csv" || p === "/api/ads-feed.csv" || p === "/ads-feed-completed.csv" || p === "/api/ads-feed-completed.csv") return adsFeed(request, env, url);
       if (p === "/favicon.ico" || p.startsWith("/assets/favicon")) return env.ASSETS.fetch(request);
       return new Response("Not found", { status: 404 });
     }
 
-    if (p === "/api/ads-feed.csv") return adsFeed(request, env, url);
+    if (p === "/api/ads-feed.csv" || p === "/api/ads-feed-completed.csv") return adsFeed(request, env, url);
 
     if (p === "/api/callrail") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
@@ -1408,17 +1408,24 @@ async function adsData(env, days, stage) {
   return out;
 }
 const etStamp = sql => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date(String(sql).replace(" ", "T") + "Z")).map(x => [x.type, x.value])); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`; };
-async function adsCsv(env, url) {
+const etStampOffset = sql => {
+  const d = new Date(String(sql).replace(" ", "T") + "Z");
+  const off = (new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "longOffset" }).formatToParts(d).find(x => x.type === "timeZoneName") || {}).value || "GMT-05:00";
+  const m = /GMT([+-]\d{2}:\d{2})/.exec(off);
+  return etStamp(sql) + (m ? m[1] : "-05:00");
+};
+async function adsCsv(env, url, plain = false) {
   const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
   const stage = url.searchParams.get("stage") === "completed" ? "completed" : "booked";
   const name = clean(url.searchParams.get("name") || (stage === "completed" ? "Completed job" : "Booked job"), 100).replace(/[",\r\n]/g, " ");
   const rows = (await adsData(env, days, stage)).filter(r => r.has);
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = ["Parameters:TimeZone=" + TZ, "Google Click ID,GBRAID,WBRAID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency"];
+  // plain = the scheduled feed for Google's Data Manager: a normal table (no "Parameters" line, which it would read as a column name), with the Eastern UTC offset inside each time
+  const lines = [...(plain ? [] : ["Parameters:TimeZone=" + TZ]), "Google Click ID,GBRAID,WBRAID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency"];
   for (const r of rows) {
     // one click ID per row: gclid first, otherwise the iPhone IDs
     const g = r.gclid || "", gb = !g ? (r.gbraid || "") : "", wb = !g && !gb ? (r.wbraid || "") : "";
-    lines.push([g, gb, wb, name, etStamp(r.conv_at), Number(r.value) > 0 ? Number(r.value) : 0, "USD"].map(q).join(","));
+    lines.push([g, gb, wb, name, (plain ? etStampOffset(r.conv_at) : etStamp(r.conv_at)), Number(r.value) > 0 ? Number(r.value) : 0, "USD"].map(q).join(","));
   }
   return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="google-ads-${stage}-jobs-${days}d.csv"`, "cache-control": "no-store" } });
 }
@@ -1431,7 +1438,8 @@ async function adsFeed(request, env, url) {
   if (/^basic /i.test(h)) { try { const [u, ...pw] = atob(h.slice(6).trim()).split(":"); ok = safeEqual(u, env.ADS_FEED_USER) && safeEqual(pw.join(":"), env.ADS_FEED_PASS); } catch (e) { ok = false; } }
   if (!ok) return new Response("Sign in required", { status: 401, headers: { "www-authenticate": 'Basic realm="Divine Detailers ads feed"', "cache-control": "no-store" } });
   if (!url.searchParams.get("days")) url.searchParams.set("days", "90");
-  return adsCsv(env, url);
+  if (/completed\.csv$/.test(url.pathname)) url.searchParams.set("stage", "completed");
+  return adsCsv(env, url, true);
 }
 async function adsPage(env, user, url) {
   const tc = await todayCount(env);
@@ -1469,7 +1477,7 @@ ${bnav("insights", tc, true)}
 <span class="note">The conversion name must match the name of the conversion action in Google Ads exactly.</span></div>
 <h2>Automatic upload (no clicking)</h2>
 <p class="note" style="color:#c3c8cf;font-size:14px">Google Ads can fetch this file by itself every day. In Cloudflare add two secrets, <b>ADS_FEED_USER</b> and <b>ADS_FEED_PASS</b> (pick any user name and a long password), and Deploy. Then in Google Ads go to <b>Goals → Uploads → Schedules → +</b>, choose <b>HTTPS</b>, and enter this address plus the same user name and password:</p>
-<p><code style="background:#0d1116;border:1px solid #1d2229;border-radius:8px;padding:8px 10px;display:inline-block;word-break:break-all">https://${esc(url.host)}/${env.CRM_HOST && url.host === env.CRM_HOST ? "" : "api/"}ads-feed.csv?stage=${stage}&amp;name=${encodeURIComponent(dflt)}</code></p>
+<p><code style="background:#0d1116;border:1px solid #1d2229;border-radius:8px;padding:8px 10px;display:inline-block;word-break:break-all">https://${esc(url.host)}/${env.CRM_HOST && url.host === env.CRM_HOST ? "" : "api/"}ads-feed${stage === "completed" ? "-completed" : ""}.csv</code></p>
 <p class="note">Schedule it daily. The address returns the last 90 days of ${stage === "completed" ? "completed" : "booked"} jobs that have a click ID. Google ignores jobs it already has.</p>
 <h2>Or upload it by hand</h2>
 <ol><li>In Google Ads, go to <b>Goals → Conversions → New conversion action → Import → Other data sources or CRMs → Track conversions from clicks</b>. Name it "${esc(dflt)}" (once).</li><li>Go to <b>Goals → Uploads → +</b>, choose the CSV and upload it. Open Google's own template first if it asks, to compare the column names.</li><li>Upload weekly (or daily). Uploading the same job twice is ignored by Google, so overlapping ranges are safe.</li><li>Click IDs expire after 90 days, so upload within that window.</li></ol>
