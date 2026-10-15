@@ -154,7 +154,6 @@ def header(active):
     <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><i></i><i></i><i></i></button>
     <nav class="nav" id="nav">
       <div class="has-dd"><button class="dd-btn" aria-expanded="false">Services <i>+</i></button><div class="dd"><a href="services.html">All services</a>{dd}</div></div>
-      <a href="brands.html"{cur("brands")}>Brands</a>
       <a href="projects.html"{cur("projects")}>Projects</a>
       <a href="about-us.html"{cur("about")}>About us</a>
       <a href="blog.html"{cur("blog")}>Blogs</a>
@@ -854,13 +853,6 @@ def build_service(slug, title, short):
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
 
 # ---------------------------------------------------------------- other pages
-def build_brands():
-    body = inner_hero("Our <em>Brands</em>", "We install premium products from manufacturers we trust.", ['<a href="index.html">Home</a>', "Brands"], form=False)
-    body += f'''{stripes()}<section class="sec"><div class="wrap center"><span class="chip">Partners</span><h2>Premium products, <em>proven results</em></h2>
-<p class="lead" style="margin-top:14px">The film, wrap and trade partners we work with.</p>
-<div class="logos big">{"".join(brand_tile(*x) for x in BRANDS)}</div></div></section>{cta_banner()}'''
-    page("brands.html", f"Brands | {SITE['name']}", "The premium film, coating and wrap brands we install.", body, "brands")
-
 def build_projects():
     cats = ["All", "PPF", "Tint", "Ceramic", "Correction", "Wraps", "Detailing"]
     f = "".join(f'<button class="{"on" if c == "All" else ""}" data-filter="{c}">{c}</button>' for c in cats)
@@ -1058,5 +1050,5 @@ if __name__ == "__main__":
     build_home(); build_services_hub()
     for s, t, d in SERVICES:
         build_service(s, t, d)
-    build_brands(); build_projects(); build_about(); build_blog(); build_post(); build_contact(); build_privacy(); build_terms(); build_thanks()
+    build_projects(); build_about(); build_blog(); build_post(); build_contact(); build_privacy(); build_terms(); build_thanks()
     print("built", len(SERVICES) + 11, "pages")
