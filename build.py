@@ -190,7 +190,8 @@ def quote_form(fid=None, select_default=None, extra="", status=True, call_line=F
     idattr = f' id="{fid}"' if fid else ""
     # optional line above the form that nudges people towards phoning (only on pages listed in CALL_LINE_PAGES)
     cl = f'<p class="call-line">Prefer to talk? <a href="tel:{SITE["tel"]}">Call {SITE["phone"]}</a> &mdash; the fastest way to get a quote.</p>' if call_line else ""
-    return f'''{cl}<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
+    return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
+  {cl}
   {form_extra("quote")}
   {STATUS if status else ""}
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
