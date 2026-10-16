@@ -180,7 +180,7 @@ def quote_form_short(fid=None, select_default=None):
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
 
-def quote_form(fid=None, select_default=None, extra="", status=True):
+def quote_form(fid=None, select_default=None, extra="", status=True, call_line=False):
     import datetime
     opts = "".join(f'<option{" selected" if o == select_default else ""}>{o}</option>' for o in SERVICE_OPTIONS)
     opts_also = "".join(f"<option>{o}</option>" for o in SERVICE_OPTIONS if o != "Other")
@@ -188,7 +188,9 @@ def quote_form(fid=None, select_default=None, extra="", status=True):
     y = datetime.date.today().year + 1
     years = "".join(f"<option>{n}</option>" for n in range(y, 1989, -1)) + "<option>Older</option>"
     idattr = f' id="{fid}"' if fid else ""
-    return f'''<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
+    # optional line above the form that nudges people towards phoning (only on pages listed in CALL_LINE_PAGES)
+    cl = f'<p class="call-line">Prefer to talk? <a href="tel:{SITE["tel"]}">Call {SITE["phone"]}</a> &mdash; the fastest way to get a quote.</p>' if call_line else ""
+    return f'''{cl}<form class="qform"{idattr} name="quote" method="POST" action="thanks.html" {form_attrs()} data-form>
   {form_extra("quote")}
   {STATUS if status else ""}
   <label>Full name*<input name="name" placeholder="Jane Smith" required autocomplete="name"></label>
@@ -350,10 +352,12 @@ HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-
 
 HERO_COPY = {}  # per-page headline tests go here: slug -> (headline html, subline). Empty for now: every page uses its service title.
 
-def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None, book=None):
+CALL_LINE_PAGES = {"window-tinting"}  # pages that show the "Prefer to talk? Call" line above the quote form
+
+def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None, book=None, call_line=False):
     c = " / ".join(crumbs)
     btns = f'''<div class="btn-row"><a class="btn" href="tel:{SITE['tel']}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg><b>Call Now</b><span>{SITE['phone']}</span></a><a class="btn gray" href="contact.html#quote"><span class="dot"></span>Get Your Free Quote</a></div>''' if buttons else ""
-    q = f'<div class="qwrap">{quote_form(select_default=select, status=status)}</div>' if form else ""
+    q = f'<div class="qwrap">{quote_form(select_default=select, status=status, call_line=call_line)}</div>' if form else ""
     if book:
         q = f'''<div class="qwrap" id="book"><div class="book-frame"><iframe src="{book}" title="Book an appointment with {SITE['name']}" loading="lazy" scrolling="no" frameborder="0" marginheight="0" marginwidth="0" height="1200" width="100%"></iframe></div></div>'''
         btns = btns.replace('href="contact.html#quote"><span class="dot"></span>Get Your Free Quote', 'href="#book"><span class="dot"></span>Book Online')
@@ -835,7 +839,7 @@ def build_service(slug, title, short):
 <div class="pkgs">{pk}</div>{sim}</section>'''
     # headline test: only the window tint page has its own headline and subline so far
     h1, sub = HERO_COPY.get(slug, (esc(title), d["sub"]))
-    body = inner_hero(h1, sub, ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug), book=BOOK_URL.get(slug))
+    body = inner_hero(h1, sub, ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug), book=BOOK_URL.get(slug), call_line=slug in CALL_LINE_PAGES)
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
     hl_intro = '<p class="hl-intro">' + x["hl_p"] + '</p>' if x.get("hl_p") else ""
