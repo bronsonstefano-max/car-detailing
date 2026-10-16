@@ -336,10 +336,15 @@ def faq_block(items, cat=None, cid=None):
     out += "".join(f"<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>" for q, a in items)
     return out
 
+def vurl(path):
+    # the file's content hash goes in the address, so the video can be cached for a year and a replaced video still loads fresh
+    import hashlib
+    return f"{path}?v={hashlib.md5(open(path, 'rb').read()).hexdigest()[:8]}"
+
 def hero_video(name, poster):
     # sources are attached by script.js after the page has loaded, so the video never competes with the headline
     return (f'<video class="hero-vid" muted loop playsinline preload="none" tabindex="-1" '
-            f'data-webm="assets/video/{name}.webm" data-mp4="assets/video/{name}.mp4"></video>')
+            f'data-webm="{vurl(f"assets/video/{name}.webm")}" data-mp4="{vurl(f"assets/video/{name}.mp4")}"></video>')
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
 HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster"), "vinyl-wraps": hero_video("wrap-hero", "x"), "paint-correction": hero_video("pc-hero", "x"), "exterior-detailing": hero_video("detail-hero", "x")}
 
