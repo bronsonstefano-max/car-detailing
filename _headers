@@ -12,8 +12,10 @@
 
 /assets/*
   Cache-Control: public, max-age=2592000
+# hero videos are referenced with a content hash (?v=...) by build.py, so they can be cached for a year.
+# Anything new put in /assets/video must be linked with a hash the same way, or visitors keep the old copy.
 /assets/video/*
-  Cache-Control: public, max-age=604800
+  Cache-Control: public, max-age=31536000, immutable
 
 /assets/fonts/*
   Cache-Control: public, max-age=31536000, immutable
