@@ -351,6 +351,19 @@ def hero_video(name, poster):
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
 HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster"), "vinyl-wraps": hero_video("wrap-hero", "x"), "paint-correction": hero_video("pc-hero", "x"), "exterior-detailing": hero_video("detail-hero", "x")}
 
+def location_section():
+    """The same 'Our Location' block as the home page (hours, address, call number and map), for the bottom of the service pages."""
+    m = map_block()
+    return f'''<section id="locations" style="border-top:1px solid var(--line)">
+  <h2 class="loc-title">Our <em>Location</em></h2>
+  <div class="loc-grid">
+    <div class="loc hot"><h3>{SITE['name']}</h3><div class="cols"><div><b>Store Hours</b><span>{SITE['hours'][0]}<br>{SITE['hours'][1]}</span></div><div><b>Office</b><span>{SITE['addr1']}<br>{SITE['addr2']}</span></div></div></div>
+    <div class="loc call"><small>CALL NOW</small><a href="tel:{SITE['tel']}">{SITE['phone']}</a></div>
+  </div>
+  <div class="loc-map">{m[0]}
+  <a class="map-dir btn" href="{m[2]}" target="_blank" rel="noopener">Get Directions</a></div>
+</section>'''
+
 HERO_COPY = {}  # per-page headline tests go here: slug -> (headline html, subline). Empty for now: every page uses its service title.
 
 CALL_LINE_PAGES = {"window-tinting"}  # pages that show the "Prefer to talk? Call" line above the quote form
@@ -863,7 +876,7 @@ def build_service(slug, title, short):
 <section class="sec impact-sec"><div class="wrap"><div class="split{"" if ik else " noimg"}"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik) if ik else ""}</div></div></section>
 {process}{benefits}
 <section class="sec"><div class="wrap"><div class="split{"" if WHY_PHOTO.get(slug, wk) else " noimg"}">{photo_box(WHY_PHOTO.get(slug, wk)) if WHY_PHOTO.get(slug, wk) else ""}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
-{rows}{portfolio}{faq}{cta_banner()}'''
+{rows}{portfolio}{faq}{cta_banner()}{location_section()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
 
 # ---------------------------------------------------------------- other pages
