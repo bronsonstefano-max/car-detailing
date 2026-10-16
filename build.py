@@ -348,7 +348,7 @@ def hero_video(name, poster):
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
 HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster"), "vinyl-wraps": hero_video("wrap-hero", "x"), "paint-correction": hero_video("pc-hero", "x"), "exterior-detailing": hero_video("detail-hero", "x")}
 
-HERO_COPY = {"window-tinting": ("Ceramic Window Tint in Miami: <em>Stay Cooler, Block the Sun</em>", "Cut heat, glare and UV, and add privacy. Call now or get a free quote in minutes.")}
+HERO_COPY = {}  # per-page headline tests go here: slug -> (headline html, subline). Empty for now: every page uses its service title.
 
 def inner_hero(title_html, sub, crumbs, form=False, select=None, buttons=True, hero=None, status=True, video=None, book=None):
     c = " / ".join(crumbs)
