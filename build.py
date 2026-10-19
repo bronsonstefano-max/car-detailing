@@ -357,7 +357,6 @@ WT_EXTRA = '''<section class="sec" id="tesla-tint" style="padding-top:0"><div cl
 <div class="tile"><span class="kick">Model Y</span><h3>More glass, more heat</h3><p>Even more glass overhead and at the back. Roof and rear tint make the biggest difference to how hot the cabin gets after sitting in the sun.</p></div>
 <div class="tile"><span class="kick">Cybertruck</span><h3>Large, flat windows</h3><p>Big flat panes of glass let in a lot of sun. Ceramic film cuts heat and glare without having to go very dark.</p></div>
 <div class="tile"><span class="kick">Glass roofs</span><h3>Heat from above</h3><p>Factory roof glass has a UV and heat coating, but the cabin still warms up. A ceramic roof film adds infrared rejection and reduces glare overhead. We keep film clear of cameras and sensors.</p></div></div>
-<p class="note" style="max-width:760px;margin:26px auto 0"><b>Florida law:</b> tint limits differ by window and vehicle type, so we confirm the legal shade for your exact Tesla or EV before we install anything.</p>
 <p style="margin-top:22px"><a class="btn" href="contact.html#quote">Get a Tesla tint quote</a></p></div></section>'''
 
 def location_section():
