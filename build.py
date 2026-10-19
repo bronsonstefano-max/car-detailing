@@ -351,6 +351,24 @@ def hero_video(name, poster):
 VIDEO = hero_video("hero-bg", "tint-hero-poster")
 HERO_VIDEO = {"window-tinting": VIDEO, "paint-protection-film": hero_video("ppf-hero", "ppf-hero-poster"), "ceramic-coating": hero_video("ceramic-hero", "ceramic-hero-poster"), "vinyl-wraps": hero_video("wrap-hero", "x"), "paint-correction": hero_video("pc-hero", "x"), "exterior-detailing": hero_video("detail-hero", "x")}
 
+WT_EXTRA = '''<section class="sec" id="tesla-tint" style="padding-top:0"><div class="wrap center"><span class="chip">EV &amp; Tesla tint</span><h2>Tesla &amp; EV window tint <em>in Miami</em></h2>
+<p class="lead" style="margin:14px auto 0;max-width:760px">Teslas have more glass than most cars, and Miami's sun comes straight through it. Ceramic window tint keeps the cabin cooler, cuts glare on the screen and protects the interior, without interfering with the phone key, GPS or cellular signal.</p>
+<div class="tiles" style="text-align:left"><div class="tile"><span class="kick">Model 3</span><h3>Glass roof and rear window</h3><p>A sedan with a full glass roof and a large rear window. We can tint the side and rear glass and the roof, with shades matched to Florida's limits for your car.</p></div>
+<div class="tile"><span class="kick">Model Y</span><h3>More glass, more heat</h3><p>Even more glass overhead and at the back. Roof and rear tint make the biggest difference to how hot the cabin gets after sitting in the sun.</p></div>
+<div class="tile"><span class="kick">Cybertruck</span><h3>Large, flat windows</h3><p>Big flat panes of glass let in a lot of sun. Ceramic film cuts heat and glare without having to go very dark.</p></div>
+<div class="tile"><span class="kick">Glass roofs</span><h3>Heat from above</h3><p>Factory roof glass has a UV and heat coating, but the cabin still warms up. A ceramic roof film adds infrared rejection and reduces glare overhead. We keep film clear of cameras and sensors.</p></div></div>
+<p class="note" style="max-width:760px;margin:26px auto 0"><b>Florida law:</b> tint limits differ by window and vehicle type, so we confirm the legal shade for your exact Tesla or EV before we install anything.</p>
+<p style="margin-top:22px"><a class="btn" href="contact.html#quote">Get a Tesla tint quote</a></p></div></section>
+<section class="sec" id="nano-ceramic" style="padding-top:0"><div class="wrap center"><span class="chip">Heat rejection</span><h2>Nano-ceramic window tint: <em>heat rejection explained</em></h2>
+<p class="lead" style="margin:14px auto 0;max-width:760px">Not all of the sun's heat is visible. Roughly half of the solar energy that reaches your car is infrared, the part you feel as heat. Nano-ceramic film uses microscopic ceramic particles to block it, so you get strong heat rejection without needing a very dark shade.</p>
+<div class="tiles" style="text-align:left"><div class="tile"><span class="kick">Infrared</span><h3>Blocks heat, not light</h3><p>Ceramic particles reject infrared before it warms the cabin. A lighter ceramic film can outperform a much darker dyed film.</p></div>
+<div class="tile"><span class="kick">UV</span><h3>Protects skin and interior</h3><p>Quality ceramic films block nearly all UV, which helps protect your skin and slows fading of seats, trim and the dashboard.</p></div>
+<div class="tile"><span class="kick">Signals</span><h3>No interference</h3><p>Ceramic film is non-metallic, so it does not interfere with GPS, cellular, radio or phone-key signals the way some metallic films can.</p></div>
+<div class="tile"><span class="kick">Clarity</span><h3>Clear view, no fade</h3><p>Good optics and a neutral look, with none of the purple fading that cheap dyed film can show after a few years in the sun.</p></div></div>
+<h3 style="margin:34px 0 10px">How to compare films</h3>
+<p style="max-width:760px;margin:0 auto 14px;color:var(--muted)">Shade (VLT) only tells you how dark the film is. To judge heat, ask for the film's <b>total solar energy rejected (TSER)</b>, its <b>infrared rejection</b> and its <b>UV blocking</b>, ideally at the shade you plan to choose. Spec sheets list these numbers, and they vary by brand and shade.</p>
+<p style="margin-top:22px"><a class="btn" href="contact.html#quote">Ask us which film fits your car</a></p></div></section>'''
+
 def location_section():
     """The same 'Our Location' block as the home page (hours, address, call number and map), for the bottom of the service pages."""
     m = map_block()
@@ -877,7 +895,7 @@ def build_service(slug, title, short):
 <section class="sec impact-sec"><div class="wrap"><div class="split{"" if ik else " noimg"}"><div><span class="chip">{d["impact_kick"]}</span><h2>{d["impact_h"]}</h2><p>{d["impact_p"]}</p><div class="bignum">{nums}</div></div>{photo_box(ik) if ik else ""}</div></div></section>
 {process}{benefits}
 <section class="sec"><div class="wrap"><div class="split{"" if WHY_PHOTO.get(slug, wk) else " noimg"}">{photo_box(WHY_PHOTO.get(slug, wk)) if WHY_PHOTO.get(slug, wk) else ""}<div><span class="chip">Why trust us</span><h2>{d["why_h"]}</h2><p>{d["why_p"]}</p><p><a class="btn" href="contact.html#quote">Get a Quote</a></p></div></div></div></section>
-{rows}{portfolio}{faq}{cta_banner()}{location_section()}'''
+{rows}{WT_EXTRA if slug == "window-tinting" else ""}{portfolio}{faq}{cta_banner()}{location_section()}'''
     page(f"{slug}.html", f"{title} in Miami | {SITE['name']}", short, body, "services")
 
 # ---------------------------------------------------------------- other pages
