@@ -364,7 +364,7 @@ def location_section():
   <a class="map-dir btn" href="{m[2]}" target="_blank" rel="noopener">Get Directions</a></div>
 </section>'''
 
-HERO_COPY = {}  # per-page headline tests go here: slug -> (headline html, subline). Empty for now: every page uses its service title.
+HERO_COPY = {"window-tinting": ("Ceramic Window Tint in Miami", None)}  # per-page headline overrides: slug -> (headline html, subline or None to keep the page's own subline)
 
 CALL_LINE_PAGES = {"window-tinting"}  # pages that show the "Prefer to talk? Call" line above the quote form
 
@@ -852,7 +852,8 @@ def build_service(slug, title, short):
     pk_section = "" if slug == "ceramic-coating" else f'''<section class="sec pk-sec"><div class="pk-head"><h2>{d["pk_title"]}</h2><p>{d["pk_sub"]}</p></div>
 <div class="pkgs">{pk}</div>{sim}</section>'''
     # headline test: only the window tint page has its own headline and subline so far
-    h1, sub = HERO_COPY.get(slug, (esc(title), d["sub"]))
+    h1, sub = HERO_COPY.get(slug, (esc(title), None))
+    sub = sub or d["sub"]
     body = inner_hero(h1, sub, ['<a href="index.html">Home</a>', '<a href="services.html">Services</a>', esc(title)], form=True, select=d["select"], hero=HERO_PHOTO.get(slug), status=False, video=HERO_VIDEO.get(slug), book=BOOK_URL.get(slug), call_line=slug in CALL_LINE_PAGES)
     x = EXTRA[slug]
     hl = "".join(f'<div class="hl"><h3>{t}</h3><p>{a}</p><p>{c}</p></div>' for t, a, c in x["hl"])
