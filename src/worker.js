@@ -10,6 +10,7 @@
 //   NOTIFY_TO         (var, optional)          who gets the email (comma separated)
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
 //   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and each new call ("NEW LEAD: Incoming call") as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
+//   CALL_WEBHOOK_URL  (secret, optional)       same as LEAD_WEBHOOK_URL but only for calls (its own Zap); calls use LEAD_WEBHOOK_URL when this is not set
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
 const FIELDS = ["name", "email", "phone", "service", "also_interested", "make", "year", "model", "message"];
@@ -676,7 +677,7 @@ async function notifyCall(env, row, base, slack = true) {
   const text = `${head} from ${who}${who !== row.phone ? ` (${prettyPhone(row.phone)})` : ""}${src ? " via " + src : ""}.${missed ? " Call them back now." : ""} ${link}`.replace(/\s+/g, " ").trim();
   const jobs = [];
   // every call goes to the chat webhook (Zapier to Slack) once, as soon as the call is first seen: just "NEW LEAD: Incoming call"
-  if (slack && env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", call_status: status, ...row, text: "NEW LEAD: Incoming call", alert_text: text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: goLink(env, base, row.id, row.phone) }) }).catch(() => {}));
+  if (slack && (env.CALL_WEBHOOK_URL || env.LEAD_WEBHOOK_URL)) jobs.push(fetch(env.CALL_WEBHOOK_URL || env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", call_status: status, ...row, text: "NEW LEAD: Incoming call", alert_text: text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: goLink(env, base, row.id, row.phone) }) }).catch(() => {}));
   // phone and email alerts stay for missed calls only
   if (missed) {
     const html = `<p style="font-size:16px"><b>${vm ? "Voicemail" : "Missed call"}: ${esc(who)}</b>${src ? " &middot; " + esc(src) : ""}</p>
