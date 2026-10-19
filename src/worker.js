@@ -9,7 +9,7 @@
 //   RESEND_API_KEY    (secret, optional)       email each new lead via resend.com
 //   NOTIFY_TO         (var, optional)          who gets the email (comma separated)
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
-//   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and each missed call as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
+//   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and every call (when it rings, and again with its result) as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
 const FIELDS = ["name", "email", "phone", "service", "also_interested", "make", "year", "model", "message"];
@@ -667,20 +667,25 @@ async function notify(env, lead, base) {
 
 async function notifyCall(env, row, base) {
   const missed = row.answered === 0;
-  if (!missed) return; // answered calls were handled live: no alert needed
-  const vm = /voicemail/i.test(row.message || "");
+  const status = row.answered === null || row.answered === undefined ? "ringing" : missed ? (/voicemail/i.test(row.message || "") ? "voicemail" : "missed") : "answered";
+  const vm = status === "voicemail";
   const who = row.name || row.phone;
   const src = [row.utm_source, row.utm_campaign].filter(Boolean).join(" · ");
   const link = crmLink(env, base, "/admin/today");
-  const text = `${vm ? "VOICEMAIL" : "MISSED CALL"} from ${who} (${row.phone})${src ? " via " + src : ""}. Call them back now. ${link}`;
-  const html = `<p style="font-size:16px"><b>${vm ? "Voicemail" : "Missed call"}: ${esc(who)}</b>${src ? " &middot; " + esc(src) : ""}</p>
+  const head = { ringing: "INCOMING CALL", answered: "CALL ANSWERED", voicemail: "VOICEMAIL", missed: "MISSED CALL" }[status];
+  const text = `${head} from ${who}${who !== row.phone ? ` (${prettyPhone(row.phone)})` : ""}${src ? " via " + src : ""}.${missed ? " Call them back now." : ""} ${link}`.replace(/\s+/g, " ").trim();
+  const jobs = [];
+  // every call goes to the chat webhook (Zapier to Slack): once when it rings, and again with the result when it ends
+  if (env.LEAD_WEBHOOK_URL) jobs.push(fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", call_status: status, ...row, text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: goLink(env, base, row.id, row.phone) }) }).catch(() => {}));
+  // phone and email alerts stay for missed calls only
+  if (missed) {
+    const html = `<p style="font-size:16px"><b>${vm ? "Voicemail" : "Missed call"}: ${esc(who)}</b>${src ? " &middot; " + esc(src) : ""}</p>
     <p><a href="tel:${esc(row.phone)}" style="background:#32cd32;color:#04120a;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700">Call back ${esc(row.phone)}</a>
     &nbsp; <a href="${esc(link)}">Open today's list</a></p>${row.recording ? `<p><a href="${esc(row.recording)}">Listen to the recording</a></p>` : ""}`;
-  await Promise.all([
-    alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html,
-      push: { title: `${vm ? "Voicemail" : "Missed call"}: ${who}`, message: [row.phone, src].filter(Boolean).join(" | ") + ". Call them back.", click: link } }),
-    env.LEAD_WEBHOOK_URL ? fetch(env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", ...row, text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: goLink(env, base, row.id, row.phone) }) }).catch(() => {}) : null,
-  ]);
+    jobs.push(alertTeam(env, { subject: `${vm ? "Voicemail" : "Missed call"}: ${who}`, text, html,
+      push: { title: `${vm ? "Voicemail" : "Missed call"}: ${who}`, message: [row.phone, src].filter(Boolean).join(" | ") + ". Call them back.", click: link } }));
+  }
+  await Promise.all(jobs);
 }
 
 // ---------------------------------------------------------------- admin
