@@ -268,13 +268,16 @@ async function pullTranscripts(env) {
   const h = { authorization: `Token token=${env.CALLRAIL_API_TOKEN}` };
   for (const row of rows) {
     try {
-      let r = await fetch(`${base}${encodeURIComponent(row.call_id)}.json?fields=call_summary,transcription,conversational_transcript,call_highlights,keywords_spotted`, { headers: h });
+      let r = await fetch(`${base}${encodeURIComponent(row.call_id)}.json?fields=call_summary,transcription,conversational_transcript,call_highlights,keywords_spotted,recording,recording_player`, { headers: h });
       if (!r.ok) r = await fetch(`${base}${encodeURIComponent(row.call_id)}.json`, { headers: h });
       if (!r.ok) { await logOnce(env, `TRANSCRIPT CHECK FAILED: CallRail returned status ${r.status} for call ${row.call_id}`); throw new Error("status " + r.status); }
       const c = await r.json().catch(() => ({}));
       const summary = String(c.call_summary || c.summary || (Array.isArray(c.call_highlights) ? c.call_highlights.map(x => x.text || x.highlight || x).join(" ") : c.call_highlights) || "").trim().slice(0, 3000);
       const transcript = formatTranscript(c.conversational_transcript) || formatTranscript(c.transcription) || formatTranscript(c.transcript);
       const keys = Object.keys(c).join(",").slice(0, 400);
+      // the recording is not ready when the call ends and the call details only include it when asked for: attach it to the lead as soon as CallRail has it
+      const rec = clean(c.recording_player || c.recording || "", 500);
+      if (rec) await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = (SELECT lead_id FROM call_notes WHERE call_id = ?)").bind(rec, row.call_id).run();
       if (summary || transcript) await env.DB.prepare("UPDATE call_notes SET summary = ?, transcript = ?, keys = ?, done = 1 WHERE call_id = ?").bind(summary, transcript, keys, row.call_id).run();
       else {
         const t = row.tries + 1, last = t > TX_BACKOFF.length;
@@ -284,6 +287,21 @@ async function pullTranscripts(env) {
       const t = row.tries + 1;
       await env.DB.prepare("UPDATE call_notes SET tries = ?, done = ?, next_try = datetime('now', ?) WHERE call_id = ?").bind(t, t > TX_BACKOFF.length ? 1 : 0, "+" + (TX_BACKOFF[Math.min(t - 1, TX_BACKOFF.length - 1)]) + " minutes", row.call_id).run().catch(() => {});
     }
+  }
+}
+// Calls whose transcript is already in but whose lead has no recording link yet (it arrives after the call): look again every 30 minutes for two days
+async function pullRecordings(env) {
+  if (!env.CALLRAIL_API_TOKEN || !env.CALLRAIL_ACCOUNT_ID || !env.DB) return;
+  const rows = (await env.DB.prepare("SELECT n.call_id, n.lead_id FROM call_notes n JOIN leads l ON l.id = n.lead_id WHERE n.done = 1 AND n.next_try <= datetime('now') AND n.created_at >= datetime('now','-2 days') AND COALESCE(l.recording,'') = '' LIMIT 3").all()).results || [];
+  for (const row of rows) {
+    try {
+      await env.DB.prepare("UPDATE call_notes SET next_try = datetime('now','+30 minutes') WHERE call_id = ?").bind(row.call_id).run();
+      const r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls/${encodeURIComponent(row.call_id)}.json?fields=recording,recording_player`, { headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}` } });
+      if (!r.ok) continue;
+      const c = await r.json().catch(() => ({}));
+      const rec = clean(c.recording_player || c.recording || "", 500);
+      if (rec) await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = ?").bind(rec, row.lead_id).run();
+    } catch (e) { console.error("recording check error", e && e.message); }
   }
 }
 async function callNotes(env, id) {
@@ -1105,6 +1123,7 @@ export default {
     ctx.waitUntil(retryDials(env).catch(e => console.error("retry error", e && e.message)));
     ctx.waitUntil(flagSilentDials(env).catch(e => console.error("flag error", e && e.message)));
     ctx.waitUntil(pullTranscripts(env).catch(e => console.error("transcript error", e && e.message)));
+    ctx.waitUntil(pullRecordings(env).catch(e => console.error("recording error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
   },
   async fetch(request, env, ctx) {
