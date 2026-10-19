@@ -92,7 +92,7 @@ const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u000
 
 
 // ---------------------------------------------------------------- CallRail (post-call webhook)
-// In CallRail: Settings > Integrations > Webhooks > Post-Call, URL: https://<site>/api/callrail?key=<CALLRAIL_KEY>
+// In CallRail: Settings > Integrations > Webhooks > Pre-Call (the lead appears the moment the phone rings) and Post-Call (adds the result and recording), both with the URL https://<site>/api/callrail?key=<CALLRAIL_KEY>
 const num = v => (v === undefined || v === null || v === "" ? null : Number(v));
 const bool = v => (v === true || v === "true" || v === 1 || v === "1" ? 1 : v === false || v === "false" || v === 0 || v === "0" ? 0 : null);
 function sqlTime(v) {
@@ -471,8 +471,15 @@ async function handleCallrail(request, env, url, ctx) {
   if (!phone && !callId) return json({ success: false, message: "No call data" }, 422);
   const existing = callId ? await env.DB.prepare("SELECT id FROM leads WHERE call_id = ?").bind(callId).first() : null;
   if (existing) {
-    // CallRail sends the webhook again when a call is updated (recording ready, tags): keep the person's edits, refresh call facts
-    await env.DB.prepare("UPDATE leads SET duration = ?, recording = ?, answered = ? WHERE id = ?").bind(row.duration, row.recording, row.answered, existing.id).run();
+    // CallRail sends the webhook again when a call is updated (recording ready, tags) and a Pre-Call lead is finished by the Post-Call one: keep the person's edits, refresh call facts
+    const prev = await env.DB.prepare("SELECT answered, message, gclid, gbraid, wbraid, page, utm_source, utm_campaign, name FROM leads WHERE id = ?").bind(existing.id).first() || {};
+    const keep = (a, b) => a || b || "";
+    await env.DB.prepare("UPDATE leads SET duration = ?, recording = ?, answered = ?, message = ?, name = ?, gclid = ?, gbraid = ?, wbraid = ?, page = ?, utm_source = ?, utm_campaign = ? WHERE id = ?")
+      .bind(row.duration, row.recording, row.answered, keep(prev.message, row.message), keep(prev.name, row.name), keep(prev.gclid, row.gclid), keep(prev.gbraid, row.gbraid), keep(prev.wbraid, row.wbraid), keep(prev.page, row.page), keep(prev.utm_source, row.utm_source), keep(prev.utm_campaign, row.utm_campaign), existing.id).run();
+    if (prev.answered === null && row.answered !== null) {
+      if (row.call_id && row.answered === 1 && (row.duration || 0) >= 20) ctx.waitUntil(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(row.call_id, existing.id, "inbound").run().catch(() => {}));
+      ctx.waitUntil(notifyCall(env, { id: existing.id, name: keep(prev.name, row.name), phone: row.phone, answered: row.answered, message: keep(prev.message, row.message), utm_source: keep(prev.utm_source, row.utm_source), utm_campaign: keep(prev.utm_campaign, row.utm_campaign), recording: row.recording }, url.origin));
+    }
     return json({ success: true, updated: true });
   }
   const insC = await env.DB.prepare(`INSERT INTO leads (created_at,type,name,phone,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,duration,recording,answered,tracking_number,email)
