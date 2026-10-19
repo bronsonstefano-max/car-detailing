@@ -358,16 +358,7 @@ WT_EXTRA = '''<section class="sec" id="tesla-tint" style="padding-top:0"><div cl
 <div class="tile"><span class="kick">Cybertruck</span><h3>Large, flat windows</h3><p>Big flat panes of glass let in a lot of sun. Ceramic film cuts heat and glare without having to go very dark.</p></div>
 <div class="tile"><span class="kick">Glass roofs</span><h3>Heat from above</h3><p>Factory roof glass has a UV and heat coating, but the cabin still warms up. A ceramic roof film adds infrared rejection and reduces glare overhead. We keep film clear of cameras and sensors.</p></div></div>
 <p class="note" style="max-width:760px;margin:26px auto 0"><b>Florida law:</b> tint limits differ by window and vehicle type, so we confirm the legal shade for your exact Tesla or EV before we install anything.</p>
-<p style="margin-top:22px"><a class="btn" href="contact.html#quote">Get a Tesla tint quote</a></p></div></section>
-<section class="sec" id="nano-ceramic" style="padding-top:0"><div class="wrap center"><span class="chip">Heat rejection</span><h2>Nano-ceramic window tint: <em>heat rejection explained</em></h2>
-<p class="lead" style="margin:14px auto 0;max-width:760px">Not all of the sun's heat is visible. Roughly half of the solar energy that reaches your car is infrared, the part you feel as heat. Nano-ceramic film uses microscopic ceramic particles to block it, so you get strong heat rejection without needing a very dark shade.</p>
-<div class="tiles" style="text-align:left"><div class="tile"><span class="kick">Infrared</span><h3>Blocks heat, not light</h3><p>Ceramic particles reject infrared before it warms the cabin. A lighter ceramic film can outperform a much darker dyed film.</p></div>
-<div class="tile"><span class="kick">UV</span><h3>Protects skin and interior</h3><p>Quality ceramic films block nearly all UV, which helps protect your skin and slows fading of seats, trim and the dashboard.</p></div>
-<div class="tile"><span class="kick">Signals</span><h3>No interference</h3><p>Ceramic film is non-metallic, so it does not interfere with GPS, cellular, radio or phone-key signals the way some metallic films can.</p></div>
-<div class="tile"><span class="kick">Clarity</span><h3>Clear view, no fade</h3><p>Good optics and a neutral look, with none of the purple fading that cheap dyed film can show after a few years in the sun.</p></div></div>
-<h3 style="margin:34px 0 10px">How to compare films</h3>
-<p style="max-width:760px;margin:0 auto 14px;color:var(--muted)">Shade (VLT) only tells you how dark the film is. To judge heat, ask for the film's <b>total solar energy rejected (TSER)</b>, its <b>infrared rejection</b> and its <b>UV blocking</b>, ideally at the shade you plan to choose. Spec sheets list these numbers, and they vary by brand and shade.</p>
-<p style="margin-top:22px"><a class="btn" href="contact.html#quote">Ask us which film fits your car</a></p></div></section>'''
+<p style="margin-top:22px"><a class="btn" href="contact.html#quote">Get a Tesla tint quote</a></p></div></section>'''
 
 def location_section():
     """The same 'Our Location' block as the home page (hours, address, call number and map), for the bottom of the service pages."""
