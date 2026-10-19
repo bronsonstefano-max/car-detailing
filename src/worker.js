@@ -119,7 +119,7 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   const agent = agentPhone(env, user), customer = e164(lead.phone);
   if (!agent) return { ok: false, message: `No cell number is saved for ${user}. Add AGENT_PHONE_${String(user).toUpperCase()} in Cloudflare.` };
   if (digitsOf(customer).length < 11) return { ok: false, message: "This lead has no valid phone number." };
-  const body = { caller_id: e164(env.CALLRAIL_CALLER_ID), business_phone_number: agent, customer_phone_number: customer, recording_enabled: env.CALL_RECORDING === "1" };
+  const body = { caller_id: e164(env.CALLRAIL_CALLER_ID), business_phone_number: agent, customer_phone_number: customer, recording_enabled: env.CALL_RECORDING !== "0" };
   // CALL_GREETING=off records without any announcement (the owner's choice; check the recording-consent law for the states the calls reach)
   const noGreeting = /^(off|none|no)$/i.test(String(env.CALL_GREETING || "").trim());
   if (body.recording_enabled && !noGreeting) body.outbound_greeting_text = env.CALL_GREETING || "This call may be recorded for quality and training purposes.";
@@ -179,7 +179,7 @@ async function handleOutbound(env, c) {
     stmts.push(row("Call result: " + (vm ? "Left a voicemail" : answered ? "Answered" : "No answer"), at));
     if (target !== cur.stage) stmts.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(target, leadAnswered ? 1 : 0, leadId));
   } else if ((dl && dl.retried) || willRetry) stmts.push(row("Auto-dial: first ring not answered, ringing the agent again", at));
-  else stmts.push(row("Agent missed the auto-dial (did not answer or did not press 1, so the lead was not called)" + (dl && dl.attempt > 1 ? " after two rings" : ""), at));
+  else stmts.push(row((dl && dl.source === "auto" ? "Agent missed the auto-dial" : "Call not connected") + " (did not answer or did not press 1, so the lead was not called)" + (dl && dl.attempt > 1 ? " after two rings" : ""), at));
   await env.DB.batch(stmts);
   if (willRetry && await retryAuto(env, callId, leadId, dl.by_user).catch(() => false)) return json({ success: true, logged: true, retry: true });
   if (!dialed && dl && !dl.retried && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
@@ -757,6 +757,8 @@ function askOutcome(){const d=document.getElementById('odlg');if(!d||d.open)retu
   OUTC.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.onclick=async()=>{b.disabled=true;try{await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:p.id,outcome:v})})}catch(_){}done()};g.appendChild(b)});
   document.getElementById('os').onclick=done;d.showModal()}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(askOutcome,400)});window.addEventListener('focus',()=>setTimeout(askOutcome,400));window.addEventListener('pageshow',()=>setTimeout(askOutcome,600));setTimeout(askOutcome,800);
+document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');const id=(h&&+h.dataset.id)||window.DD_LEAD;if(!id)return;e.preventDefault();if(a.dataset.busy)return;a.dataset.busy='1';const t=a.textContent;a.textContent='Calling your phone...';
+  fetch('/admin/dial',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})}).then(r=>r.json()).catch(()=>({})).then(j=>{if(j.success){a.textContent='Answer your phone and press 1';setTimeout(()=>{a.textContent=t;delete a.dataset.busy},15000)}else{a.textContent=t;delete a.dataset.busy;if(confirm((j.message||'Could not start the call.')+'\\n\\nCall without recording?'))location.href=a.getAttribute('href')}})},true);
 `;
 
 const stageName = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
@@ -1122,7 +1124,7 @@ export default {
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -1233,7 +1235,7 @@ a.b{display:block;border-radius:16px;padding:20px;font-weight:800;text-decoratio
 <body><main><h1>${esc(l.name || label)}</h1><p>${esc([l.service, veh].filter(Boolean).join(" · ") || "New lead")}</p>${l.message ? `<div class="m">&ldquo;${esc(l.message.slice(0, 240))}&rdquo;</div>` : ""}
 <a class="b c" id="call" href="tel:${esc(tel)}">Call ${esc(label)}</a><a class="b" id="text" href="${esc(sms)}">Text</a><a class="b s" href="/admin/pipeline#id=${l.id}">Open in the CRM</a>
 <p style="font-size:13px">Signed in as ${esc(user)}. Tapping Call or Text logs it on this lead.</p></main>
-${OUTCOME_HTML}<script>${OUTCOME_JS}
+${OUTCOME_HTML}<script>window.DD_LEAD=${l.id};${OUTCOME_JS}
 for(const [id,label] of [['call','Called'],['text','Texted: First reply']])document.getElementById(id).addEventListener('click',()=>{if(label==='Called')markCall(${l.id},${JSON.stringify(l.name || label || "this lead").replace(/</g, "\\u003c")});try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:${l.id},label:label})})}catch(_){}});</script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
@@ -1777,6 +1779,14 @@ async function adminRoute(p, request, env) {
     if (tgt !== cur.stage) st2.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(tgt, tgt === "contacted" ? 1 : 0, b.id));
     await env.DB.batch(st2);
     return json({ success: true });
+  }
+  if (p === "/admin/dial" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false, message: "Missing lead." }, 400);
+    const lead = await env.DB.prepare("SELECT id, phone FROM leads WHERE id = ?").bind(b.id).first();
+    if (!lead) return json({ success: false, message: "Lead not found." }, 404);
+    const res = await placeCall(env, lead, user, "manual");
+    return json({ success: res.ok, message: res.message || "" }, res.ok ? 200 : 502);
   }
   if (p === "/admin/touch" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
