@@ -513,6 +513,40 @@ async function handleCallrail(request, env, url, ctx) {
   return json({ success: true });
 }
 
+// ---- Meta (Facebook / Instagram) Instant Form leads: Zapier's "Facebook Lead Ads" trigger posts each lead here as JSON.
+// URL: https://<site>/api/meta?key=<META_KEY>   (META_KEY is a Cloudflare secret you choose). The lead lands in the CRM like a website form lead (and auto-dials if that is on).
+async function handleMeta(request, env, url, ctx) {
+  if (!env.META_KEY) return json({ success: false, message: "META_KEY is not set" }, 503);
+  if (!safeEqual(url.searchParams.get("key") || "", env.META_KEY)) return json({ success: false }, 401);
+  let d;
+  try { const ct = request.headers.get("content-type") || ""; d = ct.includes("json") ? await request.json() : Object.fromEntries(await request.formData()); } catch { return json({ success: false, message: "Bad request" }, 400); }
+  const pick = (...ks) => { for (const k of ks) { const v = d[k]; if (v !== undefined && v !== null && String(v).trim() !== "") return String(v); } return ""; };
+  const name = clean(pick("name", "full_name", "Full Name") || [pick("first_name"), pick("last_name")].filter(Boolean).join(" "), MAX.default);
+  const phone = clean(pick("phone", "phone_number", "Phone Number"), MAX.default);
+  const email = clean(pick("email", "Email"), MAX.default);
+  if (!name && !phone && !email) return json({ success: false, message: "No lead data" }, 422);
+  if ((phone.match(/\d/g) || []).length < 7 && !email) return json({ success: false, message: "No phone or email" }, 422);
+  if (!env.DB) return json({ success: false, message: "Lead storage is not configured" }, 503);
+  await ensureTable(env.DB);
+  // Meta sends each lead once, but Zapier can retry: the Meta lead id keeps a repeat from creating a second lead
+  const metaId = clean(pick("lead_id", "leadgen_id", "id"), 80);
+  const key = metaId ? "meta:" + metaId : "";
+  if (key && await env.DB.prepare("SELECT id FROM leads WHERE call_id = ?").bind(key).first()) return json({ success: true, duplicate: true });
+  const service = clean(pick("service", "Service") || "Window Tint", MAX.default);
+  const extras = ["form_name", "ad_name", "adset_name", "platform"].map(k => [k, pick(k)]).filter(x => x[1]).map(x => x[0].replace(/_/g, " ") + ": " + x[1]).join(" · ");
+  const msg = clean([pick("message", "notes", "comments"), extras].filter(Boolean).join("\n"), MAX.message);
+  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make"), 60), year: clean(pick("year", "Year"), 10), model: clean(pick("model", "Model"), 80), message: msg,
+    page: "Meta Instant Form", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "meta", utm_medium: "paid_social", utm_campaign: clean(pick("campaign_name", "campaign", "utm_campaign"), 200), utm_term: clean(pick("ad_name", "adset_name"), 200) };
+  const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,ip,user_agent)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(lead.type, lead.name, lead.email, lead.phone, lead.service, lead.also_interested, lead.make, lead.year, lead.model, lead.message, lead.page, lead.referrer, lead.gclid, lead.gbraid, lead.wbraid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, key, "", "meta-instant-form").run();
+  const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
+  if (newLead.id) ctx.waitUntil(linkByPhone(env, newLead.id).catch(() => {}));
+  ctx.waitUntil(notify(env, newLead, url.origin));
+  if (env.AUTO_DIAL === "1" && newLead.id && phone && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDialOnce(env, newLead));
+  return json({ success: true });
+}
+
 async function addLead(request, env) {
   const b = await request.json().catch(() => ({}));
   const name = clean(b.name, 120), phone = clean(b.phone, 40), email = clean(b.email, 200);
@@ -860,6 +894,7 @@ function sourceOf(l) {
     return { label: g ? "Google Ads" : (l.utm_source || "Phone call"), ad: g, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
   }
   if (hasClick(l) || l.utm_medium === "cpc") return { label: "Google Ads", ad: true, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
+  if (l.utm_medium === "paid_social") return { label: "Meta Ads", ad: true, detail: [l.utm_campaign, l.utm_term].filter(Boolean).join(" · ") };
   if (l.utm_source) return { label: l.utm_source, ad: false, detail: l.utm_campaign || "" };
   if (l.referrer) { try { return { label: new URL(l.referrer).hostname.replace(/^www\./, ""), ad: false, detail: "" }; } catch { /* ignore */ } }
   return { label: "Direct", ad: false, detail: "" };
@@ -1171,6 +1206,12 @@ export default {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return await handleCallrail(request, env, url, ctx); }
       catch (e) { console.error("callrail error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
+    }
+
+    if (p === "/api/meta") {
+      if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
+      try { return await handleMeta(request, env, url, ctx); }
+      catch (e) { console.error("meta error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
     }
 
     if (p === "/api/lead") {
