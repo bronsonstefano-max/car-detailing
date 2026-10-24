@@ -535,7 +535,7 @@ async function handleMeta(request, env, url, ctx) {
   const service = clean(pick("service", "Service") || "Window Tint", MAX.default);
   const extras = ["form_name", "ad_name", "adset_name", "platform"].map(k => [k, pick(k)]).filter(x => x[1]).map(x => x[0].replace(/_/g, " ") + ": " + x[1]).join(" · ");
   const msg = clean([pick("message", "notes", "comments"), extras].filter(Boolean).join("\n"), MAX.message);
-  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make"), 60), year: clean(pick("year", "Year"), 10), model: clean(pick("model", "Model"), 80), message: msg,
+  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make"), 60), year: clean(pick("year", "Year"), 10), model: clean(pick("model", "Model") || (pick("make", "year") ? "" : pick("vehicle", "Vehicle", "car", "Car")), 80), message: msg,
     page: "Meta Instant Form", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "meta", utm_medium: "paid_social", utm_campaign: clean(pick("campaign_name", "campaign", "utm_campaign"), 200), utm_term: clean(pick("ad_name", "adset_name"), 200) };
   const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,ip,user_agent)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
