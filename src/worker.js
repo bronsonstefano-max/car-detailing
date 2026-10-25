@@ -527,8 +527,12 @@ async function handleMeta(request, env, url, ctx) {
   if (!safeEqual(url.searchParams.get("key") || "", env.META_KEY)) return json({ success: false }, 401);
   let d;
   try { const ct = request.headers.get("content-type") || ""; d = ct.includes("json") ? await request.json() : Object.fromEntries(await request.formData()); } catch { return json({ success: false, message: "Bad request" }, 400); }
-  const pick = (...ks) => { for (const k of ks) { const v = d[k]; if (v !== undefined && v !== null && String(v).trim() !== "") return String(v); } return ""; };
-  const name = clean(pick("name", "full_name", "Full Name") || [pick("first_name"), pick("last_name")].filter(Boolean).join(" "), MAX.default);
+  // field names are matched ignoring case, spaces and punctuation, so "Full Name", "full_name" and "fullname" are the same
+  const norm = k => String(k).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const nd = {}; for (const [k, v] of Object.entries(d)) if (v !== undefined && v !== null && typeof v !== "object") nd[norm(k)] = v;
+  const pick = (...ks) => { for (const k of ks) { const v = nd[norm(k)]; if (v !== undefined && String(v).trim() !== "") return String(v); } return ""; };
+  try { await env.DB.prepare("INSERT INTO hook_log (summary) VALUES (?)").bind("META fields: " + Object.keys(d).slice(0, 30).join(",").slice(0, 400)).run(); await env.DB.prepare("DELETE FROM hook_log WHERE id <= (SELECT MAX(id) FROM hook_log) - 40").run(); } catch (e) { /* logging must never break a lead */ }
+  const name = clean(pick("name", "full_name", "fullname", "customer_name", "contact_name", "your_name") || [pick("first_name", "firstname"), pick("last_name", "lastname")].filter(Boolean).join(" "), MAX.default);
   const phone = clean(pick("phone", "phone_number", "Phone Number"), MAX.default);
   const email = clean(pick("email", "Email"), MAX.default);
   if (!name && !phone && !email) return json({ success: false, message: "No lead data" }, 422);
