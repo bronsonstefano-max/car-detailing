@@ -92,6 +92,10 @@ async function ensureTable(db) {
   }
   // one time: tint leads that are still open and have no value yet start at the default job value
   await db.prepare("CREATE TABLE IF NOT EXISTS app_flags (k TEXT PRIMARY KEY)").run();
+  await db.batch([
+    db.prepare("CREATE TABLE IF NOT EXISTS queue_run (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, active INTEGER NOT NULL DEFAULT 1, started_at TEXT NOT NULL DEFAULT (datetime('now')), next_at TEXT, ended_at TEXT, note TEXT, misses INTEGER NOT NULL DEFAULT 0)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS queue_items (run_id INTEGER, lead_id INTEGER, pos INTEGER, status TEXT NOT NULL DEFAULT 'waiting', call_id TEXT, PRIMARY KEY (run_id, lead_id))"),
+  ]);
   const flag = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('tint_value_349')").run();
   if (flag.meta && flag.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%tint%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_TINT_VALUE).run();
 }
@@ -139,7 +143,7 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   if (!r.ok || !j.id) return { ok: false, message: `CallRail refused the call (status ${r.status})` + (Object.keys(j).length ? ": " + JSON.stringify(j).slice(0, 220) : ".") };
   await env.DB.batch([
     env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source, attempt) VALUES (?,?,?,?,?)").bind(j.id, lead.id, user, source, attempt),
-    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(attempt > 1 ? "Auto-dial: ringing the agent a second time (first ring not answered)" : source === "auto" ? "Auto-dial requested (calling your phone first)" : "Dial requested (calling your phone first)", user, lead.id),
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(attempt > 1 ? "Auto-dial: ringing the agent a second time (first ring not answered)" : source === "auto" ? "Auto-dial requested (calling your phone first)" : source === "queue" ? "Call queue: calling your phone first" : "Dial requested (calling your phone first)", user, lead.id),
   ]);
   return { ok: true, id: j.id };
 }
@@ -150,7 +154,7 @@ function callConnected(env, c) {
   return bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.talk_time) || 0) > 0 || (num(c.recording_duration) || 0) > 0 || (num(c.duration) || 0) >= limit;
 }
 // CallRail posts finished outbound calls here (Outbound Post-Call and Call Modified webhooks): log the call, its result and recording on the lead
-async function handleOutbound(env, c) {
+async function handleOutbound(env, c, ctx) {
   const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
   if (!callId) return json({ success: false, message: "No call id" }, 422);
   const dl = await env.DB.prepare("SELECT lead_id, by_user, done, attempt, retried, source, (julianday('now') - julianday(created_at)) * 86400 AS age FROM dial_log WHERE call_id = ?").bind(callId).first();
@@ -189,6 +193,7 @@ async function handleOutbound(env, c) {
   } else if ((dl && dl.retried) || willRetry) stmts.push(row("Auto-dial: first ring not answered, ringing the agent again", at));
   else stmts.push(row((dl && dl.source === "auto" ? "Agent missed the auto-dial" : "Call not connected") + " (did not answer or did not press 1, so the lead was not called)" + (dl && dl.attempt > 1 ? " after two rings" : ""), at));
   await env.DB.batch(stmts);
+  if (dl && dl.source === "queue") await queueAfterCall(env, callId, dialed, ctx).catch(() => {});
   if (willRetry && await retryAuto(env, callId, leadId, dl.by_user).catch(() => false)) return json({ success: true, logged: true, retry: true });
   if (!dialed && dl && !dl.retried && (await env.DB.prepare("SELECT source FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).source === "auto") {
     const ld = await env.DB.prepare("SELECT name, phone FROM leads WHERE id = ?").bind(leadId).first() || {};
@@ -316,6 +321,68 @@ async function callNotes(env, id) {
   await ensureTable(env.DB);
   const rows = (await env.DB.prepare("SELECT call_id, direction, created_at, summary, transcript, done FROM call_notes WHERE lead_id = ? ORDER BY created_at DESC LIMIT 20").bind(id).all()).results || [];
   return rows.map(r => ({ call_id: r.call_id, direction: r.direction, at: when(r.created_at).abs, summary: r.summary || "", transcript: r.transcript || "", done: !!r.done }));
+}
+
+// ---- Calling queue: "Start calling" rings the agent's phone for each lead that is New or Not contacted, one after another (newest first).
+// Each call is the usual CallRail click-to-call (agent presses 1, the lead is dialed, recorded). When one ends the next starts after a short pause.
+// It stops on Stop, when the list is done, outside calling hours, or when the agent does not pick up twice in a row.
+const QUEUE_MAX = 40, QUEUE_GAP_SECS = 8;
+const QUEUE_WHERE = "l.stage IN ('new','nocontact') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND length(replace(replace(replace(replace(replace(COALESCE(l.phone,''),'-',''),' ',''),'(',''),')',''),'+','')) >= 10";
+const queueEnd = (env, id, note) => env.DB.prepare("UPDATE queue_run SET active = 0, ended_at = datetime('now'), next_at = NULL, note = ? WHERE id = ? AND active = 1").bind(note, id).run();
+async function startQueue(env, user) {
+  if (!dialOn(env)) return { ok: false, message: "Calling through CallRail is not set up yet." };
+  if (!agentPhone(env, user)) return { ok: false, message: `No cell number is saved for ${user}. Add AGENT_PHONE_${String(user).toUpperCase()} in Cloudflare.` };
+  if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) return { ok: false, message: "Calling hours are Monday to Saturday, 9 AM to 6 PM Eastern." };
+  await ensureTable(env.DB);
+  await env.DB.prepare("UPDATE queue_run SET active = 0, ended_at = datetime('now'), next_at = NULL, note = 'Replaced by a new run' WHERE active = 1 AND user = ?").bind(user).run();
+  const leads = (await env.DB.prepare(`SELECT l.id FROM leads l WHERE ${QUEUE_WHERE} ORDER BY l.created_at DESC, l.id DESC LIMIT ${QUEUE_MAX}`).all()).results || [];
+  if (!leads.length) return { ok: false, message: "No new or not-contacted leads to call." };
+  const run = await env.DB.prepare("INSERT INTO queue_run (user, next_at) VALUES (?, datetime('now'))").bind(user).run();
+  const id = run.meta.last_row_id;
+  await env.DB.batch(leads.map((l, i) => env.DB.prepare("INSERT INTO queue_items (run_id, lead_id, pos) VALUES (?,?,?)").bind(id, l.id, i)));
+  const res = await runQueue(env, id);
+  return { ok: !res.message, message: res.message || "", total: leads.length };
+}
+// places the next call of every run that is due (and every minute from the schedule, as a backup for the short pause)
+async function runQueue(env, onlyRun) {
+  if (!dialOn(env) || !env.DB) return { message: "" };
+  await ensureTable(env.DB);
+  const runs = (await env.DB.prepare("SELECT id, user FROM queue_run WHERE active = 1 AND next_at IS NOT NULL AND next_at <= datetime('now')" + (onlyRun ? " AND id = ?" : "")).bind(...(onlyRun ? [onlyRun] : [])).all()).results || [];
+  let message = "";
+  for (const run of runs) {
+    const claim = await env.DB.prepare("UPDATE queue_run SET next_at = NULL WHERE id = ? AND next_at IS NOT NULL").bind(run.id).run();
+    if (!claim.meta || !claim.meta.changes) continue;
+    if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) { await queueEnd(env, run.id, "Stopped: outside calling hours."); continue; }
+    const item = await env.DB.prepare(`SELECT l.id, l.phone FROM queue_items i JOIN leads l ON l.id = i.lead_id WHERE i.run_id = ? AND i.status = 'waiting' AND ${QUEUE_WHERE} ORDER BY i.pos LIMIT 1`).bind(run.id).first();
+    if (!item) { await queueEnd(env, run.id, "Queue finished."); continue; }
+    await env.DB.prepare("UPDATE queue_items SET status = 'calling' WHERE run_id = ? AND lead_id = ?").bind(run.id, item.id).run();
+    const res = await placeCall(env, item, run.user, "queue");
+    if (!res.ok) { await queueEnd(env, run.id, "Stopped: " + res.message); message = res.message; continue; }
+    await env.DB.prepare("UPDATE queue_items SET call_id = ? WHERE run_id = ? AND lead_id = ?").bind(res.id, run.id, item.id).run();
+  }
+  return { message };
+}
+// a queue call finished: ring for the next lead after a short pause, or stop if the agent did not pick up twice in a row
+async function queueAfterCall(env, callId, dialed, ctx) {
+  const it = await env.DB.prepare("SELECT run_id FROM queue_items WHERE call_id = ?").bind(callId).first();
+  if (!it) return;
+  await env.DB.prepare("UPDATE queue_items SET status = ? WHERE call_id = ?").bind(dialed ? "done" : "missed", callId).run();
+  await env.DB.prepare(dialed ? "UPDATE queue_run SET misses = 0 WHERE id = ?" : "UPDATE queue_run SET misses = misses + 1 WHERE id = ?").bind(it.run_id).run();
+  const st = await env.DB.prepare("SELECT misses FROM queue_run WHERE id = ?").bind(it.run_id).first();
+  if (st && st.misses >= 2) { await queueEnd(env, it.run_id, "Stopped: you did not pick up twice in a row."); return; }
+  await env.DB.prepare("UPDATE queue_run SET next_at = datetime('now', ?) WHERE id = ? AND active = 1").bind(`+${QUEUE_GAP_SECS} seconds`, it.run_id).run();
+  if (ctx) ctx.waitUntil((async () => { await new Promise(r => setTimeout(r, (QUEUE_GAP_SECS + 1) * 1000)); await runQueue(env, it.run_id); })().catch(() => {}));
+}
+async function queueStatus(env, user) {
+  await ensureTable(env.DB);
+  const run = await env.DB.prepare("SELECT id, active, note, (ended_at IS NOT NULL AND ended_at >= datetime('now','-10 minutes')) AS recent FROM queue_run WHERE user = ? ORDER BY id DESC LIMIT 1").bind(user).first();
+  const eligible = (await env.DB.prepare(`SELECT COUNT(*) n FROM leads l WHERE ${QUEUE_WHERE}`).first() || {}).n || 0;
+  if (!run || !run.active) return { active: false, eligible: Math.min(eligible, QUEUE_MAX), note: run && run.recent ? run.note || "" : "" };
+  const q = (extra) => env.DB.prepare(`SELECT l.name, l.phone FROM queue_items i JOIN leads l ON l.id = i.lead_id WHERE i.run_id = ? AND ${extra} LIMIT 1`).bind(run.id);
+  const cnt = await env.DB.prepare("SELECT COUNT(*) total, SUM(CASE WHEN status IN ('done','missed') THEN 1 ELSE 0 END) done FROM queue_items WHERE run_id = ?").bind(run.id).first() || {};
+  const now = await q("i.status = 'calling'").first(), next = await env.DB.prepare(`SELECT l.name, l.phone FROM queue_items i JOIN leads l ON l.id = i.lead_id WHERE i.run_id = ? AND i.status = 'waiting' AND ${QUEUE_WHERE} ORDER BY i.pos LIMIT 1`).bind(run.id).first();
+  const nm = r => (r ? r.name || prettyPhone(r.phone) : "");
+  return { active: true, total: cnt.total || 0, done: cnt.done || 0, now: nm(now), next: nm(next) };
 }
 
 // Backup for the webhook: every minute ask CallRail how each requested call ended (4 to 90 minutes after it was requested) and log it the same way
@@ -473,7 +540,7 @@ async function handleCallrail(request, env, url, ctx) {
     await env.DB.prepare("DELETE FROM hook_log WHERE id <= (SELECT MAX(id) FROM hook_log) - 40").run();
   } catch (e) { /* logging must never break a webhook */ }
   if (String(c.direction || "").toLowerCase() === "outbound") {
-    const res = await handleOutbound(env, c);
+    const res = await handleOutbound(env, c, ctx);
     try { if (lg) await env.DB.prepare("UPDATE hook_log SET summary = summary || ? WHERE id = ?").bind(" => " + (await res.clone().text()).slice(0, 120), lg.meta.last_row_id).run(); } catch (e) { /* ignore */ }
     return res;
   }
@@ -820,6 +887,19 @@ function askNext(name,stage){return new Promise(res=>{const d=document.getElemen
 
 // After someone taps Call, ask (when they come back to the CRM) whether the lead answered. This feeds the contact rate on the Speed page.
 const OUTCOMES = [["Answered", "Answered"], ["No answer", "No answer"], ["Left a voicemail", "Voicemail"], ["Wrong number", "Wrong number"]];
+const QUEUE_HTML = `<div id="qbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 18px 10px"></div>`;
+const QUEUE_JS = `
+(function(){const bar=document.getElementById('qbar');if(!bar)return;
+const qe=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const bs='border:1px solid #2a313a;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer;';
+async function get(){try{const r=await fetch('/admin/queue');return r.ok?await r.json():null}catch(_){return null}}
+function draw(s){if(!s){bar.innerHTML='';return}
+  if(s.active){bar.innerHTML='<span style="color:#e8eaed"><b style="color:#32cd32">Calling queue</b> &middot; '+s.done+' of '+s.total+' done'+(s.now?' &middot; now: '+qe(s.now):' &middot; ringing your phone')+(s.next?' &middot; next: '+qe(s.next):'')+'</span><button id="qstop" type="button" style="'+bs+'background:#2a1414;color:#ff8a8a">Stop</button>';document.getElementById('qstop').onclick=async e=>{e.target.disabled=true;await fetch('/admin/queue/stop',{method:'POST'});refresh()};return}
+  bar.innerHTML=(s.eligible?'<button id="qgo" type="button" style="'+bs+'background:#32cd32;color:#04120a">Start calling ('+s.eligible+')</button>':'')+(s.note?'<span style="color:#98a0aa">'+qe(s.note)+'</span>':'');
+  const go=document.getElementById('qgo');if(go)go.onclick=async e=>{if(!confirm('Your phone will ring first. Press 1 to connect, and the next new lead is called when each call ends. Start calling '+s.eligible+' lead'+(s.eligible===1?'':'s')+'?'))return;e.target.disabled=true;const r=await fetch('/admin/queue/start',{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok&&j.message)alert(j.message);refresh()}}
+async function refresh(){draw(await get())}
+refresh();setInterval(()=>{if(!document.hidden)refresh()},6000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+})();`;
 const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
 const OUTCOME_JS = `
 const OUTC=${JSON.stringify(OUTCOMES)};
@@ -1047,6 +1127,7 @@ ${FOLLOW_CSS}
 <header><h1>Divine Detailers <b>pipeline</b></h1>${nav("pipeline", tc, user === OWNER)}<div class="sum" id="sum"></div><button class="addb" id="addb" type="button">+ Add lead</button></header>
 <div class="tabs" id="tabs"></div>
 ${bnav("pipeline", tc, user === OWNER)}
+${QUEUE_HTML}
 <div class="board" id="board"></div>
 <dialog id="dlg"></dialog>
 ${FOLLOW_HTML}
@@ -1056,6 +1137,7 @@ ${OUTCOME_HTML}
 const IS_OWNER=${user === OWNER};
 ${FOLLOW_JS}
 ${OUTCOME_JS}
+${QUEUE_JS}
 ${TPL_JS}
 const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.leads,CFG=D.cfg,board=document.getElementById('board'),dlg=document.getElementById('dlg');
 const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
@@ -1180,6 +1262,7 @@ export default {
     ctx.waitUntil(pullTranscripts(env).catch(e => console.error("transcript error", e && e.message)));
     ctx.waitUntil(pullRecordings(env).catch(e => console.error("recording error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
+    ctx.waitUntil(runQueue(env).catch(e => console.error("queue error", e && e.message)));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1205,7 +1288,7 @@ export default {
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/delete" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -1766,6 +1849,7 @@ ${FOLLOW_CSS}
 ${bnav("today", items.length, user === OWNER)}
 ${FOLLOW_HTML}
 ${OUTCOME_HTML}
+${QUEUE_HTML}
 <main id="m"></main>
 <div class="demo"><span>Showing off the CRM?</span><button class="btn" id="dl">Load example leads</button><button class="btn" id="dc">Remove example leads</button><button class="btn" id="ta">Send test alert</button>${user === OWNER ? '<button class="btn" id="tc">Test CallRail</button><button class="btn" id="vs">Verify shop number</button><button class="btn" id="vo">Verify another number</button><a class="btn" href="/admin/leads.csv">Download all leads (CSV)</a><button class="btn" id="pg" style="border-color:#7a2b2b;color:#ff8a8a">Delete ALL leads</button>' : ""}<pre id="tr" style="flex:1 1 100%;white-space:pre-wrap;color:#c3c8cf;font-size:12.5px;margin:0"></pre></div>
 <script type="application/json" id="data">${payload}</script>
@@ -1774,6 +1858,7 @@ const D=JSON.parse(document.getElementById('data').textContent),CFG=D.cfg,TODAY=
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 ${FOLLOW_JS}
 ${OUTCOME_JS}
+${QUEUE_JS}
 ${TPL_JS}
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
 const fmtD=d=>{const p=d.split('-');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1]+' '+(+p[2])};
@@ -1847,7 +1932,7 @@ async function adminRoute(p, request, env) {
     if (a !== OWNER) return json({ success: false, message: "Only the owner login can delete leads." }, 403);
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id)) return json({ success: false }, 400);
-    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM dial_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM call_notes WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM leads WHERE id = ?").bind(b.id)]);
+    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM dial_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM call_notes WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM queue_items WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM leads WHERE id = ?").bind(b.id)]);
     return json({ success: true });
   }
   if (p === "/admin/purge" && request.method === "POST") {
@@ -1856,7 +1941,7 @@ async function adminRoute(p, request, env) {
     const b = await request.json().catch(() => ({}));
     if (b.confirm !== "DELETE") return json({ success: false, message: "Confirmation word missing." }, 400);
     const n = (await env.DB.prepare("SELECT COUNT(*) n FROM leads").first() || {}).n || 0;
-    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log"), env.DB.prepare("DELETE FROM dial_log"), env.DB.prepare("DELETE FROM hook_log"), env.DB.prepare("DELETE FROM call_notes"), env.DB.prepare("DELETE FROM leads")]);
+    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log"), env.DB.prepare("DELETE FROM dial_log"), env.DB.prepare("DELETE FROM hook_log"), env.DB.prepare("DELETE FROM call_notes"), env.DB.prepare("DELETE FROM queue_items"), env.DB.prepare("DELETE FROM queue_run"), env.DB.prepare("DELETE FROM leads")]);
     return json({ success: true, deleted: n });
   }
   if (p === "/admin/verifyshop" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); const res = await verifyShopNumber(env, await request.json().catch(() => ({}))); return json({ success: res.ok, ...res }); }
@@ -1872,6 +1957,12 @@ async function adminRoute(p, request, env) {
     const st2 = [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, tgt, "Call result: " + b.outcome, user)];
     if (tgt !== cur.stage) st2.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(tgt, tgt === "contacted" ? 1 : 0, b.id));
     await env.DB.batch(st2);
+    return json({ success: true });
+  }
+  if (p === "/admin/queue" && request.method === "GET") return json(await queueStatus(env, user));
+  if (p === "/admin/queue/start" && request.method === "POST") { const res = await startQueue(env, user); return json({ success: res.ok, message: res.message || "", total: res.total || 0 }, res.ok ? 200 : 502); }
+  if (p === "/admin/queue/stop" && request.method === "POST") {
+    await env.DB.prepare("UPDATE queue_run SET active = 0, ended_at = datetime('now'), next_at = NULL, note = 'Stopped.' WHERE active = 1 AND user = ?").bind(user).run();
     return json({ success: true });
   }
   if (p === "/admin/dial" && request.method === "POST") {
