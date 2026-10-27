@@ -612,8 +612,21 @@ async function handleMeta(request, env, url, ctx) {
   if (key && await env.DB.prepare("SELECT id FROM leads WHERE call_id = ?").bind(key).first()) return json({ success: true, duplicate: true });
   const service = clean(pick("service", "Service") || "Window Tint", MAX.default);
   const extras = ["form_name", "ad_name", "adset_name", "platform"].map(k => [k, pick(k)]).filter(x => x[1]).map(x => x[0].replace(/_/g, " ") + ": " + x[1]).join(" · ");
-  const msg = clean([pick("message", "notes", "comments"), extras].filter(Boolean).join("\n"), MAX.message);
-  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make"), 60), year: clean(pick("year", "Year"), 10), model: clean(pick("model", "Model") || (pick("make", "year") ? "" : pick("vehicle", "Vehicle", "car", "Car")), 80), message: msg,
+  // every other answer on the form is kept as "Question: answer", so the lead shows what was asked ("How soon are you looking to get this done?" and so on)
+  const known = new Set(["name", "fullname", "firstname", "lastname", "customername", "contactname", "yourname", "phone", "phonenumber", "email", "emailaddress", "service", "vehicle", "car", "make", "year", "model", "leadid", "leadgenid", "id", "campaignname", "campaign", "utmcampaign", "adname", "adsetname", "formname", "platform", "message", "notes", "comments", "key"]);
+  const pretty = k => (/[\s?]/.test(k) ? k.trim() : k.replace(/[_-]+/g, " ").replace(/^./, c => c.toUpperCase()));
+  let carAnswer = "";
+  const answers = [];
+  for (const [k, v] of Object.entries(d)) {
+    if (v === undefined || v === null || typeof v === "object" || String(v).trim() === "") continue;
+    const nk = norm(k);
+    if (known.has(nk)) continue;
+    if (/make|model|vehicle|^car/.test(nk)) { carAnswer = carAnswer || String(v); continue; }
+    const label = pretty(k).replace(/[:\s]+$/, "");
+    answers.push(label + (label.endsWith("?") ? " " : ": ") + String(v).trim());
+  }
+  const msg = clean([pick("message", "notes", "comments"), answers.join("\n"), extras].filter(Boolean).join("\n"), MAX.message);
+  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make"), 60), year: clean(pick("year", "Year"), 10), model: clean(pick("model", "Model") || (pick("make", "year") ? "" : pick("vehicle", "Vehicle", "car", "Car") || carAnswer), 80), message: msg,
     page: "Meta Instant Form", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "meta", utm_medium: "paid_social", utm_campaign: clean(pick("campaign_name", "campaign", "utm_campaign"), 200), utm_term: clean(pick("ad_name", "adset_name"), 200) };
   const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,ip,user_agent,value)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -1036,7 +1049,7 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 .tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}.tag{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#171c23;color:#aab0b9;white-space:nowrap}
 .tag.ad{background:#14263f;color:#8ec0ff}.tag.call{background:#2a1f3d;color:#c9a8ff}.tag.fu{background:#2a1f3d;color:#c9a8ff}.tag.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}.rec{color:#8ec0ff;font-size:13px}.tag.hot{background:#32cd32;color:#04120a;font-weight:700}.tag.ok{background:#1a2a1c;color:#7fe07f}.tag.nl{background:#2b2411;color:#f0c050}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:1px}small{display:block;color:#8a9099}
-.msg{margin:0;background:#10141a;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de}
+.msg{margin:0;background:#10141a;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de;white-space:pre-line}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 13px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
 .btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#1d2630}.btn.ghost{color:#8a9099}
 .empty{grid-column:1/-1;color:#8a9099;padding:40px 0;text-align:center}
@@ -1100,7 +1113,7 @@ details.ed{border:1px solid #232a33;border-radius:12px;padding:10px 12px}details
 dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(520px,94vw);max-height:92vh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.65)}
 .dh{display:flex;justify-content:space-between;gap:10px;padding:18px 20px 6px}.dh h3{margin:0;font-size:20px}.x{background:none;border:0;color:#8a9099;font-size:26px;cursor:pointer;line-height:1}
 .db{padding:6px 20px 20px;display:flex;flex-direction:column;gap:12px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:2px}
-.msg{margin:0;background:#12171e;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de}
+.msg{margin:0;background:#12171e;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de;white-space:pre-line}
 select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit}textarea{min-height:84px;resize:vertical}
 .acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}.btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#32cd32;border-color:#32cd32;color:#04120a;margin-left:auto}
 ${BNAV_CSS}
@@ -1835,7 +1848,7 @@ section.miss h2{color:#ff9a9a}section.late h2{color:#ffb86b}section.new h2{color
 .rows{display:flex;flex-direction:column;gap:10px}
 .row{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}.miss .row{border-color:#4a2424}.late .row{border-color:#4d3a1d}.new .row{border-color:#244d2a}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hd b{font-size:17px;display:block}.hd small{color:#8a9099;font-size:13px}.hd a.op{color:#8ec0ff;font-size:13px;white-space:nowrap}
-.why{font-size:13px;color:#c9a8ff}.msg{margin:0;color:#c9ced5;font-size:14px}
+.why{font-size:13px;color:#c9a8ff}.msg{margin:0;color:#c9ced5;font-size:14px;white-space:pre-line}
 .pill{font-size:11.5px;padding:2px 9px;border-radius:999px;background:#171c23;color:#aab0b9}.pill.ad{background:#14263f;color:#8ec0ff}.pill.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}
 .acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:11px 15px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer;min-height:46px;display:inline-flex;align-items:center;justify-content:center}
 .btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.dn{background:#1d2630}
@@ -1867,7 +1880,7 @@ const NW=l=>l.stage==='new'||l.stage==='nocontact';
 function group(){return {miss:items.filter(l=>l.type==='call'&&l.answered===0&&NW(l)),late:items.filter(l=>!NW(l)&&l.follow_up_date&&l.follow_up_date<TODAY),due:items.filter(l=>!NW(l)&&l.follow_up_date===TODAY),nw:items.filter(l=>NW(l)&&!(l.type==='call'&&l.answered===0))}}
 function row(l,kind){const veh=[l.year,l.make,l.model].filter(Boolean).join(' '),tel=(l.phone||'').replace(/[^\\d+]/g,''),t=tplFor(l)[0],msg=tplFill(t,l).body;
   const why=kind==='miss'?(l.vm?'Left a voicemail':'Missed call')+(l.src?' &middot; '+$(l.src):''):kind==='nw'?(l.type==='call'?'Called in':$(l.service||'Quote request'))+(veh?' &middot; '+$(veh):''):($(l.follow_up||'Follow up')+' &middot; '+(kind==='late'?'was due '+fmtD(l.follow_up_date):'due today')+(l.service?' &middot; '+$(l.service):''));
-  return '<div class="row" data-id="'+l.id+'"><div class="hd"><div><b>'+$(l.name||l.phone||l.email||'Unknown caller')+'</b><small>'+$(l.ago)+(l.ad?' &middot; <span class="pill ad">Ads</span>':'')+'</small></div><a class="op" href="/admin/pipeline#id='+l.id+'">Details</a></div><div class="why">'+why+'</div>'+(l.message&&kind!=='miss'?'<p class="msg">&ldquo;'+$(l.message.slice(0,180))+'&rdquo;</p>':'')+
+  return '<div class="row" data-id="'+l.id+'"><div class="hd"><div><b>'+$(l.name||l.phone||l.email||'Unknown caller')+'</b><small>'+$(l.ago)+(l.ad?' &middot; <span class="pill ad">Ads</span>':'')+'</small></div><a class="op" href="/admin/pipeline#id='+l.id+'">Details</a></div><div class="why">'+why+'</div>'+(l.message&&kind!=='miss'?'<p class="msg">&ldquo;'+$(l.message.slice(0,400))+'&rdquo;</p>':'')+
   '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'" data-act="call">Call '+$(l.phone)+'</a><a class="btn" href="'+$(smsHref(l.phone,msg))+'" data-act="text">Text</a>':'')+(NW(l)?'<button class="btn dn" data-act="done">Contacted</button>':'<button class="btn dn" data-act="done">Done</button><button class="btn" data-act="snooze">Tomorrow</button>')+'</div></div>'}
 function sec(cls,title,ls,kind){return ls.length?'<section class="'+cls+'"><h2>'+title+' <i>'+ls.length+'</i></h2><div class="rows">'+ls.map(l=>row(l,kind)).join('')+'</div></section>':''}
 function draw(){const g=group();const h=sec('miss','Return these calls',g.miss,'miss')+sec('new','New leads nobody has contacted',g.nw,'nw')+sec('late','Overdue follow-ups',g.late,'late')+sec('due','Follow-ups due today',g.due,'due');
