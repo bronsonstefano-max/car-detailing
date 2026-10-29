@@ -100,6 +100,16 @@ async function ensureTable(db) {
   ]);
   const flag = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('tint_value_349')").run();
   if (flag.meta && flag.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%tint%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_TINT_VALUE).run();
+  // one time: leads that were moved to Contacted just because Call was tapped, and whose calls were never answered, go back to Not contacted
+  const flag3 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('called_not_contacted_fix')").run();
+  if (flag3.meta && flag3.meta.changes) {
+    const pred = `stage = 'contacted' AND id IN (SELECT lead_id FROM stage_log WHERE reason IN ('Call result: No answer','Call result: Left a voicemail'))
+      AND id NOT IN (SELECT lead_id FROM stage_log WHERE reason IN ('Call result: Answered') OR reason LIKE 'Texted%' OR reason LIKE 'Emailed%' OR reason LIKE 'Spoke%' OR (to_stage = 'contacted' AND reason NOT LIKE 'Called%' AND reason NOT LIKE 'Call result%' AND reason NOT LIKE 'Left a voicemail%'))`;
+    await db.batch([
+      db.prepare(`INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, 'contacted', 'nocontact', 'Moved back to Not contacted: the call was not answered', 'system' FROM leads WHERE ${pred}`),
+      db.prepare(`UPDATE leads SET stage = 'nocontact', contacted = 0, stage_changed_at = datetime('now') WHERE ${pred}`),
+    ]);
+  }
   const flag2 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('coating_value_599')").run();
   if (flag2.meta && flag2.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%coating%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_COATING_VALUE).run();
 }
@@ -2041,10 +2051,11 @@ async function adminRoute(p, request, env) {
     if (!Number.isInteger(b.id) || typeof b.label !== "string") return json({ success: false }, 400);
     const cur = await env.DB.prepare("SELECT stage, follow_up_date FROM leads WHERE id = ?").bind(b.id).first();
     if (!cur) return json({ success: false }, 404);
-    // a first text or email counts as contacting them
-    const stage = isNewish(cur.stage) ? "contacted" : cur.stage;
+    // a first text or email counts as contacting them. Tapping Call does not: whether anyone answered is decided by the call result (CallRail's report or the "Did they answer?" question)
+    const calledOnly = /^Called/i.test(b.label);
+    const stage = isNewish(cur.stage) && !calledOnly ? "contacted" : cur.stage;
     const stmts = [
-      env.DB.prepare("UPDATE leads SET stage = ?, contacted = 1" + (stage !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(stage, b.id),
+      env.DB.prepare("UPDATE leads SET stage = ?" + (calledOnly ? "" : ", contacted = 1") + (stage !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(stage, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, stage, clean(b.label, 120), user),
     ];
     await env.DB.batch(stmts);
