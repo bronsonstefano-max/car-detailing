@@ -1176,7 +1176,14 @@ select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;col
 ${BNAV_CSS}
 ${FOLLOW_CSS}
 .rp{display:flex;flex-direction:column;gap:8px}.next{margin-top:8px;font-size:13px;color:#c9a8ff}.next.late{color:#ff9a9a;font-weight:700}
-.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}.hist li.h-call{border-left-color:#32cd32}.hist li.h-text{border-left-color:#8ec0ff}.hist li.h-mail{border-left-color:#c9a8ff}.hist li.h-stage{border-left-color:#ffb86b}.hist li.h-new{border-left-color:#98a0aa}
+.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}.sum2{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}.sum2 b{display:block;font-size:16px;font-weight:700}.sum2 small{display:block;color:#8a9099;font-size:12.5px;margin-top:2px}
+.src{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:7px}.srch{display:flex;align-items:center;gap:10px;margin-bottom:2px}.spill{font-size:12px;font-weight:700;letter-spacing:.04em;padding:3px 10px;border-radius:999px;background:#171c23;color:#c3c8cf}.spill.ad{background:#14263f;color:#8ec0ff}.sm{color:#7c838d;font-size:12.5px}
+.kvr{display:grid;grid-template-columns:84px 1fr;gap:10px;font-size:13.5px;align-items:baseline}.kvr span{color:#7c838d;font-size:12px;text-transform:uppercase;letter-spacing:.06em}.kvr b{font-weight:600;color:#dfe3e8;overflow-wrap:anywhere}
+.fans{display:flex;flex-direction:column;gap:6px;border-left:3px solid #32cd32;padding:2px 0 2px 12px}.fanr span{display:block;color:#8a9099;font-size:12.5px}.fanr b{font-size:15px;font-weight:600}
+.tlist{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column}.tld{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6d747e;margin:10px 0 2px}.tld:first-child{margin-top:2px}
+.tl{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:start;padding:5px 0}.tl i{width:8px;height:8px;border-radius:50%;background:#98a0aa;margin-top:6px;justify-self:center}.tl b{font-size:13.5px;font-weight:600;color:#e3e6ea;display:block;line-height:1.35}.tl small{display:block;color:#7c838d;font-size:12px;line-height:1.35}.tl>span{font-size:12px;color:#8a9099;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}.tl>span em{display:block;font-style:normal;color:#586069;font-size:11px}
+.tl.h-call i{background:#32cd32}.tl.h-text i{background:#8ec0ff}.tl.h-mail i{background:#c9a8ff}.tl.h-stage i{background:#ffb86b}.tl.h-new i{background:#98a0aa}
+.tl[hidden],.tld[hidden]{display:none}.hmore{margin-top:6px;background:none;border:1px solid #2a313a;color:#9aa3ad;border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer}.hist li.h-call{border-left-color:#32cd32}.hist li.h-text{border-left-color:#8ec0ff}.hist li.h-mail{border-left-color:#c9a8ff}.hist li.h-stage{border-left-color:#ffb86b}.hist li.h-new{border-left-color:#98a0aa}
 .tabs{display:none}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips button{padding:8px 13px;border-radius:999px;border:1px solid #2a313a;background:#12171e;color:#e8eaed;font:inherit;cursor:pointer}.chips button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 @media(max-width:700px){
@@ -1234,12 +1241,29 @@ function draw(){
 M.addEventListener&&M.addEventListener('change',draw);
 document.getElementById('tabs').addEventListener('click',e=>{const t=e.target.closest('[data-tab]');if(t){cur=t.dataset.tab;draw();window.scrollTo({top:0})}});
 const SN=k=>(S.find(x=>x[0]===k)||[0,k])[1];const TODAY=D.today;const fmtD=d=>{const p=d.split('-');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1]+' '+(+p[2])};
+function parseMsg(l){const x={answers:[],form:'',ad:'',adset:'',plat:'',rest:[]};(l.message||'').split('\\n').forEach(line=>{line=line.trim();if(!line)return;
+    if(/^(form name|ad name|adset name|platform):/i.test(line)){line.split(' · ').forEach(seg=>{const m=/^(form name|ad name|adset name|platform):\\s*(.*)$/i.exec(seg.trim());if(m){const k=m[1].toLowerCase();if(k==='form name')x.form=m[2];else if(k==='ad name')x.ad=m[2];else if(k==='adset name')x.adset=m[2];else x.plat=m[2]}});return}
+    const q=line.indexOf('?');if(q>3&&q<140){x.answers.push([line.slice(0,q+1),line.slice(q+1).trim()]);return}
+    const m=/^([^:]{2,60}):\\s+(.+)$/.exec(line);if(m&&!/^(Voicemail|Missed)/i.test(line)&&l.type!=='call'){x.answers.push([m[1],m[2]]);return}
+    x.rest.push(line)});return x}
+const kv=(k,v)=>v?'<div class="kvr"><span>'+$(k)+'</span><b>'+$(v)+'</b></div>':'';
+function infoHtml(l,veh){const p=parseMsg(l),meta=l.utm_medium==='paid_social',web=!meta&&(l.page||'').replace(/^https?:\\/\\/[^/]+/,'');
+  const ad=meta?(p.ad||l.utm_term):'',kw=meta?'':l.utm_term;
+  const src='<div class="src"><div class="srch"><span class="spill'+(l.ad?' ad':'')+'">'+$(l.src||'Direct')+'</span>'+(meta?'<span class="sm">Instant Form</span>':'')+'</div>'+
+    kv('Campaign',l.utm_campaign)+kv(meta?'Ad':'Keyword',meta?ad:kw)+kv('Ad set',p.adset)+kv('Form',p.form)+kv('Landed on',web)+'</div>';
+  const ans=p.answers.length?'<div class="fans">'+p.answers.map(a=>'<div class="fanr"><span>'+$(a[0])+'</span><b>'+$(a[1]||'-')+'</b></div>').join('')+'</div>':'';
+  const rest=p.rest.length?'<p class="msg">&ldquo;'+$(p.rest.join(' '))+'&rdquo;</p>':'';
+  return '<div class="sum2"><div><label>Service</label><b>'+$(l.service||'-')+'</b>'+(l.also_interested?'<small>also: '+$(l.also_interested)+'</small>':'')+'</div><div><label>Vehicle</label><b>'+$(veh||'-')+'</b></div></div>'+ans+src+rest}
+const shortR=r=>r.replace(/^Agent missed the auto-dial.*/i,'Missed the auto-dial (no answer or no 1)').replace(/^Call not connected.*/i,'Call not connected').replace(/^Called via CallRail/i,'Call connected').replace(/^Call queue: calling your phone first/i,'Call queue: ringing you first').replace(/^Auto-dial requested.*/i,'Auto-dial: ringing you first').replace(/^Dial requested.*/i,'Call: ringing you first').replace(/^Call result: CallRail reported /i,'CallRail: ').replace(/^Auto-dial: first ring not answered.*/i,'Auto-dial: ringing you again');
 function histHtml(l){const rows=(l.log||[]).map(h=>{const same=h.from_stage===h.to_stage,r=h.reason||'';
     const k=/^(Texted)/i.test(r)?'text':/^(Emailed)/i.test(r)?'mail':/^(Called|Call |Dial|Auto-dial|Agent missed|Left a voicemail|Spoke|Call queue)/i.test(r)?'call':!same?'stage':'note';
-    const t=same?$(r||'Update'):$(SN(h.from_stage))+' → '+$(SN(h.to_stage))+(r&&r!=='Moved'?' &middot; '+$(r):'');
-    return {k,html:'<li class="h-'+k+'"><b>'+t+'</b><small>'+$(h.at==='now'?'just now':h.at)+(h.by_user?' &middot; '+$(h.by_user):'')+'</small></li>'}});
-  rows.push({k:'new',html:'<li class="h-new"><b>Lead created</b> &middot; '+(l.type==='call'?'inbound call':'form')+(l.src?' &middot; '+$(l.src):'')+'<small>'+$(l.abs||'')+'</small></li>'});
-  return '<div><label>Lead history ('+rows.length+')</label><ul class="hist">'+rows.map(x=>x.html).join('')+'</ul></div>'}
+    const t=same?shortR(r||'Update'):SN(h.from_stage)+' → '+SN(h.to_stage),sub=same?'':(r&&r!=='Moved'?shortR(r):'');
+    const m=/^(.*), (\\d+:\\d\\d [AP]M)$/.exec(h.at==='now'?'':(h.at||''));
+    return {k,t,sub,d:m?m[1]:'',tm:m?m[2]:(h.at==='now'?'now':(h.at||'')),by:h.by_user||''}});
+  const m0=/^(.*), (\\d+:\\d\\d [AP]M)$/.exec(l.abs||'');rows.push({k:'new',t:'Lead created',sub:(l.type==='call'?'Inbound call':'Form')+(l.src?' · '+l.src:''),d:m0?m0[1]:'',tm:m0?m0[2]:(l.abs||''),by:''});
+  let last='';const li=rows.map((r,i)=>{const hd=r.d&&r.d!==last?'<li class="tld'+(i>=5?' more':'')+'" '+(i>=5?'hidden':'')+'>'+$(r.d)+'</li>':'';if(r.d)last=r.d;
+    return hd+'<li class="tl h-'+r.k+(i>=5?' more':'')+'" '+(i>=5?'hidden':'')+'><i></i><div><b>'+$(r.t)+'</b>'+(r.sub?'<small>'+$(r.sub)+'</small>':'')+'</div><span>'+$(r.tm)+(r.by&&r.by!=='system'?'<em>'+$(r.by)+'</em>':'')+'</span></li>'}).join('');
+  return '<div><label>Lead history ('+rows.length+')</label><ul class="tlist">'+li+'</ul>'+(rows.length>5?'<button type="button" class="hmore" id="hmore">Show all '+rows.length+'</button>':'')+'</div>'}
 async function save(id,patch,url){const r=await fetch(url||'/admin/lead',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({id},patch))});if(!r.ok)return false;try{return await r.json()}catch(_){return {success:true}}}
 function apply(l,o){if(o&&o.stage){l.stage=o.stage;l.followup=o.followup||'';l.follow_up_date=o.follow_up_date||''}}
 let dragId=null;
@@ -1253,13 +1277,12 @@ const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction',
 function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
   const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
   dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
-  (!isCall&&l.recording?'<div style="font-size:14px"><a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a></div>':'')+(isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+(l.recording?' &middot; <a class="rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">Listen to the call</a>':'')+'</div>':'')+
-  '<div class="g2"><div><label>Service</label>'+$(l.service||'-')+(l.also_interested?'<div style="color:#8a9099;font-size:13px">also: '+$(l.also_interested)+'</div>':'')+'</div><div><label>Vehicle</label>'+$(veh||'-')+'</div>'+(l.detail?'<div><label>Campaign</label>'+$(l.detail)+'</div>':'')+(l.page?'<div><label>Landed on</label>'+$(l.page)+'</div>':'')+'</div>'+
-  (l.message?'<p class="msg">&ldquo;'+$(l.message)+'&rdquo;</p>':'')+
-  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+'</div>'+
+  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+(l.recording?'<a class="btn rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">&#9654; Listen</a>':'')+'</div>'+
+  (isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+'</div>':'')+
+  infoHtml(l,veh)+
   ed+
-  histHtml(l)+
   '<div id="ca"></div>'+
+  histHtml(l)+
   '<div id="cr"></div>'+
   '<div id="cn"></div>'+
   '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time'+(l.appt_at?' (saved)':'')+'</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
@@ -1267,6 +1290,7 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
   '<div class="acts"><button class="btn go" id="fsave">Save</button>'+(IS_OWNER?'<button class="btn ghost" id="fdel" type="button">Delete lead</button>':'')+'</div></div>';
   dlg.showModal();
+  const hm=document.getElementById('hmore');if(hm)hm.onclick=()=>{dlg.querySelectorAll('.tlist [hidden]').forEach(e=>e.hidden=false);hm.remove()};
   fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const a=j.attempts,box=document.getElementById('ca');if(!box||!a||dlg.dataset.id!=String(l.id))return;
     const chip=(n,t)=>'<span style="background:#0d1116;border:1px solid #232932;border-radius:999px;padding:4px 11px;font-size:13px"><b style="font-variant-numeric:tabular-nums">'+n+'</b> '+t+'</span>';
     const parts=[chip(a.calls,'outbound call'+(a.calls===1?'':'s'))];
