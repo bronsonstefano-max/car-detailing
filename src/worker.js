@@ -1495,9 +1495,10 @@ function reminderTime(d) {
   return r < now + 6e4 ? null : new Date(r);
 }
 // ---- Follow-up texts for leads nobody has reached. The CRM does not send texts itself: it sends a push "Send Antonio Text #2" and the tap
-// opens Messages with the text filled in, so the agent only has to press send. Text #1 is due 30 minutes after the lead came in, then
-// #2 after 1 day, #3 after 3, #4 after 5 and #5 after 7 (and at least 12 hours after the previous text). Only New and Not contacted leads, in calling hours.
-const TEXT_PLAN_SECS = [0, 30 * 60, 86400, 3 * 86400, 5 * 86400, 7 * 86400];
+// opens Messages with the text filled in, so the agent only has to press send. Text #1 is due as soon as the lead arrives, #2 two hours after
+// the lead (and after text #1), then #3 after 1 day, #4 after 3 days and #5 after 5 days. Only New and Not contacted leads, in calling hours.
+const TEXT_PLAN_SECS = [0, 0, 2 * 3600, 86400, 3 * 86400, 5 * 86400]; // when each text is due, counted from the lead arriving (text #1 is immediate)
+const TEXT_GAP_SECS = [0, 0, 2 * 3600, 12 * 3600, 12 * 3600, 12 * 3600]; // at least this long after the previous text
 const TEXT_MAX = 5;
 const textTemplateFor = (n, l) => n === 1 ? TEMPLATES.find(t => t.id === (/coating/i.test(l.service || "") ? "first_coating" : "first")) : TEMPLATES.find(t => t.id === "fu" + n);
 function fillTemplate(t, l, env) {
@@ -1520,7 +1521,7 @@ async function remindTexts(env) {
   for (const r of rows) {
     const n = r.texts + 1;
     if (n > TEXT_MAX) continue;
-    if (Date.now() < Math.max(ms(r.created_at) + TEXT_PLAN_SECS[n] * 1000, r.last_text ? ms(r.last_text) + 12 * 36e5 : 0)) continue;
+    if (Date.now() < Math.max(ms(r.created_at) + TEXT_PLAN_SECS[n] * 1000, r.last_text ? ms(r.last_text) + TEXT_GAP_SECS[n] * 1000 : 0)) continue;
     const claim = await env.DB.prepare("INSERT OR IGNORE INTO text_reminders (lead_id, n) VALUES (?, ?)").bind(r.id, n).run();
     if (!claim.meta || !claim.meta.changes) continue;
     const first = String(r.name || "").trim().split(/\s+/)[0] || "lead", car = [r.year, r.make, r.model].filter(Boolean).join(" ");
