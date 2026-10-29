@@ -11,7 +11,7 @@
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
 //   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and each new call ("NEW LEAD: Incoming call") as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
 //   CALL_WEBHOOK_URL  (secret, optional)       same as LEAD_WEBHOOK_URL but only for calls (its own Zap); calls use LEAD_WEBHOOK_URL when this is not set
-//   CALL_WHISPER      (optional, "1")          tell the agent who is being called when the call rings them: "Calling Tony. Window tint. 2026 Hyundai Sonata. Press 1 to connect."
+//   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
 // default job values (tint $349, ceramic coating $599) so the pipeline total means something before a price is quoted
@@ -156,15 +156,6 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   // CALL_GREETING=off records without any announcement (the owner's choice; check the recording-consent law for the states the calls reach)
   const noGreeting = /^(off|none|no)$/i.test(String(env.CALL_GREETING || "").trim());
   if (body.recording_enabled && !noGreeting) body.outbound_greeting_text = env.CALL_GREETING || "This call may be recorded for quality and training purposes.";
-  // CALL_WHISPER=1: the line read out when the agent picks up says who is being called ("Calling Tony. Window tint. 2026 Hyundai Sonata. Press 1 to connect.")
-  if (env.CALL_WHISPER === "1") {
-    const ld = await env.DB.prepare("SELECT name, service, year, make, model FROM leads WHERE id = ?").bind(lead.id).first().catch(() => null);
-    if (ld) {
-      const first = String(ld.name || "").trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, "");
-      const bits = [first ? `Calling ${first}` : "Calling a new lead", ld.service || "", [ld.year, ld.make, ld.model].filter(Boolean).join(" ")].map(x => String(x).replace(/[^\p{L}\p{N} &'./-]/gu, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
-      body.outbound_greeting_text = (bits.join(". ") + ". Press 1 to connect.").slice(0, 240);
-    }
-  }
   let r, j;
   try {
     r = await fetch(`${env.CALLRAIL_API_BASE || "https://api.callrail.com"}/v3/a/${env.CALLRAIL_ACCOUNT_ID}/calls.json`, { method: "POST", headers: { authorization: `Token token=${env.CALLRAIL_API_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -175,6 +166,15 @@ async function placeCall(env, lead, user, source, attempt = 1) {
     env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source, attempt) VALUES (?,?,?,?,?)").bind(j.id, lead.id, user, source, attempt),
     env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(attempt > 1 ? "Auto-dial: ringing the agent a second time (first ring not answered)" : source === "auto" ? "Auto-dial requested (calling your phone first)" : source === "queue" ? "Call queue: calling your phone first" : "Dial requested (calling your phone first)", user, lead.id),
   ]);
+  // heads-up on the agent's phone as the call rings: "Calling Tony" / "Window Tint · 2026 Hyundai Sonata" (CALL_HEADSUP=0 turns it off).
+  // CallRail does not play custom text on the agent's leg, so this is a push notification instead.
+  if (env.CALL_HEADSUP !== "0" && env.NTFY_TOPIC) {
+    const ld = await env.DB.prepare("SELECT name, service, year, make, model FROM leads WHERE id = ?").bind(lead.id).first().catch(() => null);
+    if (ld) {
+      const first = String(ld.name || "").trim().split(/\s+/)[0];
+      await sendPush(env, { title: first ? `Calling ${first}` : "Calling a lead", message: [ld.service, [ld.year, ld.make, ld.model].filter(Boolean).join(" ")].filter(Boolean).join(" \u00b7 ") || prettyPhone(lead.phone), click: env.CRM_HOST ? `https://${env.CRM_HOST}/pipeline#id=${lead.id}` : undefined }).catch(() => {});
+    }
+  }
   return { ok: true, id: j.id };
 }
 // Was the lead dialed (the agent picked up and pressed 1)? This follows CallRail's own report: answered, voicemail, talk or recording time.
