@@ -94,6 +94,7 @@ async function ensureTable(db) {
   }
   // one time: tint leads that are still open and have no value yet start at the default job value
   await db.prepare("CREATE TABLE IF NOT EXISTS app_flags (k TEXT PRIMARY KEY)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS call_recordings (call_id TEXT PRIMARY KEY, lead_id INTEGER, direction TEXT, url TEXT NOT NULL DEFAULT '', duration INTEGER, at TEXT NOT NULL DEFAULT (datetime('now')))").run();
   await db.batch([
     db.prepare("CREATE TABLE IF NOT EXISTS queue_run (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, active INTEGER NOT NULL DEFAULT 1, started_at TEXT NOT NULL DEFAULT (datetime('now')), next_at TEXT, ended_at TEXT, note TEXT, misses INTEGER NOT NULL DEFAULT 0)"),
     db.prepare("CREATE TABLE IF NOT EXISTS queue_items (run_id INTEGER, lead_id INTEGER, pos INTEGER, status TEXT NOT NULL DEFAULT 'waiting', call_id TEXT, PRIMARY KEY (run_id, lead_id))"),
@@ -110,6 +111,9 @@ async function ensureTable(db) {
       db.prepare(`UPDATE leads SET stage = 'nocontact', contacted = 0, stage_changed_at = datetime('now') WHERE ${pred}`),
     ]);
   }
+  // one time: the recording each lead already has becomes the first entry in its recordings list
+  const flag4 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('recordings_list')").run();
+  if (flag4.meta && flag4.meta.changes) await db.prepare("INSERT OR IGNORE INTO call_recordings (call_id, lead_id, direction, url, duration, at) SELECT COALESCE(NULLIF(l.call_id,''), (SELECT d.call_id FROM dial_log d WHERE d.lead_id = l.id ORDER BY d.created_at DESC LIMIT 1), 'lead-' || l.id), l.id, CASE WHEN l.type = 'call' THEN 'inbound' ELSE 'outbound' END, l.recording, l.duration, l.created_at FROM leads l WHERE COALESCE(l.recording,'') != ''").run();
   const flag2 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('coating_value_599')").run();
   if (flag2.meta && flag2.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%coating%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_COATING_VALUE).run();
 }
@@ -167,6 +171,12 @@ function callConnected(env, c) {
   const limit = Number(env.DIAL_CONNECT_SECS) > 0 ? Number(env.DIAL_CONNECT_SECS) : 40;
   return bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.talk_time) || 0) > 0 || (num(c.recording_duration) || 0) > 0 || (num(c.duration) || 0) >= limit;
 }
+// every recording is kept in a list per lead (the lead's own `recording` field only holds the latest one)
+async function saveRecording(env, { callId, leadId, direction, url, duration, at }) {
+  if (!callId || !leadId || !url) return;
+  await env.DB.prepare("INSERT INTO call_recordings (call_id, lead_id, direction, url, duration, at) VALUES (?,?,?,?,?, COALESCE(?, datetime('now'))) ON CONFLICT(call_id) DO UPDATE SET url = excluded.url, duration = COALESCE(excluded.duration, call_recordings.duration), lead_id = excluded.lead_id")
+    .bind(callId, leadId, direction, url, duration == null ? null : Number(duration), at || null).run().catch(() => {});
+}
 // CallRail posts finished outbound calls here (Outbound Post-Call and Call Modified webhooks): log the call, its result and recording on the lead
 async function handleOutbound(env, c, ctx) {
   const callId = clean(String(c.id || c.call_id || c.resource_id || ""), 80);
@@ -182,7 +192,7 @@ async function handleOutbound(env, c, ctx) {
     await env.DB.prepare("INSERT OR IGNORE INTO dial_log (call_id, lead_id, by_user, source) VALUES (?,?,?,?)").bind(callId, leadId, by, "app").run();
   }
   const rec = clean(c.recording_player || c.recording || "", 500);
-  if (rec) await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = ?").bind(rec, leadId).run();
+  if (rec) { await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = ?").bind(rec, leadId).run(); await saveRecording(env, { callId, leadId, direction: "outbound", url: rec, duration: num(c.duration), at: c.start_time ? sqlTime(c.start_time) : null }); }
   const already = dl ? dl.done : (await env.DB.prepare("SELECT done FROM dial_log WHERE call_id = ?").bind(callId).first() || {}).done;
   if (already) return json({ success: true, updated: true });
   const answered = bool(c.answered) === 1, vm = bool(c.voicemail) === 1, dur = num(c.duration) || 0;
@@ -304,7 +314,7 @@ async function pullTranscripts(env) {
       const keys = Object.keys(c).join(",").slice(0, 400);
       // the recording is not ready when the call ends and the call details only include it when asked for: attach it to the lead as soon as CallRail has it
       const rec = clean(c.recording_player || c.recording || "", 500);
-      if (rec) await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = (SELECT lead_id FROM call_notes WHERE call_id = ?)").bind(rec, row.call_id).run();
+      if (rec) { await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = (SELECT lead_id FROM call_notes WHERE call_id = ?)").bind(rec, row.call_id).run(); const nl = await env.DB.prepare("SELECT lead_id, direction FROM call_notes WHERE call_id = ?").bind(row.call_id).first(); if (nl) await saveRecording(env, { callId: row.call_id, leadId: nl.lead_id, direction: nl.direction || "outbound", url: rec, duration: num(c.duration) }); }
       if (summary || transcript) await env.DB.prepare("UPDATE call_notes SET summary = ?, transcript = ?, keys = ?, done = 1 WHERE call_id = ?").bind(summary, transcript, keys, row.call_id).run();
       else {
         const t = row.tries + 1, last = t > TX_BACKOFF.length;
@@ -319,7 +329,7 @@ async function pullTranscripts(env) {
 // Calls whose transcript is already in but whose lead has no recording link yet (it arrives after the call): look again every 30 minutes for two days
 async function pullRecordings(env) {
   if (!env.CALLRAIL_API_TOKEN || !env.CALLRAIL_ACCOUNT_ID || !env.DB) return;
-  const rows = (await env.DB.prepare("SELECT n.call_id, n.lead_id FROM call_notes n JOIN leads l ON l.id = n.lead_id WHERE n.done = 1 AND n.next_try <= datetime('now') AND n.created_at >= datetime('now','-2 days') AND COALESCE(l.recording,'') = '' LIMIT 3").all()).results || [];
+  const rows = (await env.DB.prepare("SELECT n.call_id, n.lead_id, n.direction FROM call_notes n WHERE n.done = 1 AND n.next_try <= datetime('now') AND n.created_at >= datetime('now','-2 days') AND NOT EXISTS (SELECT 1 FROM call_recordings r WHERE r.call_id = n.call_id AND r.url != '') LIMIT 3").all()).results || [];
   for (const row of rows) {
     try {
       await env.DB.prepare("UPDATE call_notes SET next_try = datetime('now','+30 minutes') WHERE call_id = ?").bind(row.call_id).run();
@@ -327,9 +337,14 @@ async function pullRecordings(env) {
       if (!r.ok) continue;
       const c = await r.json().catch(() => ({}));
       const rec = clean(c.recording_player || c.recording || "", 500);
-      if (rec) await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = ?").bind(rec, row.lead_id).run();
+      if (rec) { await env.DB.prepare("UPDATE leads SET recording = ? WHERE id = ?").bind(rec, row.lead_id).run(); await saveRecording(env, { callId: row.call_id, leadId: row.lead_id, direction: row.direction || "outbound", url: rec, duration: num(c.duration) }); }
     } catch (e) { console.error("recording check error", e && e.message); }
   }
+}
+async function callRecordings(env, id) {
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare("SELECT call_id, direction, url, duration, at FROM call_recordings WHERE lead_id = ? AND url != '' ORDER BY at DESC LIMIT 50").bind(id).all()).results || [];
+  return rows.map(r => ({ call_id: r.call_id, direction: r.direction, url: r.url, duration: r.duration, at: when(r.at).abs }));
 }
 async function callNotes(env, id) {
   await ensureTable(env.DB);
@@ -581,8 +596,9 @@ async function handleCallrail(request, env, url, ctx) {
     // CallRail sends the webhook again when a call is updated (recording ready, tags) and a Pre-Call lead is finished by the Post-Call one: keep the person's edits, refresh call facts
     const prev = await env.DB.prepare("SELECT answered, message, gclid, gbraid, wbraid, page, utm_source, utm_campaign, name FROM leads WHERE id = ?").bind(existing.id).first() || {};
     const keep = (a, b) => a || b || "";
-    await env.DB.prepare("UPDATE leads SET duration = ?, recording = ?, answered = ?, message = ?, name = ?, gclid = ?, gbraid = ?, wbraid = ?, page = ?, utm_source = ?, utm_campaign = ? WHERE id = ?")
+    await env.DB.prepare("UPDATE leads SET duration = ?, recording = COALESCE(NULLIF(?, ''), recording), answered = ?, message = ?, name = ?, gclid = ?, gbraid = ?, wbraid = ?, page = ?, utm_source = ?, utm_campaign = ? WHERE id = ?")
       .bind(row.duration, row.recording, row.answered, keep(prev.message, row.message), keep(prev.name, row.name), keep(prev.gclid, row.gclid), keep(prev.gbraid, row.gbraid), keep(prev.wbraid, row.wbraid), keep(prev.page, row.page), keep(prev.utm_source, row.utm_source), keep(prev.utm_campaign, row.utm_campaign), existing.id).run();
+    if (row.recording) await saveRecording(env, { callId: row.call_id, leadId: existing.id, direction: "inbound", url: row.recording, duration: row.duration, at: row.created });
     if (prev.answered === null && row.answered !== null) {
       if (row.call_id && row.answered === 1 && (row.duration || 0) >= 20) ctx.waitUntil(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(row.call_id, existing.id, "inbound").run().catch(() => {}));
       ctx.waitUntil(notifyCall(env, { id: existing.id, name: keep(prev.name, row.name), phone: row.phone, answered: row.answered, message: keep(prev.message, row.message), utm_source: keep(prev.utm_source, row.utm_source), utm_campaign: keep(prev.utm_campaign, row.utm_campaign), recording: row.recording }, url.origin, false));
@@ -593,6 +609,7 @@ async function handleCallrail(request, env, url, ctx) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(row.created, "call", row.name, row.phone, row.message, row.page, row.referrer, row.gclid, row.gbraid, row.wbraid, row.utm_source, row.utm_medium, row.utm_campaign, row.utm_term, row.call_id, row.duration, row.recording, row.answered, row.tracking, "").run();
   if (insC.meta && insC.meta.last_row_id) {
+    if (row.recording) ctx.waitUntil(saveRecording(env, { callId: row.call_id, leadId: insC.meta.last_row_id, direction: "inbound", url: row.recording, duration: row.duration, at: row.created }));
     ctx.waitUntil(linkByPhone(env, insC.meta.last_row_id).catch(() => {}));
     // an answered call longer than 20 seconds gets its summary and transcript pulled once CallRail has produced them
     if (row.call_id && row.answered === 1 && (row.duration || 0) >= 20) ctx.waitUntil(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(row.call_id, insC.meta.last_row_id, "inbound").run().catch(() => {}));
@@ -1212,6 +1229,7 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   (l.message?'<p class="msg">&ldquo;'+$(l.message)+'&rdquo;</p>':'')+
   '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+'</div>'+
   ed+
+  '<div id="cr"></div>'+
   '<div id="cn"></div>'+
   '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time'+(l.appt_at?' (saved)':'')+'</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
   '<div><label>Stage</label><div class="chips" id="fchips">'+S.map(([k,n])=>'<button type="button" data-k="'+k+'" class="'+(k===l.stage?'on':'')+'">'+n+'</button>').join('')+'</div></div><div><label>Next step <span id="fuh" style="text-transform:none;letter-spacing:0;color:#586069"></span></label><div class="fu-chips" id="fuc"></div></div><div class="g2"><div><label>Follow up on</label><input id="fd" type="date" value="'+$(l.follow_up_date||'')+'" style="color-scheme:dark"></div><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
@@ -1219,6 +1237,9 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   ((l.log&&l.log.length)?'<div><label>Stage history</label><ul class="hist">'+l.log.map(h=>'<li><b>'+(h.from_stage===h.to_stage?$(h.reason||'Update'):$(SN(h.from_stage))+' \u2192 '+$(SN(h.to_stage))+'</b>'+(h.reason&&h.reason!=='Moved'?': '+$(h.reason):''))+(h.from_stage===h.to_stage?'</b>':'')+'<small>'+$(h.at==='now'?'just now':h.at)+'</small></li>').join('')+'</ul></div>':'')+
   '<div class="acts"><button class="btn go" id="fsave">Save</button>'+(IS_OWNER?'<button class="btn ghost" id="fdel" type="button">Delete lead</button>':'')+'</div></div>';
   dlg.showModal();
+  fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const c=document.getElementById('cr');if(!c||dlg.dataset.id!=String(l.id)||!j.recordings||!j.recordings.length)return;
+    const mmss=n=>n==null?'':Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
+    c.innerHTML='<label>Recordings ('+j.recordings.length+')</label>'+j.recordings.map(r=>'<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin:6px 0;padding:8px 10px;background:#0d1116;border:1px solid #232932;border-radius:10px"><span style="font-size:14px">'+(r.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(r.at)+(r.duration!=null?' &middot; '+mmss(r.duration):'')+'</span><a class="rec" href="'+$(r.url)+'" target="_blank" rel="noopener" style="white-space:nowrap">Listen</a></div>').join('')});
   fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const b=document.getElementById('cn');if(!b||dlg.dataset.id!=String(l.id)||!j.notes||!j.notes.length)return;b.innerHTML='<label>Call summary and transcript</label>'+j.notes.map(n=>'<div style="margin:6px 0 10px"><b style="font-size:13px">'+(n.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(n.at)+'</b>'+(n.summary?'<p style="margin:6px 0">'+$(n.summary)+'</p>':'')+(n.transcript?'<details><summary style="cursor:pointer;color:#32cd32">Transcript</summary><pre style="white-space:pre-wrap;font:13px/1.5 system-ui;color:#c3c8cf;margin:6px 0">'+$(n.transcript)+'</pre></details>':'')+(!n.summary&&!n.transcript?'<p style="color:#8a9099;margin:6px 0">'+(n.done?'No transcript was available for this call (CallRail Conversation Intelligence may not be turned on).':'Transcript is being prepared (usually a few minutes)...')+'</p>':'')+'</div>').join('')}).catch(()=>{});
   const tp=document.getElementById('tp'),tb=document.getElementById('tb');
   const ap=document.getElementById('tap'),ad=document.getElementById('tad');
@@ -2000,12 +2021,12 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
   const user = typeof a === "string" ? a : "";
-  if (p === "/admin/calls") { const id = Number(new URL(request.url).searchParams.get("id")); return Number.isInteger(id) ? json({ success: true, notes: await callNotes(env, id) }) : json({ success: false }, 400); }
+  if (p === "/admin/calls") { const id = Number(new URL(request.url).searchParams.get("id")); return Number.isInteger(id) ? json({ success: true, notes: await callNotes(env, id), recordings: await callRecordings(env, id) }) : json({ success: false }, 400); }
   if (p === "/admin/delete" && request.method === "POST") {
     if (a !== OWNER) return json({ success: false, message: "Only the owner login can delete leads." }, 403);
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id)) return json({ success: false }, 400);
-    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM dial_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM call_notes WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM queue_items WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM leads WHERE id = ?").bind(b.id)]);
+    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM dial_log WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM call_notes WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM queue_items WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM call_recordings WHERE lead_id = ?").bind(b.id), env.DB.prepare("DELETE FROM leads WHERE id = ?").bind(b.id)]);
     return json({ success: true });
   }
   if (p === "/admin/purge" && request.method === "POST") {
@@ -2014,7 +2035,7 @@ async function adminRoute(p, request, env) {
     const b = await request.json().catch(() => ({}));
     if (b.confirm !== "DELETE") return json({ success: false, message: "Confirmation word missing." }, 400);
     const n = (await env.DB.prepare("SELECT COUNT(*) n FROM leads").first() || {}).n || 0;
-    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log"), env.DB.prepare("DELETE FROM dial_log"), env.DB.prepare("DELETE FROM hook_log"), env.DB.prepare("DELETE FROM call_notes"), env.DB.prepare("DELETE FROM queue_items"), env.DB.prepare("DELETE FROM queue_run"), env.DB.prepare("DELETE FROM leads")]);
+    await env.DB.batch([env.DB.prepare("DELETE FROM stage_log"), env.DB.prepare("DELETE FROM dial_log"), env.DB.prepare("DELETE FROM hook_log"), env.DB.prepare("DELETE FROM call_notes"), env.DB.prepare("DELETE FROM queue_items"), env.DB.prepare("DELETE FROM queue_run"), env.DB.prepare("DELETE FROM call_recordings"), env.DB.prepare("DELETE FROM leads")]);
     return json({ success: true, deleted: n });
   }
   if (p === "/admin/verifyshop" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); const res = await verifyShopNumber(env, await request.json().catch(() => ({}))); return json({ success: res.ok, ...res }); }
