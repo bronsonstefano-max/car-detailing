@@ -40,7 +40,13 @@ const FOLLOWUPS = {
   lost: [["Follow up later", null], ["Customer came back", "contacted"]],
 };
 
-async function ensureTable(db) {
+// the table setup and upgrades are dozens of database round trips: do them once per worker instance, not on every page and every poll
+let schemaReady = null;
+function ensureTable(db) {
+  if (!schemaReady) schemaReady = ensureTableRun(db).catch(e => { schemaReady = null; throw e; });
+  return schemaReady;
+}
+async function ensureTableRun(db) {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS leads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1055,7 +1061,7 @@ function draw(s){if(!s){bar.innerHTML='';return}
   bar.innerHTML=(s.eligible?'<button id="qgo" type="button" style="'+bs+'background:#32cd32;color:#04120a">Start calling ('+s.eligible+')</button>':'')+(s.note?'<span style="color:#98a0aa">'+qe(s.note)+'</span>':'');
   const go=document.getElementById('qgo');if(go)go.onclick=async e=>{if(!confirm('Your phone will ring first. Press 1 to connect, and the next new lead is called when each call ends. Start calling '+s.eligible+' lead'+(s.eligible===1?'':'s')+'?'))return;e.target.disabled=true;const r=await fetch('/admin/queue/start',{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok&&j.message)alert(j.message);refresh()}}
 async function refresh(){draw(await get())}
-refresh().then(()=>{if(location.hash==='#start'){const g=document.getElementById('qgo');if(g)g.click()}});setInterval(()=>{if(!document.hidden)refresh()},6000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+refresh().then(()=>{if(location.hash==='#start'){const g=document.getElementById('qgo');if(g)g.click()}});setInterval(()=>{if(!document.hidden)refresh()},12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 })();`;
 const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
 const OUTCOME_JS = `
@@ -1104,7 +1110,9 @@ async function sub(){let step='checking the app file';try{const t=await fetch('/
 async function refresh(){
   if(!ok){if(ios&&!standalone)show('Get alerts: add to Home Screen','help');return}
   if(Notification.permission==='denied'){show('Alerts blocked','off');return}
-  if(Notification.permission==='granted'){try{await sub();show('Alerts on','on')}catch(_){show('Enable alerts','act')}return}
+  if(Notification.permission==='granted'){let t=0;try{t=+localStorage.getItem('dd_push_ok')||0}catch(_){}
+    if(Date.now()-t<864e5){show('Alerts on','on');return}
+    try{await sub();try{localStorage.setItem('dd_push_ok',String(Date.now()))}catch(_){}show('Alerts on','on')}catch(_){show('Enable alerts','act')}return}
   show('Enable alerts','act')}
 b.onclick=async()=>{const s=b.dataset.s;
   if(s==='help'){alert('To get alerts on an iPhone: tap the Share button, choose Add to Home Screen, then open the app from your Home Screen and tap Enable alerts.');return}
@@ -1232,7 +1240,7 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 .top{display:flex;justify-content:space-between;gap:10px}h3{margin:0;font-size:17px}.when{color:#8a9099;font-size:12.5px;margin-top:2px}
 .tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}.tag{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#171c23;color:#aab0b9;white-space:nowrap}
 .tag.ad{background:#14263f;color:#8ec0ff}.tag.call{background:#2a1f3d;color:#c9a8ff}.tag.fu{background:#2a1f3d;color:#c9a8ff}.tag.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}.rec{color:#8ec0ff;font-size:13px}.tag.hot{background:#32cd32;color:#04120a;font-weight:700}.tag.ok{background:#1a2a1c;color:#7fe07f}.tag.nl{background:#2b2411;color:#f0c050}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:1px}small{display:block;color:#8a9099}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:1px}small{display:block;color:#8a9099}
 .msg{margin:0;background:#10141a;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de;white-space:pre-line}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 13px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
 .btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#1d2630}.btn.ghost{color:#8a9099}
@@ -1242,10 +1250,10 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
   .stats{width:100%;gap:8px}.stat{flex:1;padding:8px 10px}
   .tools{position:sticky;top:0;z-index:6;background:rgba(7,9,12,.97);padding:10px 14px;flex-wrap:nowrap;overflow-x:auto;gap:8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}.tools::-webkit-scrollbar{display:none}
   input[type=search]{flex:0 0 62vw;min-width:0;font-size:16px;padding:12px 14px}.chip,.csv{flex:0 0 auto;white-space:nowrap;min-height:44px;padding:0 16px;display:inline-flex;align-items:center}
-  main{grid-template-columns:1fr;padding:6px 14px 20px;gap:12px}.lead{padding:14px;gap:12px}
-  .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.actions .call{grid-column:1/-1;text-align:center;padding:14px;font-size:16px}
+  main{grid-template-columns:minmax(0,1fr);padding:6px 14px 20px;gap:12px}.lead{padding:14px;gap:12px;min-width:0;overflow-wrap:anywhere}.lead select,.lead .btn{min-width:0;max-width:100%}
+  .actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}.actions .call{grid-column:1/-1;text-align:center;padding:14px;font-size:16px}
   .actions .btn,.actions select{min-height:46px;font-size:15px;text-align:center;display:flex;align-items:center;justify-content:center}.actions select.stage{text-align:left;display:block}
-  .grid{grid-template-columns:1fr 1fr}
+  .grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 }
 </style></head>
 <body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc, user === OWNER)}
@@ -1297,14 +1305,14 @@ details.ed{border:1px solid #232a33;border-radius:12px;padding:10px 12px}details
 .empty{color:#586069;font-size:13px;text-align:center;padding:14px 0}
 dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(520px,94vw);max-height:92vh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.65)}
 .dh{display:flex;justify-content:space-between;gap:10px;padding:18px 20px 6px}.dh h3{margin:0;font-size:20px}.x{background:none;border:0;color:#8a9099;font-size:26px;cursor:pointer;line-height:1}
-.db{padding:6px 20px 20px;display:flex;flex-direction:column;gap:12px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:2px}
+.db{padding:6px 20px 20px;display:flex;flex-direction:column;gap:12px}.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 14px}label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:2px}
 .msg{margin:0;background:#12171e;border-left:3px solid #32cd32;padding:10px 12px;border-radius:0 8px 8px 0;color:#d6d9de;white-space:pre-line}
 select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit}textarea{min-height:84px;resize:vertical}
 .acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}.btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#32cd32;border-color:#32cd32;color:#04120a;margin-left:auto}
 ${BNAV_CSS}
 ${FOLLOW_CSS}
 .rp{display:flex;flex-direction:column;gap:8px}.next{margin-top:8px;font-size:13px;color:#c9a8ff}.next.late{color:#ff9a9a;font-weight:700}
-.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}.sum2{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}.sum2 b{display:block;font-size:16px;font-weight:700}.sum2 small{display:block;color:#8a9099;font-size:12.5px;margin-top:2px}
+.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}.sum2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 16px}.sum2 b{display:block;font-size:16px;font-weight:700}.sum2 small{display:block;color:#8a9099;font-size:12.5px;margin-top:2px}
 .src{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:7px}.srch{display:flex;align-items:center;gap:10px;margin-bottom:2px}.spill{font-size:12px;font-weight:700;letter-spacing:.04em;padding:3px 10px;border-radius:999px;background:#171c23;color:#c3c8cf}.spill.ad{background:#14263f;color:#8ec0ff}.sm{color:#7c838d;font-size:12.5px}
 .kvr{display:grid;grid-template-columns:84px 1fr;gap:10px;font-size:13.5px;align-items:baseline}.kvr span{color:#7c838d;font-size:12px;text-transform:uppercase;letter-spacing:.06em}.kvr b{font-weight:600;color:#dfe3e8;overflow-wrap:anywhere}
 .fans{display:flex;flex-direction:column;gap:6px;border-left:3px solid #32cd32;padding:2px 0 2px 12px}.fanr span{display:block;color:#8a9099;font-size:12.5px}.fanr b{font-size:15px;font-weight:600}
@@ -1322,7 +1330,7 @@ ${FOLLOW_CSS}
   .tab i{font-style:normal;background:#1c222a;color:#aab0b9;border-radius:999px;padding:1px 8px;font-size:12px}.tab.on{background:#32cd32;border-color:#32cd32;color:#04120a}.tab.on i{background:rgba(0,0,0,.18);color:#04120a}
   .board{display:block;padding:12px 14px 24px;overflow:visible}.col{max-width:none;border:0;background:none}.col h2{padding:4px 2px 10px}.cards{padding:0;overflow:visible;gap:12px}
   .card{padding:14px;cursor:pointer}.card b{font-size:17px}.card .meta{font-size:14px}.card .row{font-size:13px;margin-top:10px}.pill{font-size:12px;padding:3px 9px}
-  .qa{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.qa a,.qa button{min-height:46px;border-radius:11px;border:1px solid #2a313a;background:#151a21;color:#e8eaed;font:inherit;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center;cursor:pointer}.qa .call{background:#32cd32;border-color:#32cd32;color:#04120a}
+  .qa{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:12px}.qa a,.qa button{min-height:46px;border-radius:11px;border:1px solid #2a313a;background:#151a21;color:#e8eaed;font:inherit;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center;cursor:pointer}.qa .call{background:#32cd32;border-color:#32cd32;color:#04120a}
   dialog{width:100vw;max-width:100vw;margin:auto 0 0;border-radius:18px 18px 0 0;max-height:94vh}
   .db{padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}.dh h3{font-size:21px}.x{font-size:34px;padding:0 8px;min-height:44px}
   select,input,textarea{font-size:16px;min-height:48px}textarea{min-height:100px}.btn{min-height:48px}.btn{display:flex;align-items:center;justify-content:center}.acts .btn{flex:1}.acts .btn.call{flex:1 1 100%;font-size:17px}
@@ -1882,7 +1890,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;mar
 .row label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}.row .rt{font-weight:700}.rt.fast{color:#32cd32}.rt.slow{color:#ffb86b}.rt.vslow{color:#ff8a8a}.pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#171c23;color:#aab0b9;margin-left:6px}.pill.ad{background:#14263f;color:#8ec0ff}.pill.ah{background:#2a1f3d;color:#c9a8ff}
 .empty{color:#8a9099;padding:24px 0;text-align:center}.note{color:#7c838d;font-size:12.5px}
 ${BNAV_CSS}
-@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}.row{grid-template-columns:1fr 1fr}.row .n{grid-column:1/-1}}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}.row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.row .n{grid-column:1/-1}}
 </style></head><body>
 <header><h1>Divine Detailers <b>speed to lead</b></h1>${nav("speed", tc, true)}</header>
 ${bnav("speed", tc, true)}
@@ -2222,7 +2230,7 @@ section.miss h2{color:#ff9a9a}section.late h2{color:#ffb86b}section.new h2{color
 .empty{color:#7c838d;padding:10px 0}.all{text-align:center;padding:50px 0;color:#8a9099}.all b{display:block;color:#32cd32;font-size:20px;margin-bottom:6px}
 ${BNAV_CSS}
 ${FOLLOW_CSS}
-@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:4px 14px 20px;gap:18px}.acts{display:grid;grid-template-columns:1fr 1fr}.acts .call{grid-column:1/-1;font-size:17px;padding:14px}}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:4px 14px 20px;gap:18px}.acts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.acts .call{grid-column:1/-1;font-size:17px;padding:14px}}
 </style></head><body>
 <header><h1>Divine Detailers <b>today</b></h1>${nav("today", items.length, user === OWNER)}<span class="dt"><span id="dt"></span> &middot; <a href="/logout" style="color:#8a9099">Sign out</a></span></header>
 ${bnav("today", items.length, user === OWNER)}
