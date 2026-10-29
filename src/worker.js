@@ -24,7 +24,7 @@ const MAX = { default: 300, message: 4000 };
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["lost", "Lost"]];
+const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["aged", "7 day +"], ["lost", "Lost"]];
 const STAGE_KEYS = STAGES.map(x => x[0]);
 const isNewish = st => st === "new" || st === "nocontact"; // still needs its first real conversation
 // What can happen next at each stage: [label, stage it moves the lead to (or null to stay)]
@@ -36,6 +36,7 @@ const FOLLOWUPS = {
   booked: [["Drop-off confirmed", null], ["Rescheduled", null], ["Car dropped off", "working"], ["Cancelled", "lost"]],
   working: [["Work in progress", null], ["Waiting on film or parts", null], ["Customer update sent", null], ["Work finished, ready for pickup", "done"]],
   done: [["Paid in full", null], ["Asked for a review", null], ["Review received", null], ["Wants more work", "contacted"]],
+  aged: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Spoke to the customer", "contacted"], ["Wrong number or spam", "lost"]],
   lost: [["Follow up later", null], ["Customer came back", "contacted"]],
 };
 
@@ -1028,7 +1029,7 @@ const TEMPLATES = [
   { id: "checkin", label: "Checking in", subject: "Checking in", body: "Hi {first}, just checking in. Still thinking about {service}? Glad to answer any questions." },
 ];
 // which templates to suggest first, by stage
-const TPL_BY_STAGE = { new: ["first", "missed"], contacted: ["quote", "scheduled", "checkin"], quoted: ["quote", "scheduled", "invoice", "checkin"], booked: ["reminder", "scheduled", "booked"], working: ["ready"], done: ["review"], lost: ["checkin"] };
+const TPL_BY_STAGE = { new: ["first", "missed"], contacted: ["quote", "scheduled", "checkin"], quoted: ["quote", "scheduled", "invoice", "checkin"], booked: ["reminder", "scheduled", "booked"], working: ["ready"], done: ["review"], aged: ["first", "checkin"], lost: ["checkin"] };
 const TPL_JS = `
 const TPL=${JSON.stringify(TEMPLATES)},TBS=${JSON.stringify(TPL_BY_STAGE)};
 function tplFill(t,l,appt){const veh=[l.year,l.make,l.model].filter(Boolean).join(' ')||'your vehicle',first=(l.name||'').trim().split(/\\s+/)[0];
@@ -1160,7 +1161,7 @@ h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.nav
 .board{flex:1;display:flex;gap:12px;padding:14px 22px 22px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
 .col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
 .col.over{border-color:#32cd32;background:#0d140f}.col h2{font-size:13px;margin:0;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;text-transform:uppercase;letter-spacing:.7px;color:#c3c8cf}
-.col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-done h2{color:#7fe07f}
+.col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-aged h2{color:#ffb86b}.col.s-done h2{color:#7fe07f}
 .cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
 .card{background:#12171e;border:1px solid #232a33;border-radius:11px;padding:11px 12px;cursor:grab}.card:hover{border-color:#3a4552}.card.drag{opacity:.4}
 .card b{display:block;font-size:15px}.card .meta{color:#98a0aa;font-size:13px;margin-top:2px}.card .row span:first-child{white-space:nowrap}.card .row{display:flex;justify-content:space-between;gap:8px;margin-top:8px;align-items:center;color:#7c838d;font-size:12px}
@@ -1342,6 +1343,18 @@ function reminderTime(d) {
   if (r < now + 30 * 6e4) r = d.getTime() - 2 * 36e5;
   return r < now + 6e4 ? null : new Date(r);
 }
+// Leads still New, Not contacted or Contacted after 7 days move to the "7 day +" stage once (a person can move them back and they stay put)
+async function ageLeads(env) {
+  if (!env.DB) return;
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare(`SELECT l.id, l.stage FROM leads l WHERE l.stage IN ('new','nocontact','contacted') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND l.created_at <= datetime('now','-7 days')
+    AND NOT EXISTS (SELECT 1 FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Moved to 7 day +%') LIMIT 200`).all()).results || [];
+  if (!rows.length) return;
+  await env.DB.batch(rows.flatMap(r => [
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?, ?, 'aged', 'Moved to 7 day +: more than 7 days since the lead came in', 'system')").bind(r.id, r.stage),
+    env.DB.prepare("UPDATE leads SET stage = 'aged', stage_changed_at = datetime('now') WHERE id = ? AND stage = ?").bind(r.id, r.stage),
+  ]));
+}
 async function remindAppointments(env) {
   if (!env.DB) return;
   await ensureTable(env.DB);
@@ -1392,6 +1405,7 @@ export default {
     ctx.waitUntil(pullRecordings(env).catch(e => console.error("recording error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
     ctx.waitUntil(runQueue(env).catch(e => console.error("queue error", e && e.message)));
+    ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
   },
   async fetch(request, env, ctx) {
