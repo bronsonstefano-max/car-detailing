@@ -13,9 +13,10 @@
 //   CALL_WEBHOOK_URL  (secret, optional)       same as LEAD_WEBHOOK_URL but only for calls (its own Zap); calls use LEAD_WEBHOOK_URL when this is not set
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
-// every window tint lead is a ceramic tint lead, and starts with this job value so the pipeline total means something before a price is quoted
+// default job values (tint $349, ceramic coating $599) so the pipeline total means something before a price is quoted
 const CERAMIC_TINT_VALUE = 349;
-const defaultValue = service => (/tint/i.test(service || "") ? CERAMIC_TINT_VALUE : 0);
+const CERAMIC_COATING_VALUE = 599;
+const defaultValue = service => (/tint/i.test(service || "") ? CERAMIC_TINT_VALUE : /coating/i.test(service || "") ? CERAMIC_COATING_VALUE : 0);
 const FIELDS = ["name", "email", "phone", "service", "also_interested", "make", "year", "model", "message"];
 const MAX = { default: 300, message: 4000 };
 
@@ -98,6 +99,8 @@ async function ensureTable(db) {
   ]);
   const flag = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('tint_value_349')").run();
   if (flag.meta && flag.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%tint%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_TINT_VALUE).run();
+  const flag2 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('coating_value_599')").run();
+  if (flag2.meta && flag2.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%coating%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_COATING_VALUE).run();
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
