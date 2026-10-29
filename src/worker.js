@@ -183,6 +183,17 @@ function callConnected(env, c) {
   const limit = Number(env.DIAL_CONNECT_SECS) > 0 ? Number(env.DIAL_CONNECT_SECS) : 40;
   return bool(c.answered) === 1 || bool(c.voicemail) === 1 || (num(c.talk_time) || 0) > 0 || (num(c.recording_duration) || 0) > 0 || (num(c.duration) || 0) >= limit;
 }
+const contactMinSecs = env => Number(env.CONTACT_MIN_SECS) || 45;
+// an answered inbound call longer than that also counts as contact
+async function inboundContact(env, leadId, row) {
+  if (row.answered !== 1 || /voicemail/i.test(row.message || "") || !((row.duration || 0) > contactMinSecs(env))) return;
+  const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
+  if (!cur || !isNewish(cur.stage)) return;
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(leadId, cur.stage, "contacted", `Call longer than ${contactMinSecs(env)} seconds (${Math.floor(row.duration / 60)}:${String(row.duration % 60).padStart(2, "0")})`, "system"),
+    env.DB.prepare("UPDATE leads SET stage = 'contacted', contacted = 1, stage_changed_at = datetime('now') WHERE id = ?").bind(leadId),
+  ]);
+}
 // every recording is kept in a list per lead (the lead's own `recording` field only holds the latest one)
 async function saveRecording(env, { callId, leadId, direction, url, duration, at }) {
   if (!callId || !leadId || !url) return;
@@ -214,9 +225,10 @@ async function handleOutbound(env, c, ctx) {
   const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
   if (!cur) return json({ success: true, ignored: true });
   const leadAnswered = answered && !vm;
-  // a call never moves the lead: the agent decides (moves it by hand, or answers "Did they answer?" with Answered)
-  const target = cur.stage;
-  const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, target, reason, when, by);
+  // a call does not move the lead by itself, except a connected call longer than CONTACT_MIN_SECS (45 seconds): that is a real conversation.
+  // Otherwise the agent decides (moves it by hand, or answers "Did they answer?" with Answered).
+  const target = isNewish(cur.stage) && dialed && !vm && dur > contactMinSecs(env) ? "contacted" : cur.stage;
+  const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, cur.stage, reason, when, by);
   const willRetry = !dialed && !!dl && dl.source === "auto" && dl.attempt === 1 && !dl.retried && dialOn(env) && env.AUTO_DIAL === "1" && env.AUTO_DIAL_RETRY !== "0" && isNewish(cur.stage);
   // a first ring that "failed" within a minute is not acted on yet: the per-minute check decides once the call has had time to ring out (about 100 seconds), so the agent is never rung twice in quick succession
   if (!dialed && dl && dl.source === "auto" && dl.attempt === 1 && !dl.retried && dl.age < 60) return json({ success: true, deferred: true });
@@ -225,6 +237,10 @@ async function handleOutbound(env, c, ctx) {
     stmts.push(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(callId, leadId, "outbound"));
     stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
     stmts.push(row("Call result: CallRail reported " + (vm ? "voicemail" : answered ? "answered" : "no answer"), at));
+    if (target !== cur.stage) {
+      stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, target, `Call longer than ${contactMinSecs(env)} seconds (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})`, at, "system"));
+      stmts.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = 1, stage_changed_at = datetime('now') WHERE id = ?").bind(target, leadId));
+    }
   } else if ((dl && dl.retried) || willRetry) stmts.push(row("Auto-dial: first ring not answered, ringing the agent again", at));
   else stmts.push(row((dl && dl.source === "auto" ? "Agent missed the auto-dial" : "Call not connected") + " (did not answer or did not press 1, so the lead was not called)" + (dl && dl.attempt > 1 ? " after two rings" : ""), at));
   await env.DB.batch(stmts);
@@ -621,6 +637,7 @@ async function handleCallrail(request, env, url, ctx) {
     await env.DB.prepare("UPDATE leads SET duration = ?, recording = COALESCE(NULLIF(?, ''), recording), answered = ?, message = ?, name = ?, gclid = ?, gbraid = ?, wbraid = ?, page = ?, utm_source = ?, utm_campaign = ? WHERE id = ?")
       .bind(row.duration, row.recording, row.answered, keep(prev.message, row.message), keep(prev.name, row.name), keep(prev.gclid, row.gclid), keep(prev.gbraid, row.gbraid), keep(prev.wbraid, row.wbraid), keep(prev.page, row.page), keep(prev.utm_source, row.utm_source), keep(prev.utm_campaign, row.utm_campaign), existing.id).run();
     if (row.recording) await saveRecording(env, { callId: row.call_id, leadId: existing.id, direction: "inbound", url: row.recording, duration: row.duration, at: row.created });
+    await inboundContact(env, existing.id, row).catch(() => {});
     if (prev.answered === null && row.answered !== null) {
       if (row.call_id && row.answered === 1 && (row.duration || 0) >= 20) ctx.waitUntil(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(row.call_id, existing.id, "inbound").run().catch(() => {}));
       ctx.waitUntil(notifyCall(env, { id: existing.id, name: keep(prev.name, row.name), phone: row.phone, answered: row.answered, message: keep(prev.message, row.message), utm_source: keep(prev.utm_source, row.utm_source), utm_campaign: keep(prev.utm_campaign, row.utm_campaign), recording: row.recording }, url.origin, false));
@@ -632,6 +649,7 @@ async function handleCallrail(request, env, url, ctx) {
     .bind(row.created, "call", row.name, row.phone, row.message, row.page, row.referrer, row.gclid, row.gbraid, row.wbraid, row.utm_source, row.utm_medium, row.utm_campaign, row.utm_term, row.call_id, row.duration, row.recording, row.answered, row.tracking, "").run();
   if (insC.meta && insC.meta.last_row_id) {
     if (row.recording) ctx.waitUntil(saveRecording(env, { callId: row.call_id, leadId: insC.meta.last_row_id, direction: "inbound", url: row.recording, duration: row.duration, at: row.created }));
+    await inboundContact(env, insC.meta.last_row_id, row).catch(() => {});
     ctx.waitUntil(linkByPhone(env, insC.meta.last_row_id).catch(() => {}));
     // an answered call longer than 20 seconds gets its summary and transcript pulled once CallRail has produced them
     if (row.call_id && row.answered === 1 && (row.duration || 0) >= 20) ctx.waitUntil(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(row.call_id, insC.meta.last_row_id, "inbound").run().catch(() => {}));
