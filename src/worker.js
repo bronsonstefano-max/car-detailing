@@ -82,6 +82,7 @@ async function ensureTable(db) {
       db.prepare("ALTER TABLE leads ADD COLUMN follow_up_date TEXT"),
     ]);
   }
+  if (!cols.includes("appt_at")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN appt_at TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN appt_remind_at TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN appt_reminded INTEGER NOT NULL DEFAULT 0")]);
   if (!cols.includes("call_id")) {
     await db.batch([
       db.prepare("ALTER TABLE leads ADD COLUMN call_id TEXT"),
@@ -968,6 +969,7 @@ const TEMPLATES = [
   { id: "first", label: "First reply", subject: "Your ceramic tint request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic tint for your car.\n\nOur tint keeps your ride cooler, protected, and more private, with a clean, factory look. We've got a special running with limited spots, when would you like to get it done?" },
   { id: "first_coating", label: "First reply (ceramic coating)", subject: "Your ceramic coating request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic coating for your car.\n\nOur ceramic coating adds a deep, glossy finish, protects your paint, and makes every wash easier. When would you like to get it done?" },
   { id: "scheduled", label: "Scheduled", subject: "Your appointment with {shop}", body: "Hi {first}, you are scheduled! Your {service} appointment for {vehicle} is set for {appointment}. We are at {address}. Reply here if you need to change anything." },
+  { id: "reminder", label: "Appointment reminder", subject: "Reminder: your appointment with {shop}", body: "Hi {first}, a quick reminder about your {service} appointment for {vehicle} on {appointment}. We are at {address}. See you then!" },
   { id: "missed", label: "Sorry we missed your call", subject: "Sorry we missed your call", body: "Hi {first}, sorry we missed your call! This is {shop}. What can we help you with? Reply here or call us back at {phone}." },
   { id: "quote", label: "Quote follow-up", subject: "Following up on your {service} quote", body: "Hi {first}, just following up on the {service} quote for {vehicle}. Any questions I can answer? Happy to get you on the schedule." },
   { id: "invoice", label: "Invoice sent", subject: "Your invoice from {shop}", body: "Hi {first}, your invoice for {service} on {vehicle} is on its way. Let us know when you have seen it and we will lock in your date." },
@@ -977,7 +979,7 @@ const TEMPLATES = [
   { id: "checkin", label: "Checking in", subject: "Checking in", body: "Hi {first}, just checking in. Still thinking about {service}? Glad to answer any questions." },
 ];
 // which templates to suggest first, by stage
-const TPL_BY_STAGE = { new: ["first", "missed"], contacted: ["quote", "scheduled", "checkin"], quoted: ["quote", "scheduled", "invoice", "checkin"], booked: ["scheduled", "booked"], working: ["ready"], done: ["review"], lost: ["checkin"] };
+const TPL_BY_STAGE = { new: ["first", "missed"], contacted: ["quote", "scheduled", "checkin"], quoted: ["quote", "scheduled", "invoice", "checkin"], booked: ["reminder", "scheduled", "booked"], working: ["ready"], done: ["review"], lost: ["checkin"] };
 const TPL_JS = `
 const TPL=${JSON.stringify(TEMPLATES)},TBS=${JSON.stringify(TPL_BY_STAGE)};
 function tplFill(t,l,appt){const veh=[l.year,l.make,l.model].filter(Boolean).join(' ')||'your vehicle',first=(l.name||'').trim().split(/\\s+/)[0];
@@ -1094,7 +1096,7 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
+  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
   const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
   const byLead = {}; for (const g of logs) (byLead[g.lead_id] = byLead[g.lead_id] || []).push(g);
   const data = results.map(l => ({ ...l, followup: l.follow_up || "", log: (byLead[l.id] || []).map(g => ({ ...g, at: when(g.at).abs })), dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
@@ -1201,7 +1203,7 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+'</div>'+
   ed+
   '<div id="cn"></div>'+
-  '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
+  '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time'+(l.appt_at?' (saved)':'')+'</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
   '<div><label>Stage</label><div class="chips" id="fchips">'+S.map(([k,n])=>'<button type="button" data-k="'+k+'" class="'+(k===l.stage?'on':'')+'">'+n+'</button>').join('')+'</div></div><div><label>Next step <span id="fuh" style="text-transform:none;letter-spacing:0;color:#586069"></span></label><div class="fu-chips" id="fuc"></div></div><div class="g2"><div><label>Follow up on</label><input id="fd" type="date" value="'+$(l.follow_up_date||'')+'" style="color-scheme:dark"></div><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
   ((l.log&&l.log.length)?'<div><label>Stage history</label><ul class="hist">'+l.log.map(h=>'<li><b>'+(h.from_stage===h.to_stage?$(h.reason||'Update'):$(SN(h.from_stage))+' \u2192 '+$(SN(h.to_stage))+'</b>'+(h.reason&&h.reason!=='Moved'?': '+$(h.reason):''))+(h.from_stage===h.to_stage?'</b>':'')+'<small>'+$(h.at==='now'?'just now':h.at)+'</small></li>').join('')+'</ul></div>':'')+
@@ -1213,9 +1215,11 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   function fmtAppt(v){const m=/^(\\d{4})-(\\d\\d)-(\\d\\d)T(\\d\\d):(\\d\\d)/.exec(v||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}
   function tfill(){const t=TPL.find(x=>x.id===tp.value),need=t.body.indexOf('{appointment}')>=0;ap.style.display=need?'':'none';const when=fmtAppt(ad.value),f=tplFill(t,l,when);tb.value=f.body;tb.dataset.subj=f.subject;
     for(const id of ['tsms','tmail']){const e=document.getElementById(id);if(e){e.style.opacity=need&&!when?'.4':'';e.style.pointerEvents=need&&!when?'none':''}}sync()}
-  ad.oninput=tfill;
+  if(l.appt_at)ad.value=l.appt_at;ad.oninput=tfill;
   function sync(){const sm=document.getElementById('tsms'),ml=document.getElementById('tmail');if(sm)sm.href=smsHref(l.phone,tb.value);if(ml)ml.href=mailHref(l.email,tb.dataset.subj||'',tb.value)}
-  async function logTouch(kind){const r=await save(l.id,{label:kind+': '+TPL.find(x=>x.id===tp.value).label},'/admin/touch');if(r&&r.stage){apply(l,r);if(r.log)l.log=r.log.concat(l.log||[]);draw()}}
+  async function logTouch(kind){const id=tp.value,label=kind+': '+TPL.find(x=>x.id===id).label;
+    const r=id==='scheduled'&&ad.value?await save(l.id,{label,appt:ad.value},'/admin/appt'):id==='reminder'&&l.appt_at?await save(l.id,{label,sent:'reminder'},'/admin/appt'):await save(l.id,{label},'/admin/touch');
+    if(r&&r.stage){apply(l,r);if(id==='scheduled'&&ad.value)l.appt_at=ad.value;if(r.log)l.log=r.log.concat(l.log||[]);draw()}}
   tp.onchange=tfill;tb.oninput=sync;tfill();
   const sm=document.getElementById('tsms'),ml=document.getElementById('tmail');
   if(sm)sm.onclick=()=>{logTouch('Texted')};if(ml)ml.onclick=()=>{logTouch('Emailed')};
@@ -1249,6 +1253,42 @@ async function csv(env) {
 // ---- Reminder: leads nobody has called yet (runs every minute from a Cloudflare cron trigger)
 // REMIND_MINUTES: how long a lead may wait before a reminder goes out (default 10, set to 0 to turn reminders off)
 // Reminders only go out during business hours (Mon to Sat, 9 to 6 Eastern), so overnight leads get one reminder when the shop opens.
+// ---- Appointments: the "Scheduled" text saves the appointment on the lead (picker times are Eastern), moves the lead to Booked, and
+// asks the agent to send a reminder: 24 hours before, or 2 hours before when the appointment is sooner than a day away.
+function etLocalToUtc(str) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(String(str || ""));
+  if (!m) return null;
+  const [Y, Mo, D, h, mi] = m.slice(1).map(Number), want = Date.UTC(Y, Mo - 1, D, h, mi);
+  let t = want;
+  for (let i = 0; i < 2; i++) {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(t));
+    const g = k => Number(parts.find(x => x.type === k).value);
+    t -= Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute")) - want;
+  }
+  return new Date(t);
+}
+const fmtAppt = str => { const d = etLocalToUtc(str); return d ? d.toLocaleString("en-US", { timeZone: TZ, weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).replace(/, (\d+:\d\d)/, " at $1") : ""; };
+const sqlUtc = d => d.toISOString().slice(0, 19).replace("T", " ");
+function reminderTime(d) {
+  const now = Date.now();
+  let r = d.getTime() - 24 * 36e5;
+  if (r < now + 30 * 6e4) r = d.getTime() - 2 * 36e5;
+  return r < now + 6e4 ? null : new Date(r);
+}
+async function remindAppointments(env) {
+  if (!env.DB) return;
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare("SELECT id, name, phone, appt_at FROM leads WHERE appt_reminded = 0 AND appt_remind_at IS NOT NULL AND appt_remind_at <= datetime('now') AND appt_remind_at >= datetime('now','-1 day') AND stage = 'booked' LIMIT 10").all()).results || [];
+  for (const r of rows) {
+    const claim = await env.DB.prepare("UPDATE leads SET appt_reminded = 1 WHERE id = ? AND appt_reminded = 0").bind(r.id).run();
+    if (!claim.meta || !claim.meta.changes) continue;
+    const who = r.name || prettyPhone(r.phone), at = fmtAppt(r.appt_at);
+    const link = env.CRM_HOST ? `https://${env.CRM_HOST}/pipeline#id=${r.id}` : "";
+    const text = `Hey, ${who} needs to be reminded of their appointment (${at}). Come press send. ${link}`.trim();
+    await alertTeam(env, { subject: `Send a reminder: ${who}`, text, html: `<p style="font-size:16px"><b>Hey, ${esc(who)} needs to be reminded of their appointment (${esc(at)}).</b> Come press send.</p>${link ? `<p><a href="${esc(link)}">Open the lead</a></p>` : ""}`, push: { title: `Send a reminder: ${who}`, message: `Appointment ${at}. Come press send.`, click: link || undefined } }).catch(() => {});
+  }
+}
+
 async function remindStale(env) {
   if (!env.DB) return;
   const mins = env.REMIND_MINUTES === undefined || env.REMIND_MINUTES === "" ? 10 : Number(env.REMIND_MINUTES);
@@ -1285,6 +1325,7 @@ export default {
     ctx.waitUntil(pullRecordings(env).catch(e => console.error("recording error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
     ctx.waitUntil(runQueue(env).catch(e => console.error("queue error", e && e.message)));
+    ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1310,7 +1351,7 @@ export default {
       if (p.startsWith("/go/")) return adminRoute("/admin/go/" + p.slice(4), request, env);
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -2009,6 +2050,28 @@ async function adminRoute(p, request, env) {
     await env.DB.batch(stmts);
     const abs = when(new Date().toISOString().slice(0, 19).replace("T", " ")).abs;
     return json({ success: true, stage, followup: "", follow_up_date: cur.follow_up_date || "", log: [{ from_stage: cur.stage, to_stage: stage, reason: clean(b.label, 120), at: abs }] });
+  }
+  if (p === "/admin/appt" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    const cur = await env.DB.prepare("SELECT stage, follow_up_date FROM leads WHERE id = ?").bind(b.id).first();
+    if (!cur) return json({ success: false }, 404);
+    const label = clean(b.label, 120) || "Texted: Scheduled";
+    const abs = when(sqlUtc(new Date())).abs;
+    const done = (stage, reason) => json({ success: true, stage, followup: "", follow_up_date: cur.follow_up_date || "", log: [{ from_stage: cur.stage, to_stage: stage, reason, at: abs }] });
+    if (b.sent === "reminder") {
+      await env.DB.batch([env.DB.prepare("UPDATE leads SET appt_reminded = 1, contacted = 1 WHERE id = ?").bind(b.id), env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, cur.stage, label, user)]);
+      return done(cur.stage, label);
+    }
+    const at = etLocalToUtc(b.appt);
+    if (!at) return json({ success: false, message: "Pick a date and time." }, 400);
+    const rem = reminderTime(at), to = ["working", "done"].includes(cur.stage) ? cur.stage : "booked";
+    const reason = `${label} (appointment ${fmtAppt(b.appt)})`;
+    await env.DB.batch([
+      env.DB.prepare("UPDATE leads SET appt_at = ?, appt_remind_at = ?, appt_reminded = 0, stage = ?, contacted = 1" + (to !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(String(b.appt).slice(0, 16), rem ? sqlUtc(rem) : null, to, b.id),
+      env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, to, reason, user),
+    ]);
+    return done(to, reason);
   }
   if ((p === "/admin/stage" || p === "/admin/lead") && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
