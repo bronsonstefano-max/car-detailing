@@ -1090,7 +1090,7 @@ ${FOLLOW_CSS}
 .chip.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .csv{color:#cfd3d9;text-decoration:none;border:1px solid #232932;border-radius:10px;padding:10px 14px}
 main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
-.lead{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}.lead.new{border-color:#244d2a}.lead.done{opacity:.6}
+.lead{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px;cursor:pointer}.lead.new{border-color:#244d2a}.lead.done{opacity:.6}
 .top{display:flex;justify-content:space-between;gap:10px}h3{margin:0;font-size:17px}.when{color:#8a9099;font-size:12.5px;margin-top:2px}
 .tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}.tag{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#171c23;color:#aab0b9;white-space:nowrap}
 .tag.ad{background:#14263f;color:#8ec0ff}.tag.call{background:#2a1f3d;color:#c9a8ff}.tag.fu{background:#2a1f3d;color:#c9a8ff}.tag.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}.rec{color:#8ec0ff;font-size:13px}.tag.hot{background:#32cd32;color:#04120a;font-weight:700}.tag.ok{background:#1a2a1c;color:#7fe07f}.tag.nl{background:#2b2411;color:#f0c050}
@@ -1123,6 +1123,7 @@ function apply(){const t=q.value.trim().toLowerCase();list.querySelectorAll('.le
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
 ${FOLLOW_JS}
 ${OUTCOME_JS}
+document.addEventListener('click',e=>{const c=e.target.closest('article.lead');if(!c||e.target.closest('a,button,select,input,textarea,label,summary,details'))return;location.href='/admin/pipeline#id='+c.dataset.id});
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
 document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;markCall(+h.dataset.id,((h.querySelector('h3,b')||{}).textContent||'').trim());try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 document.addEventListener('change',async e=>{const s=e.target.closest('select.stage');if(!s)return;const to=s.value,id=+s.dataset.id;const nm=(s.closest('.lead').querySelector('h3')||{}).textContent;s.disabled=true;
@@ -1136,7 +1137,7 @@ async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
   const tc = await todayCount(env);
   const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
-  const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
+  const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at,by_user FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
   const byLead = {}; for (const g of logs) (byLead[g.lead_id] = byLead[g.lead_id] || []).push(g);
   const data = results.map(l => ({ ...l, followup: l.follow_up || "", log: (byLead[l.id] || []).map(g => ({ ...g, at: when(g.at).abs })), dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
   const payload = JSON.stringify({ stages: STAGES, today: todayStr(), cfg: cfgOf(env), leads: data }).replace(/</g, "\\u003c");
@@ -1165,7 +1166,7 @@ select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;col
 ${BNAV_CSS}
 ${FOLLOW_CSS}
 .rp{display:flex;flex-direction:column;gap:8px}.next{margin-top:8px;font-size:13px;color:#c9a8ff}.next.late{color:#ff9a9a;font-weight:700}
-.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}
+.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}.hist li.h-call{border-left-color:#32cd32}.hist li.h-text{border-left-color:#8ec0ff}.hist li.h-mail{border-left-color:#c9a8ff}.hist li.h-stage{border-left-color:#ffb86b}.hist li.h-new{border-left-color:#98a0aa}
 .tabs{display:none}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips button{padding:8px 13px;border-radius:999px;border:1px solid #2a313a;background:#12171e;color:#e8eaed;font:inherit;cursor:pointer}.chips button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 @media(max-width:700px){
@@ -1223,6 +1224,12 @@ function draw(){
 M.addEventListener&&M.addEventListener('change',draw);
 document.getElementById('tabs').addEventListener('click',e=>{const t=e.target.closest('[data-tab]');if(t){cur=t.dataset.tab;draw();window.scrollTo({top:0})}});
 const SN=k=>(S.find(x=>x[0]===k)||[0,k])[1];const TODAY=D.today;const fmtD=d=>{const p=d.split('-');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1]+' '+(+p[2])};
+function histHtml(l){const rows=(l.log||[]).map(h=>{const same=h.from_stage===h.to_stage,r=h.reason||'';
+    const k=/^(Texted)/i.test(r)?'text':/^(Emailed)/i.test(r)?'mail':/^(Called|Call |Dial|Auto-dial|Agent missed|Left a voicemail|Spoke|Call queue)/i.test(r)?'call':!same?'stage':'note';
+    const t=same?$(r||'Update'):$(SN(h.from_stage))+' → '+$(SN(h.to_stage))+(r&&r!=='Moved'?' &middot; '+$(r):'');
+    return {k,html:'<li class="h-'+k+'"><b>'+t+'</b><small>'+$(h.at==='now'?'just now':h.at)+(h.by_user?' &middot; '+$(h.by_user):'')+'</small></li>'}});
+  rows.push({k:'new',html:'<li class="h-new"><b>Lead created</b> &middot; '+(l.type==='call'?'inbound call':'form')+(l.src?' &middot; '+$(l.src):'')+'<small>'+$(l.abs||'')+'</small></li>'});
+  return '<div><label>Lead history ('+rows.length+')</label><ul class="hist">'+rows.map(x=>x.html).join('')+'</ul></div>'}
 async function save(id,patch,url){const r=await fetch(url||'/admin/lead',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({id},patch))});if(!r.ok)return false;try{return await r.json()}catch(_){return {success:true}}}
 function apply(l,o){if(o&&o.stage){l.stage=o.stage;l.followup=o.followup||'';l.follow_up_date=o.follow_up_date||''}}
 let dragId=null;
@@ -1241,13 +1248,13 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   (l.message?'<p class="msg">&ldquo;'+$(l.message)+'&rdquo;</p>':'')+
   '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+'</div>'+
   ed+
+  histHtml(l)+
   '<div id="ca"></div>'+
   '<div id="cr"></div>'+
   '<div id="cn"></div>'+
   '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time'+(l.appt_at?' (saved)':'')+'</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
   '<div><label>Stage</label><div class="chips" id="fchips">'+S.map(([k,n])=>'<button type="button" data-k="'+k+'" class="'+(k===l.stage?'on':'')+'">'+n+'</button>').join('')+'</div></div><div><label>Next step <span id="fuh" style="text-transform:none;letter-spacing:0;color:#586069"></span></label><div class="fu-chips" id="fuc"></div></div><div class="g2"><div><label>Follow up on</label><input id="fd" type="date" value="'+$(l.follow_up_date||'')+'" style="color-scheme:dark"></div><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
-  ((l.log&&l.log.length)?'<div><label>Stage history</label><ul class="hist">'+l.log.map(h=>'<li><b>'+(h.from_stage===h.to_stage?$(h.reason||'Update'):$(SN(h.from_stage))+' \u2192 '+$(SN(h.to_stage))+'</b>'+(h.reason&&h.reason!=='Moved'?': '+$(h.reason):''))+(h.from_stage===h.to_stage?'</b>':'')+'<small>'+$(h.at==='now'?'just now':h.at)+'</small></li>').join('')+'</ul></div>':'')+
   '<div class="acts"><button class="btn go" id="fsave">Save</button>'+(IS_OWNER?'<button class="btn ghost" id="fdel" type="button">Delete lead</button>':'')+'</div></div>';
   dlg.showModal();
   fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const a=j.attempts,box=document.getElementById('ca');if(!box||!a||dlg.dataset.id!=String(l.id))return;
@@ -1946,7 +1953,7 @@ main{max-width:880px;margin:0 auto;padding:8px 22px 40px;display:flex;flex-direc
 section h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;margin:18px 0 10px;display:flex;align-items:center;gap:8px;color:#c3c8cf}section h2 i{font-style:normal;background:#1c222a;border-radius:999px;padding:1px 9px;font-size:12px;color:#aab0b9}
 section.miss h2{color:#ff9a9a}section.late h2{color:#ffb86b}section.new h2{color:#32cd32}
 .rows{display:flex;flex-direction:column;gap:10px}
-.row{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}.miss .row{border-color:#4a2424}.late .row{border-color:#4d3a1d}.new .row{border-color:#244d2a}
+.row{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;cursor:pointer}.miss .row{border-color:#4a2424}.late .row{border-color:#4d3a1d}.new .row{border-color:#244d2a}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hd b{font-size:17px;display:block}.hd small{color:#8a9099;font-size:13px}.hd a.op{color:#8ec0ff;font-size:13px;white-space:nowrap}
 .why{font-size:13px;color:#c9a8ff}.msg{margin:0;color:#c9ced5;font-size:14px;white-space:pre-line}
 .pill{font-size:11.5px;padding:2px 9px;border-radius:999px;background:#171c23;color:#aab0b9}.pill.ad{background:#14263f;color:#8ec0ff}.pill.miss{background:#3b1d1d;color:#ff9a9a;font-weight:700}
@@ -1986,7 +1993,7 @@ function sec(cls,title,ls,kind){return ls.length?'<section class="'+cls+'"><h2>'
 function draw(){const g=group();const h=sec('miss','Return these calls',g.miss,'miss')+sec('new','New leads nobody has contacted',g.nw,'nw')+sec('late','Overdue follow-ups',g.late,'late')+sec('due','Follow-ups due today',g.due,'due');
   document.getElementById('m').innerHTML=h||'<div class="all"><b>All caught up</b>Nothing new in the last 24 hours.</div>';
   document.title=(items.length?'('+items.length+') ':'')+'Today | Divine Detailers'}
-document.getElementById('m').addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const r=b.closest('.row'),l=items.find(x=>x.id===+r.dataset.id);if(!l)return;const a=b.dataset.act;
+document.getElementById('m').addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b){const rw=e.target.closest('.row');if(rw&&!e.target.closest('a,button'))location.href='/admin/pipeline#id='+rw.dataset.id;return}const r=b.closest('.row'),l=items.find(x=>x.id===+r.dataset.id);if(!l)return;const a=b.dataset.act;
   const lab=l.name||l.phone||'this lead';
   if(a==='call'){markCall(l.id,l.name||l.phone);post('/admin/touch',{id:l.id,label:'Called'});return}
   if(a==='text'){post('/admin/touch',{id:l.id,label:'Texted: '+tplFor(l)[0].label});return}
