@@ -97,6 +97,7 @@ async function ensureTable(db) {
   }
   // one time: tint leads that are still open and have no value yet start at the default job value
   await db.prepare("CREATE TABLE IF NOT EXISTS app_flags (k TEXT PRIMARY KEY)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS text_reminders (lead_id INTEGER, n INTEGER, at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (lead_id, n))").run();
   await db.batch([
     db.prepare("CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user TEXT, p256dh TEXT, auth TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))"),
     db.prepare("CREATE TABLE IF NOT EXISTS push_keys (k TEXT PRIMARY KEY, v TEXT)"),
@@ -1054,7 +1055,7 @@ function draw(s){if(!s){bar.innerHTML='';return}
   bar.innerHTML=(s.eligible?'<button id="qgo" type="button" style="'+bs+'background:#32cd32;color:#04120a">Start calling ('+s.eligible+')</button>':'')+(s.note?'<span style="color:#98a0aa">'+qe(s.note)+'</span>':'');
   const go=document.getElementById('qgo');if(go)go.onclick=async e=>{if(!confirm('Your phone will ring first. Press 1 to connect, and the next new lead is called when each call ends. Start calling '+s.eligible+' lead'+(s.eligible===1?'':'s')+'?'))return;e.target.disabled=true;const r=await fetch('/admin/queue/start',{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok&&j.message)alert(j.message);refresh()}}
 async function refresh(){draw(await get())}
-refresh();setInterval(()=>{if(!document.hidden)refresh()},6000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+refresh().then(()=>{if(location.hash==='#start'){const g=document.getElementById('qgo');if(g)g.click()}});setInterval(()=>{if(!document.hidden)refresh()},6000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 })();`;
 const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
 const OUTCOME_JS = `
@@ -1142,6 +1143,10 @@ const TEMPLATES = [
   { id: "first_coating", label: "First reply (ceramic coating)", subject: "Your ceramic coating request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic coating for your car.\n\nOur ceramic coating adds a deep, glossy finish, protects your paint, and makes every wash easier. When would you like to get it done?" },
   { id: "scheduled", label: "Scheduled", subject: "Your appointment with {shop}", body: "Hi {first}, you are scheduled! Your {service} appointment for {vehicle} is set for {appointment}. We are at {address}. Reply here if you need to change anything." },
   { id: "reminder", label: "Appointment reminder", subject: "Reminder: your appointment with {shop}", body: "Hi {first}, a quick reminder about your {service} appointment for {vehicle} on {appointment}. We are at {address}. See you then!" },
+  { id: "fu2", label: "Follow-up #2", subject: "Following up on your {service} request", body: "Hey {first}, it's {shop} following up about {service} for {vehicle}. Are you still interested? I can get you on the schedule this week." },
+  { id: "fu3", label: "Follow-up #3", subject: "Checking in on your {service}", body: "Hi {first}, just checking in on your {service}. We have openings coming up. What day works best for you?" },
+  { id: "fu4", label: "Follow-up #4", subject: "Did you get my messages?", body: "Hey {first}, I haven't heard back so I wanted to make sure you got my messages. Happy to answer any questions about the {service} for {vehicle}." },
+  { id: "fu5", label: "Follow-up #5 (last)", subject: "Last follow-up from {shop}", body: "Hi {first}, last follow-up from {shop}. If you're still thinking about {service}, just reply here and we'll take care of you. Otherwise no worries!" },
   { id: "missed", label: "Sorry we missed your call", subject: "Sorry we missed your call", body: "Hi {first}, sorry we missed your call! This is {shop}. What can we help you with? Reply here or call us back at {phone}." },
   { id: "quote", label: "Quote follow-up", subject: "Following up on your {service} quote", body: "Hi {first}, just following up on the {service} quote for {vehicle}. Any questions I can answer? Happy to get you on the schedule." },
   { id: "invoice", label: "Invoice sent", subject: "Your invoice from {shop}", body: "Hi {first}, your invoice for {service} on {vehicle} is on its way. Let us know when you have seen it and we will lock in your date." },
@@ -1489,6 +1494,82 @@ function reminderTime(d) {
   if (r < now + 30 * 6e4) r = d.getTime() - 2 * 36e5;
   return r < now + 6e4 ? null : new Date(r);
 }
+// ---- Follow-up texts for leads nobody has reached. The CRM does not send texts itself: it sends a push "Send Antonio Text #2" and the tap
+// opens Messages with the text filled in, so the agent only has to press send. Text #1 is due 30 minutes after the lead came in, then
+// #2 after 1 day, #3 after 3, #4 after 5 and #5 after 7 (and at least 12 hours after the previous text). Only New and Not contacted leads, in calling hours.
+const TEXT_PLAN_SECS = [0, 30 * 60, 86400, 3 * 86400, 5 * 86400, 7 * 86400];
+const TEXT_MAX = 5;
+const textTemplateFor = (n, l) => n === 1 ? TEMPLATES.find(t => t.id === (/coating/i.test(l.service || "") ? "first_coating" : "first")) : TEMPLATES.find(t => t.id === "fu" + n);
+function fillTemplate(t, l, env) {
+  const veh = [l.year, l.make, l.model].filter(Boolean).join(" ") || "your vehicle", first = String(l.name || "").trim().split(/\s+/)[0];
+  const v = { first: first && !/^\+?[\d\s()-]+$/.test(first) ? first : "there", service: String(l.service || "our services").toLowerCase(), vehicle: /your/.test(veh) ? veh : "your " + veh, shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" };
+  const f = x => x.replace(/\{(\w+)\}/g, (m, k) => (v[k] === undefined ? m : v[k])).replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { subject: f(t.subject), body: f(t.body) };
+}
+async function remindTexts(env) {
+  if (!env.DB || env.TEXT_REMINDERS === "0") return;
+  if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) return;
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.service, l.year, l.make, l.model, l.created_at,
+      (SELECT COUNT(*) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%') AS texts,
+      (SELECT MAX(s.at) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%') AS last_text
+    FROM leads l WHERE l.stage IN ('new','nocontact') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != '' AND l.created_at >= datetime('now','-8 days')
+    ORDER BY l.created_at LIMIT 300`).all()).results || [];
+  const ms = x => new Date(String(x).replace(" ", "T") + "Z").getTime();
+  let sent = 0;
+  for (const r of rows) {
+    const n = r.texts + 1;
+    if (n > TEXT_MAX) continue;
+    if (Date.now() < Math.max(ms(r.created_at) + TEXT_PLAN_SECS[n] * 1000, r.last_text ? ms(r.last_text) + 12 * 36e5 : 0)) continue;
+    const claim = await env.DB.prepare("INSERT OR IGNORE INTO text_reminders (lead_id, n) VALUES (?, ?)").bind(r.id, n).run();
+    if (!claim.meta || !claim.meta.changes) continue;
+    const first = String(r.name || "").trim().split(/\s+/)[0] || "lead", car = [r.year, r.make, r.model].filter(Boolean).join(" ");
+    await sendPush(env, { title: `Send ${first} Text #${n}`, message: ["Tap to send", r.service, car].filter(Boolean).join(" · "), click: env.CRM_HOST ? `https://${env.CRM_HOST}/send/${r.id}?n=${n}` : undefined }).catch(() => {});
+    if (++sent >= 3) break; // a few a minute, so a morning with many due leads does not arrive all at once
+  }
+}
+async function sendPage(env, id, n, user) {
+  await ensureTable(env.DB);
+  const l = await env.DB.prepare("SELECT id,name,phone,service,year,make,model FROM leads WHERE id = ?").bind(id).first();
+  if (!l) return new Response("Lead not found", { status: 404 });
+  const num = Math.min(TEXT_MAX, Math.max(1, Number(n) || 1));
+  const t = textTemplateFor(num, l), body = fillTemplate(t, l, env).body;
+  const sms = `sms:${e164(l.phone)}?&body=${encodeURIComponent(body)}`, label = `Texted: ${num === 1 ? "First reply" : "Follow-up #" + num}`;
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Text #${num}</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07090c;color:#e8eaed;font:17px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px;text-align:center}
+main{width:min(440px,100%);display:flex;flex-direction:column;gap:12px}h1{margin:0;font-size:26px}p{margin:0;color:#98a0aa}
+a.b{display:block;border-radius:16px;padding:22px;font-weight:800;text-decoration:none;font-size:22px;border:1px solid #2a313a;background:#151a21;color:#e8eaed}a.b.c{background:#32cd32;border-color:#32cd32;color:#04120a;font-size:24px}
+.m{background:#0d1116;border-left:3px solid #32cd32;border-radius:0 10px 10px 0;padding:12px 14px;text-align:left;color:#d6d9de;font-size:15px;white-space:pre-line}.s{font-size:15px;font-weight:600;padding:16px}</style></head>
+<body><main><h1>${esc(l.name || prettyPhone(l.phone))}</h1><p>Text #${num} &middot; ${esc([l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "lead")}</p><div class="m">${esc(body)}</div>
+<a class="b c" id="go" href="${esc(sms)}">Open Messages</a><a class="b s" href="/admin/pipeline#id=${l.id}">Open the lead</a>
+<p style="font-size:13px">Opening Messages logs this text on the lead. Signed in as ${esc(user)}.</p></main>
+<script>let logged=false;const go=document.getElementById('go');function note(){if(logged)return;logged=true;try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:${l.id},label:${JSON.stringify(label)}})})}catch(_){}}
+go.addEventListener('click',note);setTimeout(()=>{note();location.href=go.getAttribute('href')},500);</script></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+// ---- Dial sessions: at set times (DIAL_SESSIONS, default 09:30, 13:00, 17:00 Eastern, Monday to Saturday) a push says how many leads are waiting and opens Start calling
+const SESSION_NAMES = ["Morning", "Afternoon", "End of day"];
+async function dialSessionReminder(env) {
+  if (!env.DB || env.DIAL_SESSIONS === "off") return;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  if (parts.weekday === "Sun") return;
+  const nowMin = Number(parts.hour) * 60 + Number(parts.minute);
+  const times = String(env.DIAL_SESSIONS || "09:30,13:00,17:00").split(",").map(x => x.trim()).filter(Boolean);
+  for (let i = 0; i < times.length; i++) {
+    const m = /^(\d{1,2}):(\d\d)$/.exec(times[i]);
+    if (!m) continue;
+    const at = Number(m[1]) * 60 + Number(m[2]);
+    if (nowMin < at || nowMin > at + 4) continue;
+    await ensureTable(env.DB);
+    const key = `dial:${todayStr()}:${times[i]}`;
+    const claim = await env.DB.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES (?)").bind(key).run();
+    if (!claim.meta || !claim.meta.changes) continue;
+    const n = (await env.DB.prepare(`SELECT COUNT(*) n FROM leads l WHERE ${QUEUE_WHERE}`).first() || {}).n || 0;
+    if (!n) continue;
+    await sendPush(env, { title: `${SESSION_NAMES[i] || "Dial"} dial session`, message: `${Math.min(n, QUEUE_MAX)} lead${n === 1 ? "" : "s"} to call. Tap to start.`, click: env.CRM_HOST ? `https://${env.CRM_HOST}/today#start` : undefined }).catch(() => {});
+  }
+}
+
 // Leads still New, Not contacted or Contacted after 7 days move to the "7 day +" stage once (a person can move them back and they stay put)
 async function ageLeads(env) {
   if (!env.DB) return;
@@ -1551,6 +1632,8 @@ export default {
     ctx.waitUntil(pullRecordings(env).catch(e => console.error("recording error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
     ctx.waitUntil(runQueue(env).catch(e => console.error("queue error", e && e.message)));
+    ctx.waitUntil(remindTexts(env).catch(e => console.error("text reminder error", e && e.message)));
+    ctx.waitUntil(dialSessionReminder(env).catch(e => console.error("dial session error", e && e.message)));
     ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
   },
@@ -1582,6 +1665,7 @@ export default {
       if (p === "/admin" || p === "/leads") return adminRoute("/admin", request, env);
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
+      if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
       if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
@@ -2204,6 +2288,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/pipeline") return pipelinePage(env, a);
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env, a);
+  if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/insights") return a === OWNER ? insightsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
