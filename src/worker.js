@@ -963,6 +963,7 @@ const BNAV_CSS = `.bnav{display:none}.nb{font-style:normal;background:#ff5d5d;co
 // one-tap replies. Merge fields: {first} {service} {vehicle} {shop} {phone} {address} {review}
 const TEMPLATES = [
   { id: "first", label: "First reply", subject: "Your ceramic tint request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic tint for your car.\n\nOur tint keeps your ride cooler, protected, and more private, with a clean, factory look. We've got a special running with limited spots, when would you like to get it done?" },
+  { id: "first_coating", label: "First reply (ceramic coating)", subject: "Your ceramic coating request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic coating for your car.\n\nOur ceramic coating adds a deep, glossy finish, protects your paint, and makes every wash easier. When would you like to get it done?" },
   { id: "missed", label: "Sorry we missed your call", subject: "Sorry we missed your call", body: "Hi {first}, sorry we missed your call! This is {shop}. What can we help you with? Reply here or call us back at {phone}." },
   { id: "quote", label: "Quote follow-up", subject: "Following up on your {service} quote", body: "Hi {first}, just following up on the {service} quote for {vehicle}. Any questions I can answer? Happy to get you on the schedule." },
   { id: "invoice", label: "Invoice sent", subject: "Your invoice from {shop}", body: "Hi {first}, your invoice for {service} on {vehicle} is on its way. Let us know when you have seen it and we will lock in your date." },
@@ -978,7 +979,7 @@ const TPL=${JSON.stringify(TEMPLATES)},TBS=${JSON.stringify(TPL_BY_STAGE)};
 function tplFill(t,l){const veh=[l.year,l.make,l.model].filter(Boolean).join(' ')||'your vehicle',first=(l.name||'').trim().split(/\\s+/)[0];
   const v={first:first&&!/^\\+?[\\d\\s()-]+$/.test(first)?first:'there',service:(l.service||'our services').toLowerCase(),vehicle:/your/.test(veh)?veh:'your '+veh,shop:CFG.shop,phone:CFG.phone,address:CFG.address,review:CFG.review||''};
   const f=x=>x.replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]===undefined?m:v[k]).replace(/[ \\t]+/g,' ').replace(/ ?\\n ?/g,'\\n').replace(/\\n{3,}/g,'\\n\\n').trim();return {subject:f(t.subject).replace(/\\s+/g,' '),body:f(t.body)}}
-function tplFor(l){const ids=(l.type==='call'&&l.answered===0&&l.stage==='new')?['missed','first']:(TBS[l.stage]||['first']);return ids.map(i=>TPL.find(t=>t.id===i)).filter(Boolean).concat(TPL.filter(t=>!ids.includes(t.id)))}
+function tplFor(l){const fr=/coating/i.test(l.service||'')?'first_coating':'first';const ids=((l.type==='call'&&l.answered===0&&l.stage==='new')?['missed','first']:(TBS[l.stage]||['first'])).map(i=>i==='first'?fr:i);return ids.map(i=>TPL.find(t=>t.id===i)).filter(Boolean).concat(TPL.filter(t=>!ids.includes(t.id)))}
 function smsHref(phone,body){return 'sms:'+(phone||'').replace(/[^\\d+]/g,'')+'?&body='+encodeURIComponent(body)}
 function mailHref(email,subj,body){return 'mailto:'+email+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body)}
 `;
