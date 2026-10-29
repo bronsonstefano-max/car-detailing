@@ -130,6 +130,16 @@ async function ensureTableRun(db) {
   if (flag4.meta && flag4.meta.changes) await db.prepare("INSERT OR IGNORE INTO call_recordings (call_id, lead_id, direction, url, duration, at) SELECT COALESCE(NULLIF(l.call_id,''), (SELECT d.call_id FROM dial_log d WHERE d.lead_id = l.id ORDER BY d.created_at DESC LIMIT 1), 'lead-' || l.id), l.id, CASE WHEN l.type = 'call' THEN 'inbound' ELSE 'outbound' END, l.recording, l.duration, l.created_at FROM leads l WHERE COALESCE(l.recording,'') != ''").run();
   const flag2 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('coating_value_599')").run();
   if (flag2.meta && flag2.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%coating%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_COATING_VALUE).run();
+  // lookups by lead and by date stay fast as the history grows (only adds indexes: nothing is changed or removed)
+  await db.batch([
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_stage_log_lead ON stage_log(lead_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_dial_log_lead ON dial_log(lead_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_call_notes_lead ON call_notes(lead_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_call_recordings_lead ON call_recordings(lead_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_call_id ON leads(call_id)"),
+  ]);
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
@@ -390,6 +400,10 @@ async function leadAttempts(env, id) {
   const n = v => Number(v) || 0;
   const contact = n(t.talked) > 0 || !["new", "nocontact", "lost"].includes(lead.stage);
   return { calls: n(d.calls), answered: n(d.answered), voicemail: n(d.voicemail), noanswer: n(d.noanswer), notconnected: n(d.notconnected), texts: n(t.texts), emails: n(t.emails), contact, last: t.last_at ? when(t.last_at).ago : "" };
+}
+async function leadHistory(env, id) {
+  const rows = (await env.DB.prepare("SELECT from_stage, to_stage, reason, at, by_user FROM stage_log WHERE lead_id = ? ORDER BY id DESC LIMIT 300").bind(id).all()).results || [];
+  return rows.map(g => ({ ...g, at: when(g.at).abs }));
 }
 async function callRecordings(env, id) {
   await ensureTable(env.DB);
@@ -1198,8 +1212,7 @@ function sourceOf(l) {
 
 async function adminPage(env, user = "") {
   await ensureTable(env.DB);
-  const tc = await todayCount(env);
-  const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all();
+  const [tc, { results }] = await Promise.all([todayCount(env), env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all()]);
   const open = results.filter(l => isNewish(l.stage) && l.type === "quote").length;
   const ads = results.filter(l => sourceOf(l).ad).length;
   const cards = results.map(l => {
@@ -1281,11 +1294,9 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 
 async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
-  const tc = await todayCount(env);
-  const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all();
-  const logs = (await env.DB.prepare("SELECT lead_id,from_stage,to_stage,reason,at,by_user FROM stage_log ORDER BY id DESC LIMIT 5000").all()).results;
-  const byLead = {}; for (const g of logs) (byLead[g.lead_id] = byLead[g.lead_id] || []).push(g);
-  const data = results.map(l => ({ ...l, followup: l.follow_up || "", log: (byLead[l.id] || []).map(g => ({ ...g, at: when(g.at).abs })), dur: mmss(l.duration), ago: when(l.created_at).ago, abs: when(l.created_at).abs, src: sourceOf(l).label, ad: sourceOf(l).ad, detail: sourceOf(l).detail }));
+  const [tc, { results }] = await Promise.all([todayCount(env), env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all()]);
+  // each lead's history is loaded when the lead is opened (it was more than half of this page); the click ids are only used to work out the source here
+  const data = results.map(l => { const t = when(l.created_at), sc = sourceOf(l); const { gclid, gbraid, wbraid, referrer, ...rest } = l; return { ...rest, followup: l.follow_up || "", dur: mmss(l.duration), ago: t.ago, abs: t.abs, src: sc.label, ad: sc.ad, detail: sc.detail }; });
   const payload = JSON.stringify({ stages: STAGES, today: todayStr(), cfg: cfgOf(env), leads: data }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Pipeline | Divine Detailers</title>
 <style>
@@ -1418,7 +1429,7 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   infoHtml(l,veh)+
   ed+
   '<div id="ca"></div>'+
-  histHtml(l)+
+  '<div id="hist">'+histHtml(l)+'</div>'+
   '<div id="cr"></div>'+
   '<div id="cn"></div>'+
   '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time'+(l.appt_at?' (saved)':'')+'</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
@@ -1426,17 +1437,19 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
   '<div class="acts"><button class="btn go" id="fsave">Save</button>'+(IS_OWNER?'<button class="btn ghost" id="fdel" type="button">Delete lead</button>':'')+'</div></div>';
   dlg.showModal();
-  const hm=document.getElementById('hmore');if(hm)hm.onclick=()=>{dlg.querySelectorAll('.tlist [hidden]').forEach(e=>e.hidden=false);hm.remove()};
-  fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const a=j.attempts,box=document.getElementById('ca');if(!box||!a||dlg.dataset.id!=String(l.id))return;
+  const wireHist=()=>{const hm=document.getElementById('hmore');if(hm)hm.onclick=()=>{dlg.querySelectorAll('.tlist [hidden]').forEach(e=>e.hidden=false);hm.remove()}};wireHist();
+  const CALLS=fetch('/admin/calls?id='+l.id).then(r=>r.json());
+  CALLS.then(j=>{if(!j.history||dlg.dataset.id!=String(l.id))return;l.log=j.history;const hb=document.getElementById('hist');if(hb){hb.innerHTML=histHtml(l);wireHist()}});
+  CALLS.then(j=>{const a=j.attempts,box=document.getElementById('ca');if(!box||!a||dlg.dataset.id!=String(l.id))return;
     const chip=(n,t)=>'<span style="background:#0d1116;border:1px solid #232932;border-radius:999px;padding:4px 11px;font-size:13px"><b style="font-variant-numeric:tabular-nums">'+n+'</b> '+t+'</span>';
     const parts=[chip(a.calls,'outbound call'+(a.calls===1?'':'s'))];
     if(a.answered)parts.push(chip(a.answered,'answered'));if(a.voicemail)parts.push(chip(a.voicemail,'voicemail'));if(a.noanswer)parts.push(chip(a.noanswer,'no answer'));if(a.notconnected)parts.push(chip(a.notconnected,'you missed'));
     parts.push(chip(a.texts,'text'+(a.texts===1?'':'s')+' sent'));if(a.emails)parts.push(chip(a.emails,'email'+(a.emails===1?'':'s')+' sent'));
     box.innerHTML='<label>Contact attempts</label><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 2px"><span style="border-radius:999px;padding:5px 12px;font-size:13px;font-weight:700;'+(a.contact?'background:#32cd32;color:#04120a':'background:#3a2a14;color:#ffb86b')+'">'+(a.contact?'Contact made':'No contact yet')+'</span>'+parts.join('')+(a.last?'<span style="color:#8a9099;font-size:13px">last attempt '+$(a.last)+'</span>':'')+'</div>'});
-  fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const c=document.getElementById('cr');if(!c||dlg.dataset.id!=String(l.id)||!j.recordings||!j.recordings.length)return;
+  CALLS.then(j=>{const c=document.getElementById('cr');if(!c||dlg.dataset.id!=String(l.id)||!j.recordings||!j.recordings.length)return;
     const mmss=n=>n==null?'':Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
     c.innerHTML='<label>Recordings ('+j.recordings.length+')</label>'+j.recordings.map(r=>'<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin:6px 0;padding:8px 10px;background:#0d1116;border:1px solid #232932;border-radius:10px"><span style="font-size:14px">'+(r.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(r.at)+(r.duration!=null?' &middot; '+mmss(r.duration):'')+'</span><a class="rec" href="'+$(r.url)+'" target="_blank" rel="noopener" style="white-space:nowrap">Listen</a></div>').join('')});
-  fetch('/admin/calls?id='+l.id).then(r=>r.json()).then(j=>{const b=document.getElementById('cn');if(!b||dlg.dataset.id!=String(l.id)||!j.notes||!j.notes.length)return;b.innerHTML='<label>Call summary and transcript</label>'+j.notes.map(n=>'<div style="margin:6px 0 10px"><b style="font-size:13px">'+(n.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(n.at)+'</b>'+(n.summary?'<p style="margin:6px 0">'+$(n.summary)+'</p>':'')+(n.transcript?'<details><summary style="cursor:pointer;color:#32cd32">Transcript</summary><pre style="white-space:pre-wrap;font:13px/1.5 system-ui;color:#c3c8cf;margin:6px 0">'+$(n.transcript)+'</pre></details>':'')+(!n.summary&&!n.transcript?'<p style="color:#8a9099;margin:6px 0">'+(n.done?'No transcript was available for this call (CallRail Conversation Intelligence may not be turned on).':'Transcript is being prepared (usually a few minutes)...')+'</p>':'')+'</div>').join('')}).catch(()=>{});
+  CALLS.then(j=>{const b=document.getElementById('cn');if(!b||dlg.dataset.id!=String(l.id)||!j.notes||!j.notes.length)return;b.innerHTML='<label>Call summary and transcript</label>'+j.notes.map(n=>'<div style="margin:6px 0 10px"><b style="font-size:13px">'+(n.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(n.at)+'</b>'+(n.summary?'<p style="margin:6px 0">'+$(n.summary)+'</p>':'')+(n.transcript?'<details><summary style="cursor:pointer;color:#32cd32">Transcript</summary><pre style="white-space:pre-wrap;font:13px/1.5 system-ui;color:#c3c8cf;margin:6px 0">'+$(n.transcript)+'</pre></details>':'')+(!n.summary&&!n.transcript?'<p style="color:#8a9099;margin:6px 0">'+(n.done?'No transcript was available for this call (CallRail Conversation Intelligence may not be turned on).':'Transcript is being prepared (usually a few minutes)...')+'</p>':'')+'</div>').join('')}).catch(()=>{});
   const tp=document.getElementById('tp'),tb=document.getElementById('tb');
   const ap=document.getElementById('tap'),ad=document.getElementById('tad');
   function fmtAppt(v){const m=/^(\\d{4})-(\\d\\d)-(\\d\\d)T(\\d\\d):(\\d\\d)/.exec(v||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}
@@ -2315,7 +2328,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
   const user = typeof a === "string" ? a : "";
-  if (p === "/admin/calls") { const id = Number(new URL(request.url).searchParams.get("id")); return Number.isInteger(id) ? json({ success: true, notes: await callNotes(env, id), recordings: await callRecordings(env, id), attempts: await leadAttempts(env, id) }) : json({ success: false }, 400); }
+  if (p === "/admin/calls") { const id = Number(new URL(request.url).searchParams.get("id")); return Number.isInteger(id) ? json({ success: true, notes: await callNotes(env, id), recordings: await callRecordings(env, id), attempts: await leadAttempts(env, id), history: await leadHistory(env, id) }) : json({ success: false }, 400); }
   if (p === "/admin/delete" && request.method === "POST") {
     if (a !== OWNER) return json({ success: false, message: "Only the owner login can delete leads." }, 403);
     const b = await request.json().catch(() => ({}));
