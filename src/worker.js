@@ -175,8 +175,9 @@ async function placeCall(env, lead, user, source, attempt = 1) {
   if (env.CALL_HEADSUP !== "0") {
     const ld = await env.DB.prepare("SELECT name, service, year, make, model FROM leads WHERE id = ?").bind(lead.id).first().catch(() => null);
     if (ld) {
-      const first = String(ld.name || "").trim().split(/\s+/)[0];
-      await sendPush(env, { title: first ? `Calling ${first}` : "Calling a lead", message: [ld.service, [ld.year, ld.make, ld.model].filter(Boolean).join(" ")].filter(Boolean).join(" \u00b7 ") || prettyPhone(lead.phone), users: [user], click: env.CRM_HOST ? `https://${env.CRM_HOST}/pipeline#id=${lead.id}` : undefined }).catch(() => {});
+      const car = [ld.year, ld.make, ld.model].filter(Boolean).join(" ");
+      const line = [String(ld.name || "").trim() || prettyPhone(lead.phone), ld.service, car].filter(Boolean).join(", ");
+      await sendPush(env, { title: "Calling Lead", message: line, users: [user], click: env.CRM_HOST ? `https://${env.CRM_HOST}/pipeline#id=${lead.id}` : undefined }).catch(() => {});
     }
   }
   return { ok: true, id: j.id };
@@ -917,7 +918,7 @@ async function notify(env, lead, base) {
       <p><a href="tel:${esc(lead.phone)}" style="background:#32cd32;color:#04120a;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700">Call ${esc(lead.phone)}</a>
       &nbsp; <a href="${esc(link)}">Open in CRM</a></p><table>${rows}</table>`;
     jobs.push(alertTeam(env, { subject: `New lead: ${lead.name} (${lead.service}${veh ? ", " + veh : ""})`, text, html,
-      push: { title: `New lead: ${lead.name}`, message: [lead.service, veh, lead.phone].filter(Boolean).join(" | "), click: crmLink(env, base, "/admin/today") } }));
+      push: { title: "New Lead Incoming", message: [lead.name, lead.service, veh].filter(Boolean).join(", "), click: lead.id ? crmLink(env, base, `/admin/pipeline#id=${lead.id}`) : crmLink(env, base, "/admin/today") } }));
     // optional confirmation to the customer (needs a verified sending domain at Resend: set NOTIFY_FROM and AUTO_REPLY=1)
     if (env.AUTO_REPLY === "1" && lead.email) {
       jobs.push(sendEmail(env, {
@@ -943,6 +944,8 @@ async function notifyCall(env, row, base, slack = true) {
   const jobs = [];
   // every call goes to the chat webhook (Zapier to Slack) once, as soon as the call is first seen: just "NEW LEAD: Incoming call"
   if (slack && (env.CALL_WEBHOOK_URL || env.LEAD_WEBHOOK_URL)) jobs.push(fetch(env.CALL_WEBHOOK_URL || env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "call", call_status: status, ...row, text: "NEW LEAD: Incoming call", alert_text: text, crm_link: link, phone_e164: e164(row.phone), phone_display: prettyPhone(row.phone), call_link: goLink(env, base, row.id, row.phone) }) }).catch(() => {}));
+  // a call coming in is a new lead: phones get "New Lead Incoming" as soon as it is first seen (missed calls have their own alert below)
+  if (slack && !missed) jobs.push(sendPush(env, { title: "New Lead Incoming", message: ["Phone call", who !== row.phone ? who : prettyPhone(row.phone), src].filter(Boolean).join(", "), click: row.id ? crmLink(env, base, `/admin/pipeline#id=${row.id}`) : link }).catch(() => {}));
   // phone and email alerts stay for missed calls only
   if (missed) {
     const html = `<p style="font-size:16px"><b>${vm ? "Voicemail" : "Missed call"}: ${esc(who)}</b>${src ? " &middot; " + esc(src) : ""}</p>
