@@ -214,8 +214,8 @@ async function handleOutbound(env, c, ctx) {
   const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(leadId).first();
   if (!cur) return json({ success: true, ignored: true });
   const leadAnswered = answered && !vm;
-  // the call's result moves the lead: the lead answered -> Contacted; voicemail or no answer -> Not contacted (only leads that were still new or not contacted)
-  const target = isNewish(cur.stage) && dialed ? (leadAnswered ? "contacted" : "nocontact") : cur.stage;
+  // a call never moves the lead: the agent decides (moves it by hand, or answers "Did they answer?" with Answered)
+  const target = cur.stage;
   const row = (reason, when) => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, at, by_user) VALUES (?,?,?,?,?,?)").bind(leadId, cur.stage, target, reason, when, by);
   const willRetry = !dialed && !!dl && dl.source === "auto" && dl.attempt === 1 && !dl.retried && dialOn(env) && env.AUTO_DIAL === "1" && env.AUTO_DIAL_RETRY !== "0" && isNewish(cur.stage);
   // a first ring that "failed" within a minute is not acted on yet: the per-minute check decides once the call has had time to ring out (about 100 seconds), so the agent is never rung twice in quick succession
@@ -224,8 +224,7 @@ async function handleOutbound(env, c, ctx) {
   if (dialed) {
     stmts.push(env.DB.prepare("INSERT OR IGNORE INTO call_notes (call_id, lead_id, direction, next_try) VALUES (?,?,?, datetime('now','+3 minutes'))").bind(callId, leadId, "outbound"));
     stmts.push(row("Called via CallRail" + (dur ? ` (${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")})` : ""), at));
-    stmts.push(row("Call result: " + (vm ? "Left a voicemail" : answered ? "Answered" : "No answer"), at));
-    if (target !== cur.stage) stmts.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(target, leadAnswered ? 1 : 0, leadId));
+    stmts.push(row("Call result: CallRail reported " + (vm ? "voicemail" : answered ? "answered" : "no answer"), at));
   } else if ((dl && dl.retried) || willRetry) stmts.push(row("Auto-dial: first ring not answered, ringing the agent again", at));
   else stmts.push(row((dl && dl.source === "auto" ? "Agent missed the auto-dial" : "Call not connected") + " (did not answer or did not press 1, so the lead was not called)" + (dl && dl.attempt > 1 ? " after two rings" : ""), at));
   await env.DB.batch(stmts);
@@ -361,7 +360,7 @@ async function leadAttempts(env, id) {
   const d = await env.DB.prepare("SELECT COUNT(*) calls, SUM(result = 'answered') answered, SUM(result = 'voicemail') voicemail, SUM(result = 'noanswer') noanswer, SUM(result = 'notconnected') notconnected FROM dial_log WHERE lead_id = ? AND attempt = 1").bind(id).first() || {};
   const t = await env.DB.prepare("SELECT SUM(reason LIKE 'Texted%') texts, SUM(reason LIKE 'Emailed%') emails, SUM(reason = 'Call result: Answered' OR reason LIKE 'Spoke%') talked, MAX(CASE WHEN reason LIKE 'Texted%' OR reason LIKE 'Emailed%' OR reason LIKE 'Called%' OR reason LIKE 'Call result%' THEN at END) last_at FROM stage_log WHERE lead_id = ?").bind(id).first() || {};
   const n = v => Number(v) || 0;
-  const contact = n(d.answered) > 0 || n(t.talked) > 0 || !["new", "nocontact", "lost"].includes(lead.stage);
+  const contact = n(t.talked) > 0 || !["new", "nocontact", "lost"].includes(lead.stage);
   return { calls: n(d.calls), answered: n(d.answered), voicemail: n(d.voicemail), noanswer: n(d.noanswer), notconnected: n(d.notconnected), texts: n(t.texts), emails: n(t.emails), contact, last: t.last_at ? when(t.last_at).ago : "" };
 }
 async function callRecordings(env, id) {
@@ -2096,8 +2095,8 @@ async function adminRoute(p, request, env) {
     if (!Number.isInteger(b.id) || !ok) return json({ success: false }, 400);
     const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(b.id).first();
     if (!cur) return json({ success: false }, 404);
-    // same rule as the auto-dial: answered -> Contacted, no answer or voicemail -> Not contacted (only for leads that were still new or not contacted)
-    const tgt = isNewish(cur.stage) ? (b.outcome === "Answered" ? "contacted" : /^(No answer|Left a voicemail)$/.test(b.outcome) ? "nocontact" : cur.stage) : cur.stage;
+    // only Answered moves a lead (to Contacted); the other answers are just recorded
+    const tgt = isNewish(cur.stage) && b.outcome === "Answered" ? "contacted" : cur.stage;
     const st2 = [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, tgt, "Call result: " + b.outcome, user)];
     if (tgt !== cur.stage) st2.push(env.DB.prepare("UPDATE leads SET stage = ?, contacted = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(tgt, tgt === "contacted" ? 1 : 0, b.id));
     await env.DB.batch(st2);
@@ -2122,9 +2121,8 @@ async function adminRoute(p, request, env) {
     if (!Number.isInteger(b.id) || typeof b.label !== "string") return json({ success: false }, 400);
     const cur = await env.DB.prepare("SELECT stage, follow_up_date FROM leads WHERE id = ?").bind(b.id).first();
     if (!cur) return json({ success: false }, 404);
-    // Calling, texting or emailing is an attempt, not contact: only the client answering (the call result) or a person's own stage change makes a lead Contacted.
-    // A first text or email on a brand-new lead moves it to Not contacted, which means "reached out, no conversation yet".
-    const stage = cur.stage === "new" && /^(Texted|Emailed)/i.test(b.label) ? "nocontact" : cur.stage;
+    // Calling, texting or emailing never moves a lead. Only a person does: by moving it, or by answering "Did they answer?" with Answered.
+    const stage = cur.stage;
     const stmts = [
       env.DB.prepare("UPDATE leads SET stage = ?" + (stage !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(stage, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, stage, clean(b.label, 120), user),
