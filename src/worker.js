@@ -66,6 +66,10 @@ async function ensureTableRun(db) {
   await db.prepare("CREATE TABLE IF NOT EXISTS dial_log (call_id TEXT PRIMARY KEY, lead_id INTEGER, by_user TEXT, source TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), done INTEGER NOT NULL DEFAULT 0)").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS hook_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), summary TEXT)").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS ad_spend (month TEXT PRIMARY KEY, amount REAL NOT NULL DEFAULT 0)").run();
+  await db.batch([
+    db.prepare("CREATE TABLE IF NOT EXISTS ad_spend2 (month TEXT NOT NULL, channel TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, PRIMARY KEY (month, channel))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS job_costs (service TEXT PRIMARY KEY, cost REAL NOT NULL DEFAULT 0)"),
+  ]);
   const slCols = (await db.prepare("PRAGMA table_info(stage_log)").all()).results.map(c => c.name);
   if (!slCols.includes("by_user")) await db.prepare("ALTER TABLE stage_log ADD COLUMN by_user TEXT").run();
   // upgrade tables created before the pipeline existed
@@ -128,6 +132,9 @@ async function ensureTableRun(db) {
   // one time: the recording each lead already has becomes the first entry in its recordings list
   const flag4 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('recordings_list')").run();
   if (flag4.meta && flag4.meta.changes) await db.prepare("INSERT OR IGNORE INTO call_recordings (call_id, lead_id, direction, url, duration, at) SELECT COALESCE(NULLIF(l.call_id,''), (SELECT d.call_id FROM dial_log d WHERE d.lead_id = l.id ORDER BY d.created_at DESC LIMIT 1), 'lead-' || l.id), l.id, CASE WHEN l.type = 'call' THEN 'inbound' ELSE 'outbound' END, l.recording, l.duration, l.created_at FROM leads l WHERE COALESCE(l.recording,'') != ''").run();
+  // one time: the monthly ad spend entered so far was Google Ads spend
+  const flag5 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('ad_spend_by_channel')").run();
+  if (flag5.meta && flag5.meta.changes) await db.prepare("INSERT OR IGNORE INTO ad_spend2 (month, channel, amount) SELECT month, 'google', amount FROM ad_spend").run();
   const flag2 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('coating_value_599')").run();
   if (flag2.meta && flag2.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%coating%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_COATING_VALUE).run();
   // lookups by lead and by date stay fast as the history grows (only adds indexes: nothing is changed or removed)
@@ -1688,7 +1695,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -1870,7 +1877,7 @@ async function speedRows(env) {
       contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
       secs: contact ? Math.max(0, Math.round((ms(contact) - ms(l.created_at)) / 1000)) : null,
       booked: BOOKED.includes(l.stage) || gl.some(g => BOOKED.includes(g.to_stage)), value: l.value || 0,
-      service: l.service || "Not set", stage: l.stage, h: t.h, srckey: so.ad ? "Google Ads" + (l.utm_campaign ? " \u00b7 " + l.utm_campaign : "") : so.label,
+      service: l.service || "Not set", stage: l.stage, h: t.h, channel: l.utm_medium === "paid_social" ? "meta" : so.ad ? "google" : "", srckey: so.ad ? (l.utm_medium === "paid_social" ? "Meta Ads" : "Google Ads") + (l.utm_campaign ? " \u00b7 " + l.utm_campaign : "") : so.label,
       lost: l.stage === "lost" ? (lostLog && lostLog.reason && lostLog.reason !== "Moved" ? lostLog.reason : "No reason logged") : "",
       booked_days: bookedLog ? Math.max(0, (ms(bookedLog.at) - ms(l.created_at)) / 864e5) : null, qv: l.stage === "quoted" ? (l.value || 0) : 0,
       outs: gl.filter(g => RESULT.test(g.reason || "")).map(g => ({ h: etParts(g.at).h, ok: /answered/i.test(g.reason || "") })),
@@ -2150,8 +2157,10 @@ draw();
 async function insightsPage(env, user) {
   const rows = await speedRows(env);
   const tc = await todayCount(env);
-  const spend = Object.fromEntries((await env.DB.prepare("SELECT month, amount FROM ad_spend").all()).results.map(r => [r.month, r.amount]));
-  const payload = JSON.stringify({ rows, today: todayStr(), spend }).replace(/</g, "\\u003c");
+  const spend = { google: {}, meta: {} };
+  for (const r of (await env.DB.prepare("SELECT month, channel, amount FROM ad_spend2").all()).results) (spend[r.channel] = spend[r.channel] || {})[r.month] = r.amount;
+  const costs = Object.fromEntries((await env.DB.prepare("SELECT service, cost FROM job_costs").all()).results.map(r => [r.service, r.cost]));
+  const payload = JSON.stringify({ rows, today: todayStr(), spend, costs, services: ["Window Tint", "PPF / Clear Bra", "Ceramic Coating", "Paint Correction", "Vinyl Wraps", "Exterior Detailing", "Other"] }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Insights | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
@@ -2173,23 +2182,25 @@ ${bnav("insights", tc, true)}
 ${RANGE_HTML}
 <div class="kpis" id="k"></div>
 <h2>Lead funnel<small>how many leads make it through each step</small></h2><div class="chart" id="fn"></div>
-<h2>Google Ads return<small>uses the monthly ad spend you enter at the bottom &middot; <a href="/admin/ads" style="color:#32cd32">Upload booked jobs to Google Ads</a></small></h2><div class="kpis" id="ads"></div>
+<h2>Ad return<small>worked out for you from the leads, booked job values, and the ad spend and job costs entered at the bottom &middot; <a href="/admin/ads" style="color:#32cd32">Upload booked jobs to Google Ads</a></small></h2><div class="kpis" id="ads"></div><div class="tbw"><table class="tb" id="adt"></table></div>
 <h2>Where leads come from</h2><div class="tbw"><table class="tb" id="src"></table></div>
 <h2>Which services bring the money</h2><div class="tbw"><table class="tb" id="svc"></table></div>
 <h2>Why leads are lost<small>the reason picked when a lead moves to Lost</small></h2><div class="hb" id="lost"></div>
 <h2>When leads arrive<small>number of leads by hour of day, Eastern time (purple = outside business hours)</small></h2><div class="chart" id="hr"></div>
 <h2>Best time to call<small>share of logged calls that were answered, by hour of day (needs at least 3 calls in an hour)</small></h2><div class="chart" id="bt"></div>
 <h2>Monthly Google Ads spend<small>type the amount spent each month; it is saved automatically</small></h2><div class="sp" id="sp"></div>
+<h2>Monthly Meta Ads spend<small>same for Facebook and Instagram</small></h2><div class="sp" id="spm"></div>
+<h2>What a job costs you<small>materials and labor for an average job of each service; used for profit per job</small></h2><div class="sp" id="jc"></div>
 <p class="note">Revenue uses the job value you enter on each lead in the Pipeline, and "booked" means the lead is in Booked, In the shop or Completed (or was). Numbers get more reliable as more leads are logged. Small groups can swing a lot.</p>
 </main>
 <script type="application/json" id="data">${payload}</script>
 <script>
-const D=JSON.parse(document.getElementById('data').textContent),R=D.rows,TODAY=D.today;let SP=D.spend||{};
+const D=JSON.parse(document.getElementById('data').textContent),R=D.rows,TODAY=D.today;let SP=D.spend||{};SP.google=SP.google||{};SP.meta=SP.meta||{};const JC=D.costs||{};
 ${RANGE_JS}
 ${CHART_JS}
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'$'+Math.round(n||0).toLocaleString('en-US'),pc=(a,b)=>b?Math.round(100*a/b)+'%':'-',med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);return b.length%2?b[i]:(b[i-1]+b[i])/2};
-function spendFor(f,t){let tot=0;for(const m in SP){const y=+m.slice(0,4),mo=+m.slice(5,7),dim=new Date(Date.UTC(y,mo,0)).getUTCDate(),first=m+'-01',last=m+'-'+String(dim).padStart(2,'0'),lo=f&&f>first?f:first,hi=t&&t<last?t:last;if(lo>hi)continue;tot+=SP[m]*(((dt(hi)-dt(lo))/864e5)+1)/dim}return tot}
+function spendFor(ch,f,t){let tot=0;const S=SP[ch]||{};for(const m in S){const y=+m.slice(0,4),mo=+m.slice(5,7),dim=new Date(Date.UTC(y,mo,0)).getUTCDate(),first=m+'-01',last=m+'-'+String(dim).padStart(2,'0'),lo=f&&f>first?f:first,hi=t&&t<last?t:last;if(lo>hi)continue;tot+=S[m]*(((dt(hi)-dt(lo))/864e5)+1)/dim}return tot}
 function tbl(id,head,body){document.getElementById(id).innerHTML='<tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+(body.length?body.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+head.length+'" style="text-align:center;color:#7c838d">No leads in this range</td></tr>')}
 function hb(id,items,red){const mx=Math.max(1,...items.map(i=>i[1]));document.getElementById(id).innerHTML=items.length?items.map(i=>'<div><span>'+$(i[0])+'</span><span><i class="'+(red?'r':'')+'" style="width:'+Math.max(2,Math.round(100*i[1]/mx))+'%"></i></span><span>'+i[1]+'</span></div>').join(''):'<span style="color:#7c838d">Nothing to show in this range</span>'}
 function groupBy(L,fn){const m={};L.forEach(r=>{const k=fn(r);(m[k]=m[k]||[]).push(r)});return Object.entries(m).sort((a,b)=>b[1].length-a[1].length)}
@@ -2200,8 +2211,17 @@ function draw(){const L=pick(),S=stats(L),f=bounds()[0],t=bounds()[1];
  const called=L.filter(r=>r.secs!=null),reached=L.filter(r=>r.reached||(r.type==='call'&&r.how==='Answered live')),done=L.filter(r=>r.stage==='done');
  const fun=[['Leads',L.length],['Called',called.length],['Reached',reached.length],['Booked',S.b],['Completed',done.length]];
  bars('fn',fun.map((x,i)=>({l:x[0],v:x[1],t:x[1],s:i===0?'':pc(x[1],fun[i-1][1])+' of '+fun[i-1][0].toLowerCase(),c:'',small:false})));
- const ads=L.filter(r=>r.ad),as=stats(ads),sp=spendFor(f,t);
- document.getElementById('ads').innerHTML=sp>0&&ads.length?'<div class="kpi"><b>'+money(sp)+'</b><span>Ad spend in this range</span></div><div class="kpi"><b>'+ads.length+'</b><span>Leads from Google Ads</span></div><div class="kpi g"><b>'+money(sp/ads.length)+'</b><span>Cost per lead</span></div><div class="kpi g"><b>'+(as.b?money(sp/as.b):'-')+'</b><span>Cost per booked job</span></div><div class="kpi g"><b>'+(sp?(as.rev/sp).toFixed(1)+'x':'-')+'</b><span>Return on ad spend ('+money(as.rev)+' booked)</span></div>':'<div class="note">Enter your monthly Google Ads spend at the bottom of the page to see cost per lead, cost per booked job and return on ad spend.</div>';
+ const CHS=[['google','Google Ads'],['meta','Meta Ads'],['all','All paid']];
+ const cs=Object.fromEntries(CHS.map(([k])=>{const x=k==='all'?L.filter(r=>r.ad):L.filter(r=>r.channel===k),b=x.filter(r=>r.booked),rev=b.reduce((a,r)=>a+(r.value||0),0),jc=b.reduce((a,r)=>a+(JC[r.service]||0),0),sp=k==='all'?spendFor('google',f,t)+spendFor('meta',f,t):spendFor(k,f,t);return [k,{n:x.length,b:b.length,rev:rev,jc:jc,sp:sp,profit:rev-jc-sp}]}));
+ const dv=(a,b,fn)=>b?fn(a/b):'-',m1=n=>'$'+(n>=100?Math.round(n).toLocaleString('en-US'):n.toFixed(2)),A=cs.all,hasCost=Object.values(JC).some(v=>v>0);
+ document.getElementById('ads').innerHTML=A.sp>0&&A.n?'<div class="kpi g"><b>'+dv(A.sp,A.n,m1)+'</b><span>Average cost per lead</span></div><div class="kpi"><b>'+dv(A.n,A.b,x=>x.toFixed(1))+'</b><span>Leads for 1 booked job</span></div><div class="kpi g"><b>'+dv(A.sp,A.b,m1)+'</b><span>Ad cost per booked job</span></div><div class="kpi g"><b>'+dv(A.profit,A.b,m1)+'</b><span>Profit per job'+(hasCost?'':' (job costs not entered)')+'</span></div><div class="kpi g"><b>'+dv(A.rev,A.sp,x=>x.toFixed(1)+'x')+'</b><span>Return on ad spend ('+money(A.rev)+' booked)</span></div>':'<div class="note">Enter your monthly ad spend at the bottom of the page and these fill in by themselves: cost per lead, leads per booked job, profit per job and return on ad spend.</div>';
+ const row=(lab,fn)=>[lab].concat(CHS.map(([k])=>fn(cs[k])));
+ tbl('adt',['Per channel (this range)','Google Ads','Meta Ads','All paid'],A.n||A.sp?[
+  row('Ad spend',c=>c.sp?money(c.sp):'-'),row('Leads',c=>c.n),row('Cost per lead',c=>dv(c.sp,c.n,m1)),
+  row('Booked jobs',c=>c.b),row('Leads for 1 booked job',c=>dv(c.n,c.b,x=>x.toFixed(1))),row('Booked rate',c=>pc(c.b,c.n)),
+  row('Ad cost per booked job',c=>dv(c.sp,c.b,m1)),row('Booked revenue',c=>money(c.rev)),row('Average job value',c=>dv(c.rev,c.b,money)),
+  row('Estimated job costs',c=>c.jc?money(c.jc):'-'),row('Profit after ads and job costs',c=>c.sp||c.rev?money(c.profit):'-'),
+  row('Profit per job',c=>dv(c.profit,c.b,m1)),row('Return on ad spend',c=>dv(c.rev,c.sp,x=>x.toFixed(1)+'x'))]:[]);
  tbl('src',['Source','Leads','Reached','Booked','Booked rate','Revenue'],groupBy(L,r=>r.srckey).map(([k,x])=>{const a=stats(x);return [$(k),a.n,a.calledF?a.reachedF+' of '+a.calledF:'-',a.b,pc(a.b,a.n),money(a.rev)]}));
  tbl('svc',['Service','Leads','Booked','Booked rate','Revenue','Avg job'],groupBy(L,r=>r.service).map(([k,x])=>{const a=stats(x);return [$(k),a.n,a.b,pc(a.b,a.n),money(a.rev),a.avg?money(a.avg):'-']}));
  hb('lost',groupBy(L.filter(r=>r.stage==='lost'),r=>r.lost).map(([k,x])=>[k,x.length]),true);
@@ -2210,9 +2230,12 @@ function draw(){const L=pick(),S=stats(L),f=bounds()[0],t=bounds()[1];
  const outs=[].concat(...L.map(r=>r.outs||[])),bt=Array.from({length:24},(_,h)=>{const x=outs.filter(o=>o.h===h);return {h:h,n:x.length,a:x.filter(o=>o.ok).length}});
  const btItems=bt.filter(x=>x.n>0).map(x=>({l:lab(x.h),v:x.n>=3?Math.round(100*x.a/x.n):0,t:x.n>=3?Math.round(100*x.a/x.n)+'%':'-',s:x.a+' of '+x.n,c:x.n>=3?'':'mute',small:x.n<5}));
  document.getElementById('bt').innerHTML=btItems.length?'':'<div class="note" style="padding:14px">No call results logged in this range yet. Answer the popup after tapping Call and this fills in.</div>';if(btItems.length)bars('bt',btItems)}
-function drawSpend(){const el=document.getElementById('sp'),ms=[];let d=TODAY.slice(0,7);for(let i=0;i<6;i++){ms.push(d);const dd=dt(d+'-01');dd.setUTCMonth(dd.getUTCMonth()-1);d=ds(dd).slice(0,7)}
- el.innerHTML=ms.map(m=>'<div><label>'+dt(m+'-01').toLocaleDateString('en-US',{timeZone:'UTC',month:'long',year:'numeric'})+'</label><input type="number" min="0" step="1" inputmode="numeric" data-m="'+m+'" value="'+(SP[m]||'')+'" placeholder="$0"></div>').join('')}
-document.getElementById('sp').addEventListener('change',async e=>{const i=e.target.closest('input[data-m]');if(!i)return;const v=Math.max(0,Number(i.value)||0);SP[i.dataset.m]=v;try{await fetch('/admin/adspend',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({month:i.dataset.m,amount:v})})}catch(_){}draw()});
+function drawSpend(){const ms=[];let d=TODAY.slice(0,7);for(let i=0;i<6;i++){ms.push(d);const dd=dt(d+'-01');dd.setUTCMonth(dd.getUTCMonth()-1);d=ds(dd).slice(0,7)}
+ for(const [id,ch] of [['sp','google'],['spm','meta']])document.getElementById(id).innerHTML=ms.map(m=>'<div><label>'+dt(m+'-01').toLocaleDateString('en-US',{timeZone:'UTC',month:'long',year:'numeric'})+'</label><input type="number" min="0" step="1" inputmode="numeric" data-m="'+m+'" data-ch="'+ch+'" value="'+((SP[ch]||{})[m]||'')+'" placeholder="$0"></div>').join('');
+ const svc=[...new Set((D.services||[]).concat(R.map(r=>r.service).filter(x=>x&&x!=='Not set')))];
+ document.getElementById('jc').innerHTML=svc.map(x=>'<div><label>'+$(x)+'</label><input type="number" min="0" step="1" inputmode="numeric" data-s="'+$(x)+'" value="'+(JC[x]||'')+'" placeholder="$0"></div>').join('')}
+for(const id of ['sp','spm'])document.getElementById(id).addEventListener('change',async e=>{const i=e.target.closest('input[data-m]');if(!i)return;const v=Math.max(0,Number(i.value)||0),ch=i.dataset.ch;SP[ch]=SP[ch]||{};SP[ch][i.dataset.m]=v;try{await fetch('/admin/adspend',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({month:i.dataset.m,channel:ch,amount:v})})}catch(_){}draw()});
+document.getElementById('jc').addEventListener('change',async e=>{const i=e.target.closest('input[data-s]');if(!i)return;const v=Math.max(0,Number(i.value)||0);JC[i.dataset.s]=v;try{await fetch('/admin/jobcost',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({service:i.dataset.s,cost:v})})}catch(_){}draw()});
 drawSpend();draw();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
@@ -2318,8 +2341,16 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/adspend" && request.method === "POST") {
     if (a !== OWNER) return json({ success: false }, 403);
     const b = await request.json().catch(() => ({}));
+    const channel = b.channel === "meta" ? "meta" : "google";
     if (typeof b.month !== "string" || !/^\d{4}-\d{2}$/.test(b.month) || !Number.isFinite(b.amount) || b.amount < 0 || b.amount > 10000000) return json({ success: false }, 400);
-    await env.DB.prepare("INSERT INTO ad_spend (month, amount) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET amount = excluded.amount").bind(b.month, b.amount).run();
+    await env.DB.prepare("INSERT INTO ad_spend2 (month, channel, amount) VALUES (?, ?, ?) ON CONFLICT(month, channel) DO UPDATE SET amount = excluded.amount").bind(b.month, channel, b.amount).run();
+    return json({ success: true });
+  }
+  if (p === "/admin/jobcost" && request.method === "POST") {
+    if (a !== OWNER) return json({ success: false }, 403);
+    const b = await request.json().catch(() => ({}));
+    if (typeof b.service !== "string" || !b.service.trim() || b.service.length > 100 || !Number.isFinite(b.cost) || b.cost < 0 || b.cost > 10000000) return json({ success: false }, 400);
+    await env.DB.prepare("INSERT INTO job_costs (service, cost) VALUES (?, ?) ON CONFLICT(service) DO UPDATE SET cost = excluded.cost").bind(b.service.trim(), b.cost).run();
     return json({ success: true });
   }
   if (p === "/admin/ads") return a === OWNER ? adsPage(env, a, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
