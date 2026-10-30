@@ -430,6 +430,7 @@ const QUEUE_MAX = 40, QUEUE_GAP_SECS = 8;
 const QUEUE_WHERE = "l.stage IN ('new','nocontact') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND length(replace(replace(replace(replace(replace(COALESCE(l.phone,''),'-',''),' ',''),'(',''),')',''),'+','')) >= 10";
 const queueEnd = (env, id, note) => env.DB.prepare("UPDATE queue_run SET active = 0, ended_at = datetime('now'), next_at = NULL, note = ? WHERE id = ? AND active = 1").bind(note, id).run();
 async function startQueue(env, user) {
+  if (!queueOn(env)) return { ok: false, message: "The calling queue is turned off." };
   if (!dialOn(env)) return { ok: false, message: "Calling through CallRail is not set up yet." };
   if (!agentPhone(env, user)) return { ok: false, message: `No cell number is saved for ${user}. Add AGENT_PHONE_${String(user).toUpperCase()} in Cloudflare.` };
   if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) return { ok: false, message: "Calling hours are Monday to Saturday, 9 AM to 6 PM Eastern." };
@@ -445,7 +446,7 @@ async function startQueue(env, user) {
 }
 // places the next call of every run that is due (and every minute from the schedule, as a backup for the short pause)
 async function runQueue(env, onlyRun) {
-  if (!dialOn(env) || !env.DB) return { message: "" };
+  if (!queueOn(env) || !dialOn(env) || !env.DB) return { message: "" };
   await ensureTable(env.DB);
   const runs = (await env.DB.prepare("SELECT id, user FROM queue_run WHERE active = 1 AND next_at IS NOT NULL AND next_at <= datetime('now')" + (onlyRun ? " AND id = ?" : "")).bind(...(onlyRun ? [onlyRun] : [])).all()).results || [];
   let message = "";
@@ -473,7 +474,9 @@ async function queueAfterCall(env, callId, dialed, ctx) {
   await env.DB.prepare("UPDATE queue_run SET next_at = datetime('now', ?) WHERE id = ? AND active = 1").bind(`+${QUEUE_GAP_SECS} seconds`, it.run_id).run();
   if (ctx) ctx.waitUntil((async () => { await new Promise(r => setTimeout(r, (QUEUE_GAP_SECS + 1) * 1000)); await runQueue(env, it.run_id); })().catch(() => {}));
 }
+const queueOn = env => env.QUEUE === "1"; // the one-by-one calling queue is switched off unless QUEUE=1 (kept for later)
 async function queueStatus(env, user) {
+  if (!queueOn(env)) return { disabled: true };
   await ensureTable(env.DB);
   const run = await env.DB.prepare("SELECT id, active, note, (ended_at IS NOT NULL AND ended_at >= datetime('now','-10 minutes')) AS recent FROM queue_run WHERE user = ? ORDER BY id DESC LIMIT 1").bind(user).first();
   const eligible = (await env.DB.prepare(`SELECT COUNT(*) n FROM leads l WHERE ${QUEUE_WHERE}`).first() || {}).n || 0;
@@ -1081,12 +1084,12 @@ const QUEUE_JS = `
 const qe=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const bs='border:1px solid #2a313a;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer;';
 async function get(){try{const r=await fetch('/admin/queue');return r.ok?await r.json():null}catch(_){return null}}
-function draw(s){if(!s){bar.innerHTML='';return}
+function draw(s){if(!s||s.disabled){bar.innerHTML='';bar.style.display='none';return}
   if(s.active){bar.innerHTML='<span style="color:#e8eaed"><b style="color:#32cd32">Calling queue</b> &middot; '+s.done+' of '+s.total+' done'+(s.now?' &middot; now: '+qe(s.now):' &middot; ringing your phone')+(s.next?' &middot; next: '+qe(s.next):'')+'</span><button id="qstop" type="button" style="'+bs+'background:#2a1414;color:#ff8a8a">Stop</button>';document.getElementById('qstop').onclick=async e=>{e.target.disabled=true;await fetch('/admin/queue/stop',{method:'POST'});refresh()};return}
   bar.innerHTML=(s.eligible?'<button id="qgo" type="button" style="'+bs+'background:#32cd32;color:#04120a">Start calling ('+s.eligible+')</button>':'')+(s.note?'<span style="color:#98a0aa">'+qe(s.note)+'</span>':'');
   const go=document.getElementById('qgo');if(go)go.onclick=async e=>{if(!confirm('Your phone will ring first. Press 1 to connect, and the next new lead is called when each call ends. Start calling '+s.eligible+' lead'+(s.eligible===1?'':'s')+'?'))return;e.target.disabled=true;const r=await fetch('/admin/queue/start',{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok&&j.message)alert(j.message);refresh()}}
 async function refresh(){draw(await get())}
-refresh().then(()=>{if(location.hash==='#start'){const g=document.getElementById('qgo');if(g)g.click()}});setInterval(()=>{if(!document.hidden)refresh()},12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+refresh().then(()=>{if(location.hash==='#start'){const g=document.getElementById('qgo');if(g)g.click()}});const poll=setInterval(()=>{if(bar.style.display==='none'){clearInterval(poll);return}if(!document.hidden)refresh()},12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 })();`;
 const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
 const OUTCOME_JS = `
@@ -1599,7 +1602,7 @@ async function dialSessionReminder(env) {
     if (!claim.meta || !claim.meta.changes) continue;
     const n = (await env.DB.prepare(`SELECT COUNT(*) n FROM leads l WHERE ${QUEUE_WHERE}`).first() || {}).n || 0;
     if (!n) continue;
-    await sendPush(env, { title: `${SESSION_NAMES[i] || "Dial"} dial session`, message: `${Math.min(n, QUEUE_MAX)} lead${n === 1 ? "" : "s"} to call. Tap to start.`, click: env.CRM_HOST ? `https://${env.CRM_HOST}/today#start` : undefined }).catch(() => {});
+    await sendPush(env, { title: `${SESSION_NAMES[i] || "Dial"} dial session`, message: `${Math.min(n, QUEUE_MAX)} lead${n === 1 ? "" : "s"} waiting to be called. Tap to open.`, click: env.CRM_HOST ? `https://${env.CRM_HOST}/today` : undefined }).catch(() => {});
   }
 }
 
