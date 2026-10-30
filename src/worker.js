@@ -719,18 +719,22 @@ async function handleMeta(request, env, url, ctx) {
   // every other answer on the form is kept as "Question: answer", so the lead shows what was asked ("How soon are you looking to get this done?" and so on)
   const known = new Set(["name", "fullname", "firstname", "lastname", "customername", "contactname", "yourname", "phone", "phonenumber", "email", "emailaddress", "service", "vehicle", "car", "make", "year", "model", "leadid", "leadgenid", "id", "campaignname", "campaign", "utmcampaign", "adname", "adsetname", "formname", "platform", "message", "notes", "comments", "key"]);
   const pretty = k => (/[\s?]/.test(k) ? k.trim() : k.replace(/[_-]+/g, " ").replace(/^./, c => c.toUpperCase()));
-  let carAnswer = "";
+  let carAnswer = "", yearAns = "", makeAns = "", modelAns = "";
   const answers = [];
   for (const [k, v] of Object.entries(d)) {
     if (v === undefined || v === null || typeof v === "object" || String(v).trim() === "") continue;
     const nk = norm(k);
     if (known.has(nk)) continue;
+    // vehicle questions: separate "Vehicle Year", "Make" and "Model" answers fill their own fields; one combined answer goes into the model field
+    if (/year/.test(nk) && !/model|make/.test(nk)) { yearAns = yearAns || String(v); continue; }
+    if (/make/.test(nk) && !/model/.test(nk)) { makeAns = makeAns || String(v); continue; }
+    if (/model/.test(nk) && !/make/.test(nk)) { modelAns = modelAns || String(v); continue; }
     if (/make|model|vehicle|^car/.test(nk)) { carAnswer = carAnswer || String(v); continue; }
     const label = pretty(k).replace(/[:\s]+$/, "");
     answers.push(label + (label.endsWith("?") ? " " : ": ") + String(v).trim());
   }
   const msg = clean([pick("message", "notes", "comments"), answers.join("\n"), extras].filter(Boolean).join("\n"), MAX.message);
-  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make"), 60), year: clean(pick("year", "Year"), 10), model: clean(pick("model", "Model") || (pick("make", "year") ? "" : pick("vehicle", "Vehicle", "car", "Car") || carAnswer), 80), message: msg,
+  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make") || makeAns, 60), year: clean(pick("year", "Year") || yearAns, 10), model: clean(pick("model", "Model") || modelAns || (pick("make", "Make") || makeAns ? "" : pick("vehicle", "Vehicle", "car", "Car") || carAnswer), 80), message: msg,
     page: "Meta Instant Form", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "meta", utm_medium: "paid_social", utm_campaign: clean(pick("campaign_name", "campaign", "utm_campaign"), 200), utm_term: clean(pick("ad_name", "adset_name"), 200) };
   const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,ip,user_agent,value)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
