@@ -1397,6 +1397,12 @@ function when(sqlUtc) {
   return { ago, abs };
 }
 const hasClick = l => !!(l && (l.gclid || l.gbraid || l.wbraid));
+// the shop login never sees where a lead came from: campaign, ad, keyword, landing page, form name and click ids are blanked before the page is built
+const AD_LINE = /^(form name|ad name|adset name|platform|campaign|keyword)\s*:/i;
+const noAds = l => ({
+  ...l, page: "", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "", utm_medium: "", utm_campaign: "", utm_term: "",
+  message: String(l.message || "").split("\n").map(line => line.split(" · ").filter(seg => !AD_LINE.test(seg.trim())).join(" · ")).filter(x => x.trim()).join("\n"),
+});
 function sourceOf(l) {
   if (l.type === "call" && !hasClick(l) && l.utm_medium !== "cpc") {
     const g = /google ads|adwords|ppc|paid/i.test(l.utm_source || "");
@@ -1411,7 +1417,9 @@ function sourceOf(l) {
 
 async function adminPage(env, user = "") {
   await ensureTable(env.DB);
-  const [tc, { results }] = await Promise.all([todayCount(env), env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all()]);
+  const own = user === OWNER;
+  const [tc, rs] = await Promise.all([todayCount(env), env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all()]);
+  const results = own ? rs.results : rs.results.map(noAds);
   const open = results.filter(l => isNewish(l.stage) && l.type === "quote").length;
   const ads = results.filter(l => sourceOf(l).ad).length;
   const cards = results.map(l => {
@@ -1420,7 +1428,7 @@ async function adminPage(env, user = "") {
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
     return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : isNewish(l.stage) ? "new" : ""}" data-id="${l.id}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${isNewish(l.stage) ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
       <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
-        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}${callTag(l)}<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}${l.follow_up ? `<span class="tag fu">${esc(l.follow_up)}</span>` : ""}</div></div>
+        <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}${callTag(l)}${own ? `<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>` : ""}${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}${l.follow_up ? `<span class="tag fu">${esc(l.follow_up)}</span>` : ""}</div></div>
       <div class="grid">
         ${l.service ? `<div><label>Service</label>${esc(l.service)}${l.also_interested ? `<small>also: ${esc(l.also_interested)}</small>` : ""}</div>` : ""}
         ${veh ? `<div><label>Vehicle</label>${esc(veh)}</div>` : ""}
@@ -1469,8 +1477,8 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 }
 </style></head>
 <body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc, user === OWNER)}
-<div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div><div class="stat"><b>${ads}</b><span>from Google Ads</span></div></div></header>
-<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button><button class="chip" data-f="ad">Google Ads</button><a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
+<div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div>${own ? `<div class="stat"><b>${ads}</b><span>from Google Ads</span></div>` : ""}</div></header>
+<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button>${own ? '<button class="chip" data-f="ad">Google Ads</button>' : ""}<a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
 ${bnav("leads", tc, user === OWNER)}
 ${FOLLOW_HTML}
 ${OUTCOME_HTML}
@@ -1496,8 +1504,9 @@ async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
   const [tc, { results }] = await Promise.all([todayCount(env), env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all()]);
   // each lead's history is loaded when the lead is opened (it was more than half of this page); the click ids are only used to work out the source here
-  const data = results.map(l => { const t = when(l.created_at), sc = sourceOf(l); const { gclid, gbraid, wbraid, referrer, ...rest } = l; return { ...rest, followup: l.follow_up || "", dur: mmss(l.duration), ago: t.ago, abs: t.abs, src: sc.label, ad: sc.ad, detail: sc.detail }; });
-  const payload = JSON.stringify({ stages: STAGES, today: todayStr(), cfg: cfgOf(env), leads: data }).replace(/</g, "\\u003c");
+  const ownP = user === OWNER;
+  const data = results.map(l0 => { const l = ownP ? l0 : noAds(l0), t = when(l.created_at), sc = sourceOf(l); const { gclid, gbraid, wbraid, referrer, ...rest } = l; return { ...rest, followup: l.follow_up || "", dur: mmss(l.duration), ago: t.ago, abs: t.abs, src: ownP ? sc.label : "", ad: ownP && sc.ad, detail: ownP ? sc.detail : "" }; });
+  const payload = JSON.stringify({ own: ownP, stages: STAGES, today: todayStr(), cfg: cfgOf(env), leads: data }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Pipeline | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed;height:100vh;display:flex;flex-direction:column}
@@ -1600,6 +1609,7 @@ function infoHtml(l,veh){const p=parseMsg(l),meta=l.utm_medium==='paid_social',w
     kv('Campaign',l.utm_campaign)+kv(meta?'Ad':'Keyword',meta?ad:kw)+kv('Ad set',p.adset)+kv('Form',p.form)+kv('Landed on',web)+'</div>';
   const ans=p.answers.length?'<div class="fans">'+p.answers.map(a=>'<div class="fanr"><span>'+$(a[0])+'</span><b>'+$(a[1]||'-')+'</b></div>').join('')+'</div>':'';
   const rest=p.rest.length?'<p class="msg">&ldquo;'+$(p.rest.join(' '))+'&rdquo;</p>':'';
+  if(!D.own)return '<div class="sum2"><div><label>Service</label><b>'+$(l.service||'-')+'</b>'+(l.also_interested?'<small>also: '+$(l.also_interested)+'</small>':'')+'</div><div><label>Vehicle</label><b>'+$(veh||'-')+'</b></div></div>'+ans+rest;
   return '<div class="sum2"><div><label>Service</label><b>'+$(l.service||'-')+'</b>'+(l.also_interested?'<small>also: '+$(l.also_interested)+'</small>':'')+'</div><div><label>Vehicle</label><b>'+$(veh||'-')+'</b></div></div>'+ans+src+rest}
 const shortR=r=>r.replace(/^Agent missed the auto-dial.*/i,'Missed the auto-dial (no answer or no 1)').replace(/^Call not connected.*/i,'Call not connected').replace(/^Called via CallRail/i,'Call connected').replace(/^Call queue: calling your phone first/i,'Call queue: ringing you first').replace(/^Auto-dial requested.*/i,'Auto-dial: ringing you first').replace(/^Dial requested.*/i,'Call: ringing you first').replace(/^Call result: CallRail reported /i,'CallRail: ').replace(/^Auto-dial: first ring not answered.*/i,'Auto-dial: ringing you again');
 function histHtml(l){const rows=(l.log||[]).map(h=>{const same=h.from_stage===h.to_stage,r=h.reason||'';
@@ -1683,9 +1693,10 @@ draw();
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
-async function csv(env) {
+async function csv(env, user = "") {
   await ensureTable(env.DB);
-  const { results } = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC").all();
+  const rs = await env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC").all();
+  const results = user === OWNER ? rs.results : rs.results.map(noAds);
   const cols = ["id", "created_at", "type", "name", "email", "phone", "service", "also_interested", "make", "year", "model", "message", "page", "referrer", "gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term", "stage", "value", "notes", "duration", "answered", "recording"];
   const q = v => { let s = String(v ?? ""); if (/^(=|@|[+\-][^\d(\s])/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
   const body = [cols.join(","), ...results.map(r => cols.map(c => q(r[c])).join(","))].join("\n");
@@ -2627,7 +2638,8 @@ async function todayPage(env, user = "") {
   await ensureTable(env.DB);
   const today = todayStr();
   const { results } = await env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,make,year,model,message,utm_source,utm_campaign,gclid,gbraid,wbraid,utm_medium,stage,follow_up,follow_up_date,duration,recording,answered FROM leads WHERE type != 'newsletter' AND created_at >= datetime('now','-24 hours') ORDER BY created_at DESC, id DESC LIMIT 300").all();
-  const items = results.map(l => ({ ...l, ago: when(l.created_at).ago, src: sourceOf(l).label, ad: sourceOf(l).ad, vm: /voicemail/i.test(l.message || "") }));
+  const ownT = user === OWNER;
+  const items = results.map(l0 => { const l = ownT ? l0 : noAds(l0); return { ...l, ago: when(l.created_at).ago, src: ownT ? sourceOf(l).label : "", ad: ownT && sourceOf(l).ad, vm: /voicemail/i.test(l.message || "") }; });
   const payload = JSON.stringify({ today, cfg: cfgOf(env), items, stages: STAGES }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Today | Divine Detailers</title>
 <style>
@@ -2713,7 +2725,7 @@ async function adminRoute(p, request, env) {
   }
   if (!env.DB) return new Response("Lead database is not configured.", { status: 503 });
   if (p === "/admin") return adminPage(env, a);
-  if (p === "/admin/leads.csv") return csv(env);
+  if (p === "/admin/leads.csv") return csv(env, a);
   if (p === "/admin/pipeline") return pipelinePage(env, a);
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env, a);
