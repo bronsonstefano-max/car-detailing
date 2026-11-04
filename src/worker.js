@@ -1146,7 +1146,7 @@ function callTag(l) {
 }
 
 // ---- "what's next?" dialog shared by the leads list and the pipeline (optional, can be skipped)
-const FOLLOW_CSS = `.rdlg{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(480px,94vw);max-height:92vh;overflow:auto}.rdlg::backdrop{background:rgba(0,0,0,.7)}
+const FOLLOW_CSS = `.rdlg{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(480px,calc(100vw - 24px));max-height:92vh;max-height:calc(100dvh - 24px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-sizing:border-box}.rdlg *{box-sizing:border-box;min-width:0}.rdlg::backdrop{background:rgba(0,0,0,.7)}#bkdlg .rb{gap:10px;padding:16px 16px 0}#bkdlg input{min-height:44px;padding:10px 12px;max-width:100%;-webkit-appearance:none;appearance:none;display:block;text-align:left}#bkdlg input[type=datetime-local]{width:100%;font-size:16px;line-height:1.2}#bkdlg .ra{position:sticky;bottom:0;background:#0f1319;padding:10px 0 calc(12px + env(safe-area-inset-bottom,0px));margin-top:2px;border-top:1px solid #1d232b}#bkdlg .ra button{flex:1}#bkdlg #bkerr:empty{display:none}
 .rdlg .rb{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px}.rdlg h3{margin:0;font-size:18px}.rdlg p{margin:0;color:#98a0aa;font-size:14px}.rdlg label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
 .rdlg input{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:12px;font:inherit;font-size:16px;min-height:48px;color-scheme:dark}
 .fu-chips{display:flex;flex-wrap:wrap;gap:8px}.fu-chips button{padding:9px 13px;border-radius:12px;border:1px solid #2a313a;background:#12171e;color:#e8eaed;font:inherit;font-size:14px;cursor:pointer;min-height:44px;text-align:left}.fu-chips button small{display:block;color:#7c838d;font-size:11.5px}
@@ -1154,11 +1154,11 @@ const FOLLOW_CSS = `.rdlg{background:#0f1319;color:#e8eaed;border:1px solid #2a3
 .rdlg .ra{display:flex;gap:8px;justify-content:flex-end}.rdlg .ra button{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:12px 16px;font:inherit;font-weight:700;cursor:pointer;min-height:46px}.rdlg .ra .ok{background:#32cd32;border-color:#32cd32;color:#04120a}.rdlg .ra .ok:disabled{opacity:.4;cursor:default}`;
 const FOLLOW_HTML = `<dialog class="rdlg" id="rdlg"><div class="rb"><h3 id="rt"></h3><p id="rs"></p><div><label>Next step</label><div class="fu-chips" id="rg"></div></div><div><label>Follow up on (optional)</label><input id="rd" type="date"></div><div class="ra"><button type="button" id="rc">Skip</button><button type="button" class="ok" id="ro" disabled>Save</button></div></div></dialog>`
   + `<dialog class="rdlg" id="bkdlg"><div class="rb"><h3>Confirm the booking</h3><p id="bkn">Check the details, pick the appointment, and confirm the price.</p>
+<div><label>Appointment date and time</label><input id="bkt" type="datetime-local"></div>
 <div><label>Name</label><input id="bkn2" autocomplete="off"></div><div><label>Phone</label><input id="bkp" type="tel" inputmode="tel"></div><div><label>Email</label><input id="bke" type="email"></div>
 <div><label>Service</label><input id="bks" autocomplete="off"></div>
 <div style="display:grid;grid-template-columns:1fr 1.3fr 1.3fr;gap:8px"><div><label>Year</label><input id="bky" inputmode="numeric"></div><div><label>Make</label><input id="bkm"></div><div><label>Model</label><input id="bkd"></div></div>
 <div><label>Job value ($) - this is the price sent to the calendar</label><input id="bkv" type="number" inputmode="numeric" min="0"></div>
-<div><label>Appointment date and time</label><input id="bkt" type="datetime-local"></div>
 <p id="bkerr" style="color:#ff8a8a;min-height:18px"></p><div class="ra"><button type="button" id="bkx">Cancel</button><button type="button" class="ok" id="bkok">Book it</button></div></div></dialog>`;
 const FOLLOW_JS = `
 const FU=${JSON.stringify(FOLLOWUPS)},STG=Object.fromEntries(${JSON.stringify(STAGES)});
