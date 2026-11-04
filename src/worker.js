@@ -11,6 +11,7 @@
 //   NOTIFY_FROM       (var, optional)          sender, e.g. "Divine Detailers <leads@yourdomain.com>"
 //   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and each new call ("NEW LEAD: Incoming call") as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
 //   CALL_WEBHOOK_URL  (secret, optional)       same as LEAD_WEBHOOK_URL but only for calls (its own Zap); calls use LEAD_WEBHOOK_URL when this is not set
+//   BOOKED_WEBHOOK_URL (secret, optional)     POST a lead as JSON when it is moved to Booked or its appointment changes (Zapier -> Urable calendar). "event" is booked | rescheduled
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -911,6 +912,23 @@ async function pushToDevices(env, { title, message, click, users }) {
 }
 async function sendPush(env, msg) {
   await Promise.all([sendNtfy(env, msg), pushToDevices(env, msg).catch(e => console.error("web push error", e && e.message))]);
+}
+
+// tell Zapier (and from there the Urable calendar) that a lead is booked or its appointment moved
+async function bookedHook(env, id, event) {
+  if (!env.BOOKED_WEBHOOK_URL || !env.DB) return;
+  try {
+    const l = await env.DB.prepare("SELECT id, name, email, phone, service, make, year, model, value, notes, appt_at FROM leads WHERE id = ?").bind(id).first();
+    if (!l) return;
+    const at = l.appt_at ? etLocalToUtc(l.appt_at) : null;
+    const nm = String(l.name || "").trim().split(/\s+/), veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
+    await fetch(env.BOOKED_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+      type: "booking", event, lead_id: l.id, name: l.name || "", first_name: nm[0] || "", last_name: nm.slice(1).join(" "), email: l.email || "",
+      phone_e164: e164(l.phone), phone_display: prettyPhone(l.phone), service: l.service || "", vehicle: veh, year: l.year || "", make: l.make || "", model: l.model || "",
+      price: l.value || 0, notes: l.notes || "", appt_local: l.appt_at || "", appt_start: at ? at.toISOString() : "", timezone: TZ, crm_link: crmLink(env, "", "/admin/pipeline#id=" + l.id),
+      text: `${event === "rescheduled" ? "Rescheduled" : "Booked"}: ${l.name || prettyPhone(l.phone)}, ${[l.service, veh].filter(Boolean).join(", ")}${l.appt_at ? " on " + l.appt_at.replace("T", " ") : ""}`,
+    }) });
+  } catch (e) { console.error("booked webhook error", e && e.message); }
 }
 
 // one message to everyone who should react fast: push (NTFY_TOPIC), email list (NOTIFY_TO) and text list (ALERT_SMS_TO)
@@ -2463,6 +2481,7 @@ async function adminRoute(p, request, env) {
       env.DB.prepare("UPDATE leads SET appt_at = ?, appt_remind_at = ?, appt_reminded = 0, stage = ?, contacted = 1" + (to !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(String(b.appt).slice(0, 16), rem ? sqlUtc(rem) : null, to, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, to, reason, user),
     ]);
+    await bookedHook(env, b.id, cur.stage === "booked" ? "rescheduled" : to === "booked" ? "booked" : "rescheduled");
     return done(to, reason);
   }
   if ((p === "/admin/stage" || p === "/admin/lead") && request.method === "POST") {
@@ -2496,6 +2515,7 @@ async function adminRoute(p, request, env) {
     const stmts = [env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id)];
     for (const [f, t, r] of logs) stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, f, t, r, user));
     await env.DB.batch(stmts);
+    if (moved && stage === "booked") await bookedHook(env, b.id, "booked");
     const abs = when(new Date().toISOString().slice(0, 19).replace("T", " ")).abs;
     return json({ success: true, stage, followup: follow, follow_up_date: date, log: logs.map(([f, t, r]) => ({ from_stage: f, to_stage: t, reason: r, at: abs })).reverse() });
   }
