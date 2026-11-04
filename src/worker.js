@@ -14,6 +14,8 @@
 //   BOOKED_WEBHOOK_URL (secret, optional)     POST a lead as JSON when it is moved to Booked or its appointment changes (Zapier -> Urable calendar). "event" is booked | rescheduled
 //   URABLE_API_KEY    (secret, optional)       Urable API key (scopes: customers, items, products read, jobs, events). Moving a lead to Booked then creates the customer, vehicle and job on the Urable calendar
 //   URABLE_JOB_HOURS  (var, optional)          default length of a booking in hours when none is known (default: tint 3, coating/PPF/correction 8, other 4)
+//   TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM (secrets)  Twilio texting: the Messages tab sends and receives texts. TWILIO_MESSAGING_SERVICE (optional) sends through a Messaging Service instead of one number
+//   TEXT_AUTO         (var, optional, "1")      send the follow-up texts (#1 right away, #2 after 2 hours...) automatically instead of a push for each one; stops when the lead replies
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -117,6 +119,12 @@ async function ensureTableRun(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS push_keys (k TEXT PRIMARY KEY, v TEXT)"),
   ]);
   await db.prepare("CREATE TABLE IF NOT EXISTS call_recordings (call_id TEXT PRIMARY KEY, lead_id INTEGER, direction TEXT, url TEXT NOT NULL DEFAULT '', duration INTEGER, at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+  await db.batch([
+    db.prepare("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER, phone TEXT, direction TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', status TEXT, sid TEXT, by_user TEXT, auto INTEGER NOT NULL DEFAULT 0, is_read INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL DEFAULT (datetime('now')))"),
+    db.prepare("CREATE INDEX IF NOT EXISTS messages_lead ON messages (lead_id, id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS messages_sid ON messages (sid)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS sms_optout (phone TEXT PRIMARY KEY, at TEXT NOT NULL DEFAULT (datetime('now')))"),
+  ]);
   await db.batch([
     db.prepare("CREATE TABLE IF NOT EXISTS queue_run (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, active INTEGER NOT NULL DEFAULT 1, started_at TEXT NOT NULL DEFAULT (datetime('now')), next_at TEXT, ended_at TEXT, note TEXT, misses INTEGER NOT NULL DEFAULT 0)"),
     db.prepare("CREATE TABLE IF NOT EXISTS queue_items (run_id INTEGER, lead_id INTEGER, pos INTEGER, status TEXT NOT NULL DEFAULT 'waiting', call_id TEXT, PRIMARY KEY (run_id, lead_id))"),
@@ -1326,11 +1334,11 @@ b.onclick=async()=>{const s=b.dataset.s;
   try{const p=await Notification.requestPermission();if(p==='granted'){await sub();show('Alerts on','on');fetch('/admin/push/test',{method:'POST'})}else refresh()}catch(e){alert('Could not turn on alerts: '+((e&&e.message)||e))}};
 refresh()})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
-  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M7 7c-1 3 0 6 3 9s6 4 9 3"/></svg>Missed</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>Insights</a>` : ""}</nav>`;
+  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Texts</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M7 7c-1 3 0 6 3 9s6 4 9 3"/></svg>Missed</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>Insights</a>` : ""}</nav>`;
 }
 const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" });
 const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
@@ -1726,19 +1734,29 @@ async function remindTexts(env) {
   if (!env.DB || env.TEXT_REMINDERS === "0") return;
   if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) return;
   await ensureTable(env.DB);
-  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.service, l.year, l.make, l.model, l.created_at,
-      (SELECT COUNT(*) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%') AS texts,
-      (SELECT MAX(s.at) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%') AS last_text
+  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.year, l.make, l.model, l.created_at,
+      (SELECT COUNT(*) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%' AND s.reason NOT LIKE 'Texted: Message%') AS texts,
+      (SELECT MAX(s.at) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%') AS last_text,
+      (SELECT COUNT(*) FROM messages m WHERE m.lead_id = l.id AND m.direction = 'in') AS replies
     FROM leads l WHERE l.stage IN ('new','nocontact') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != '' AND l.created_at >= datetime('now','-8 days')
     ORDER BY l.created_at LIMIT 300`).all()).results || [];
   const ms = x => new Date(String(x).replace(" ", "T") + "Z").getTime();
   let sent = 0;
+  const auto = env.TEXT_AUTO === "1" && twilioOn(env);
   for (const r of rows) {
     const n = r.texts + 1;
     if (n > TEXT_MAX) continue;
     if (Date.now() < Math.max(ms(r.created_at) + TEXT_PLAN_SECS[n] * 1000, r.last_text ? ms(r.last_text) + TEXT_GAP_SECS[n] * 1000 : 0)) continue;
     const claim = await env.DB.prepare("INSERT OR IGNORE INTO text_reminders (lead_id, n) VALUES (?, ?)").bind(r.id, n).run();
     if (!claim.meta || !claim.meta.changes) continue;
+    if (auto) {
+      // sends itself. Once the lead has texted back, a person takes over and the automatic texts stop
+      if (r.replies) continue;
+      const res = await sendLeadText(env, r, fillTemplate(textTemplateFor(n, r), r, env).body, { auto: true, label: n === 1 ? "First reply" : "Follow-up #" + n });
+      if (!res.ok && !res.optout) await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind("Auto text #" + n + " failed: " + String(res.message || "").slice(0, 120), r.id).run().catch(() => {});
+      if (++sent >= 3) break;
+      continue;
+    }
     const first = String(r.name || "").trim().split(/\s+/)[0] || "lead", car = [r.year, r.make, r.model].filter(Boolean).join(" ");
     await sendPush(env, { title: `Send ${first} Text #${n}`, message: ["Tap to send", r.service, car].filter(Boolean).join(" · "), click: env.CRM_HOST ? `https://${env.CRM_HOST}/send/${r.id}?n=${n}` : undefined }).catch(() => {});
     if (++sent >= 3) break; // a few a minute, so a morning with many due leads does not arrive all at once
@@ -1762,6 +1780,178 @@ a.b{display:block;border-radius:16px;padding:22px;font-weight:800;text-decoratio
 <script>let logged=false;const go=document.getElementById('go');function note(){if(logged)return;logged=true;try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:${l.id},label:${JSON.stringify(label)}})})}catch(_){}}
 go.addEventListener('click',note);setTimeout(()=>{note();location.href=go.getAttribute('href')},500);</script></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Twilio texting: send and receive texts inside the CRM (Messages tab), plus automatic follow-up texts ----
+const twilioOn = env => !!(env.TWILIO_SID && env.TWILIO_TOKEN && (env.TWILIO_FROM || env.TWILIO_MESSAGING_SERVICE));
+const last10 = p => String(p || "").replace(/\D/g, "").slice(-10);
+const OPT_OUT_WORDS = /^\s*(stop|stopall|unsubscribe|cancel|end|quit)\s*[.!]*\s*$/i, OPT_IN_WORDS = /^\s*(start|unstop|yes)\s*[.!]*\s*$/i;
+async function isOptedOut(env, phone) {
+  const d = last10(phone);
+  return !!d && !!(await env.DB.prepare("SELECT 1 FROM sms_optout WHERE phone = ?").bind(d).first());
+}
+// send one text through Twilio and keep it in the lead's thread; calling or texting never moves the lead
+async function sendLeadText(env, lead, body, { user = "system", auto = false, label = "" } = {}) {
+  body = String(body || "").trim().slice(0, 1500);
+  if (!body) return { ok: false, message: "Write a message first." };
+  if (!twilioOn(env)) return { ok: false, message: "Texting is not set up yet." };
+  const to = e164(lead.phone);
+  if (!to) return { ok: false, message: "This lead has no phone number." };
+  if (await isOptedOut(env, lead.phone)) return { ok: false, message: "This person replied STOP. Do not text them.", optout: true };
+  const form = new URLSearchParams({ To: to, Body: body });
+  if (env.TWILIO_MESSAGING_SERVICE) form.set("MessagingServiceSid", env.TWILIO_MESSAGING_SERVICE); else form.set("From", env.TWILIO_FROM);
+  // the CRM host only serves the dashboard, so Twilio reports delivery to the public site address
+  form.set("StatusCallback", `${env.PUBLIC_URL || "https://divinedetailers.com"}/api/twilio/status`);
+  let j = {}, ok = false;
+  try {
+    const r = await fetch(`${env.TWILIO_API_BASE || "https://api.twilio.com"}/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, { method: "POST", headers: { authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_TOKEN}`), "content-type": "application/x-www-form-urlencoded" }, body: form.toString(), signal: AbortSignal.timeout(10000) });
+    j = await r.json().catch(() => ({}));
+    ok = r.ok && !!j.sid;
+  } catch (e) { j = { message: "Could not reach Twilio." }; }
+  const status = ok ? String(j.status || "queued") : "failed";
+  const reason = auto ? `Texted: ${label || "Auto text"} (auto)` : `Texted: Message: ${body.slice(0, 80)}`;
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO messages (lead_id, phone, direction, body, status, sid, by_user, auto, is_read) VALUES (?,?,?,?,?,?,?,?,1)").bind(lead.id, to, "out", body, status, ok ? j.sid : "", user, auto ? 1 : 0),
+    ...(ok ? [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(reason, user, lead.id)] : []),
+  ]);
+  return ok ? { ok: true } : { ok: false, message: String(j.message || "Twilio refused the text.").slice(0, 200) };
+}
+// Twilio signs each webhook: HMAC-SHA1 of the full URL plus the sorted form fields, keyed with the auth token
+async function twilioSigOk(env, request, params) {
+  if (!env.TWILIO_TOKEN) return false;
+  const sig = request.headers.get("x-twilio-signature") || "";
+  let data = request.url;
+  for (const k of Object.keys(params).sort()) data += k + params[k];
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TWILIO_TOKEN), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
+  let bin = ""; for (const b of mac) bin += String.fromCharCode(b);
+  return !!sig && safeEqual(btoa(bin), sig);
+}
+const twiml = () => new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', { headers: { "content-type": "text/xml" } });
+async function handleTwilioSms(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  await ensureTable(env.DB);
+  const sid = String(params.MessageSid || params.SmsSid || ""), from = String(params.From || ""), body = String(params.Body || "").slice(0, 1500);
+  if (!from) return twiml();
+  if (sid && await env.DB.prepare("SELECT 1 FROM messages WHERE sid = ?").bind(sid).first()) return twiml();
+  const d = last10(from);
+  const cands = (await env.DB.prepare("SELECT id, name, phone FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND phone LIKE ? ORDER BY id DESC LIMIT 20").bind("%" + d.slice(-4) + "%").all()).results || [];
+  let lead = cands.find(x => last10(x.phone) === d), fresh = false;
+  if (!lead) {
+    const ins = await env.DB.prepare("INSERT INTO leads (type,name,email,phone,service,make,year,model,message,utm_source,utm_medium,stage,value) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").bind("manual", prettyPhone(from), "", from, "", "", "", "", "", "Text message", "manual", "new", 0).run();
+    lead = { id: ins.meta && ins.meta.last_row_id, name: prettyPhone(from), phone: from }; fresh = true;
+  }
+  await env.DB.prepare("INSERT INTO messages (lead_id, phone, direction, body, status, sid, by_user, auto, is_read) VALUES (?,?,?,?,?,?,?,?,0)").bind(lead.id, from, "in", body, "received", sid, "", 0).run();
+  if (OPT_OUT_WORDS.test(body)) {
+    await env.DB.batch([env.DB.prepare("INSERT OR IGNORE INTO sms_optout (phone) VALUES (?)").bind(d), env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, 'Replied STOP: no more texts', 'system' FROM leads WHERE id = ?").bind(lead.id)]);
+    return twiml();
+  }
+  if (OPT_IN_WORDS.test(body)) await env.DB.prepare("DELETE FROM sms_optout WHERE phone = ?").bind(d).run();
+  const first = String(lead.name || "").trim().split(/\s+/)[0] || prettyPhone(from);
+  await sendPush(env, fresh
+    ? { title: "New Lead Incoming", message: ["Text message", prettyPhone(from)].join(", "), click: env.CRM_HOST ? `https://${env.CRM_HOST}/messages#id=${lead.id}` : undefined }
+    : { title: `Text from ${first}`, message: body.slice(0, 120), click: env.CRM_HOST ? `https://${env.CRM_HOST}/messages#id=${lead.id}` : undefined, users: [OWNER] }).catch(() => {});
+  return twiml();
+}
+async function handleTwilioStatus(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  const sid = String(params.MessageSid || params.SmsSid || ""), st = String(params.MessageStatus || params.SmsStatus || "");
+  if (sid && st) await env.DB.prepare("UPDATE messages SET status = ? WHERE sid = ? AND direction = 'out'").bind(st.slice(0, 20), sid).run();
+  return twiml();
+}
+const isoUtc = t => String(t || "").replace(" ", "T") + "Z";
+async function messageThreads(env, url) {
+  await ensureTable(env.DB);
+  const find = (url.searchParams.get("find") || "").trim().slice(0, 60);
+  if (find) {
+    const like = "%" + find.replace(/[%_]/g, "") + "%", dg = find.replace(/\D/g, "");
+    const rs = (await env.DB.prepare("SELECT id, name, phone, service, stage FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND COALESCE(phone,'') != '' AND (name LIKE ? OR phone LIKE ?) ORDER BY id DESC LIMIT 15").bind(like, "%" + (dg.length >= 3 ? dg : "@@none@@") + "%").all()).results || [];
+    return json({ success: true, found: rs });
+  }
+  const rs = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.stage,
+      (SELECT body FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_body,
+      (SELECT direction FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_dir,
+      (SELECT at FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_at,
+      (SELECT COUNT(*) FROM messages WHERE lead_id = l.id AND direction = 'in' AND is_read = 0) unread
+    FROM leads l WHERE EXISTS (SELECT 1 FROM messages WHERE lead_id = l.id) ORDER BY last_at DESC, l.id DESC LIMIT 200`).all()).results || [];
+  return json({ success: true, on: twilioOn(env), threads: rs.map(r => ({ ...r, last_at: isoUtc(r.last_at) })) });
+}
+async function messageThread(env, url) {
+  await ensureTable(env.DB);
+  const id = Number(url.searchParams.get("id"));
+  if (!Number.isInteger(id)) return json({ success: false }, 400);
+  const lead = await env.DB.prepare("SELECT id, name, phone, service, stage, year, make, model FROM leads WHERE id = ?").bind(id).first();
+  if (!lead) return json({ success: false }, 404);
+  await env.DB.prepare("UPDATE messages SET is_read = 1 WHERE lead_id = ? AND direction = 'in' AND is_read = 0").bind(id).run();
+  const ms = (await env.DB.prepare("SELECT id, direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 300").bind(id).all()).results || [];
+  return json({ success: true, lead, on: twilioOn(env), optout: await isOptedOut(env, lead.phone), messages: ms.reverse().map(m => ({ ...m, at: isoUtc(m.at) })) });
+}
+async function messagesPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env), owner = user === OWNER;
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Messages | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}html,body{height:100%}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.app{flex:1;min-height:0;display:grid;grid-template-columns:330px 1fr}
+.list{border-right:1px solid #1b1f25;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
+.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
+.th{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #151a21;color:inherit;font:inherit;padding:12px 14px;cursor:pointer}.th.on{background:#10151b}
+.th b{display:flex;justify-content:space-between;gap:8px}.th small{color:#7c838d;font-weight:400;white-space:nowrap}.th p{margin:3px 0 0;color:#98a0aa;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.un{background:#32cd32;color:#04120a;border-radius:999px;font-size:11px;font-weight:800;padding:1px 7px;margin-left:6px}
+.pane{display:flex;flex-direction:column;min-height:0;min-width:0}
+.ph{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #1b1f25}.ph .t{flex:1;min-width:0}.ph .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ph .t span{color:#7c838d;font-size:13px}
+.bk{display:none;background:#151a21;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer}
+.ph a.c{border:1px solid #2a313a;background:#151a21;color:#e8eaed;text-decoration:none;border-radius:10px;padding:9px 12px;font-weight:700}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;-webkit-overflow-scrolling:touch}
+.m{max-width:min(78%,520px);padding:9px 12px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}.m.out{align-self:flex-end;background:#32cd32;color:#04120a;border-bottom-right-radius:5px}.m.in{align-self:flex-start;background:#1a2027;border-bottom-left-radius:5px}
+.mt{font-size:11.5px;color:#7c838d;margin:-4px 4px 2px}.mt.out{align-self:flex-end}.mt.in{align-self:flex-start}
+.empty{margin:auto;color:#7c838d;text-align:center;padding:20px}
+.cmp{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid #1b1f25;align-items:flex-end}
+.cmp textarea{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:14px;padding:11px 13px;font:inherit;font-size:16px;resize:none;max-height:140px;min-height:44px}
+.cmp button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 18px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp button:disabled{opacity:.4}
+.warn{background:#2a1d0e;color:#ffb86b;padding:10px 14px;font-size:14px;border-bottom:1px solid #3a2a14}.err{color:#ff8a8a;padding:0 14px 6px;font-size:13.5px;min-height:0}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:10px 14px}h1{font-size:17px}.app{grid-template-columns:1fr}.pane{display:none}.app.open .list{display:none}.app.open .pane{display:flex}.bk{display:block}.m{max-width:86%}}
+</style></head><body>
+<header><h1>Divine Detailers <b>messages</b></h1>${nav("messages", tc, owner)}</header>
+${bnav("messages", tc, owner)}
+<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div id="tl"></div></div>
+<div class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></div></div>
+<script>
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=document.getElementById('pane'),q=document.getElementById('q');
+let cur=null,on=true,busy=false,lastSig='';
+function ago(iso){const d=new Date(iso),n=Date.now(),s=Math.max(0,(n-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+function nm(l){return l.name||l.phone||'Lead'}
+async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;
+  tl.innerHTML=j.threads.length?j.threads.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">No texts yet. Search for a lead above to start one.</div>'}catch(_){}}
+async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id+j.messages[j.messages.length-1].status:'')+j.optout;
+  if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;on=j.on;
+  const box=pane.querySelector('.msgs'),atEnd=!box||box.scrollHeight-box.scrollTop-box.clientHeight<80;const draft=pane.querySelector('textarea')?pane.querySelector('textarea').value:'';
+  const car=[j.lead.year,j.lead.make,j.lead.model].filter(Boolean).join(' ');
+  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><a class="c" href="/admin/pipeline#id='+j.lead.id+'">Lead</a><a class="c" href="tel:'+$(j.lead.phone)+'">Call</a></div>'
+   +(!on?'<div class="warn">Texting is not set up yet. Add the Twilio keys in Cloudflare to send texts from here.</div>':'')+(j.optout?'<div class="warn">This person replied STOP. They cannot be texted.</div>':'')
+   +'<div class="msgs" id="ms">'+(j.messages.length?j.messages.map(m=>'<div class="m '+m.direction+'">'+$(m.body)+'</div><div class="mt '+m.direction+'">'+new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+(m.direction==='out'?(m.auto?' · auto':'')+(m.status==='failed'||m.status==='undelivered'?' · not delivered':m.status==='delivered'?' · delivered':''):'')+'</div>').join(''):'<div class="empty">No messages yet. Say hello.</div>')+'</div><div class="err" id="er"></div>'
+   +'<div class="cmp"><textarea id="tx" rows="1" placeholder="Text message"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
+  const ms=document.getElementById('ms');if(!keep||atEnd)ms.scrollTop=ms.scrollHeight;const tx=document.getElementById('tx');tx.value=draft;
+  document.getElementById('bk').onclick=()=>{app.classList.remove('open');cur=null;history.replaceState(null,'','#');loadList()};
+  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send()}});
+  app.classList.add('open');if(!keep)history.replaceState(null,'','#id='+id);loadList()}catch(_){}}
+async function send(){if(busy||!cur)return;const tx=document.getElementById('tx'),er=document.getElementById('er'),b=tx.value.trim();if(!b)return;busy=true;document.getElementById('sd').disabled=true;er.textContent='';
+  try{const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:cur.id,body:b})});const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.success){er.textContent=j.message||'Could not send. Try again.';busy=false;document.getElementById('sd').disabled=false;return}
+    tx.value='';busy=false;lastSig='';await open(cur.id,false)}catch(_){er.textContent='No connection. Try again.';busy=false;document.getElementById('sd').disabled=false}}
+tl.addEventListener('click',e=>{const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)});
+let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<button class="th fd" data-id="'+l.id+'"><b><span>'+$(nm(l))+'</span></b><p>'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</p></button>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
+const hm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hm)open(+hm[1]);
+setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur)open(cur.id,true)},6000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 // ---- Dial sessions: at set times (DIAL_SESSIONS, default 09:30, 13:00, 17:00 Eastern, Monday to Saturday) a push says how many leads are waiting and opens Start calling
 const SESSION_NAMES = ["Morning", "Afternoon", "End of day"];
@@ -1874,6 +2064,7 @@ export default {
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
+      if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
       if (p === "/ads" || p === "/admin/ads") return adminRoute("/admin/ads", request, env);
       if (p === "/ads.csv" || p === "/admin/ads.csv") return adminRoute("/admin/ads.csv", request, env);
       if (p === "/insights" || p === "/admin/insights") return adminRoute("/admin/insights", request, env);
@@ -1882,7 +2073,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -1899,6 +2090,11 @@ export default {
       catch (e) { console.error("callrail error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
     }
 
+    if (p === "/api/twilio/sms" || p === "/api/twilio/status") {
+      if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
+      try { return p === "/api/twilio/sms" ? await handleTwilioSms(request, env) : await handleTwilioStatus(request, env); }
+      catch (e) { console.error("twilio error", e && e.message); return new Response("Server error", { status: 500 }); }
+    }
     if (p === "/api/meta") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return await handleMeta(request, env, url, ctx); }
@@ -2521,6 +2717,9 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/pipeline") return pipelinePage(env, a);
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env, a);
+  if (p === "/admin/messages") return messagesPage(env, a);
+  if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
+  if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
@@ -2620,6 +2819,14 @@ async function adminRoute(p, request, env) {
     await env.DB.batch(stmts);
     const abs = when(new Date().toISOString().slice(0, 19).replace("T", " ")).abs;
     return json({ success: true, stage, followup: "", follow_up_date: cur.follow_up_date || "", log: [{ from_stage: cur.stage, to_stage: stage, reason: clean(b.label, 120), at: abs }] });
+  }
+  if (p === "/admin/msg" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    const lead = await env.DB.prepare("SELECT id, phone FROM leads WHERE id = ?").bind(b.id).first();
+    if (!lead) return json({ success: false }, 404);
+    const res = await sendLeadText(env, lead, b.body, { user });
+    return json({ success: res.ok, message: res.message || "" }, res.ok ? 200 : 422);
   }
   if (p === "/admin/leadinfo" && request.method === "GET") {
     const id = Number(new URL(request.url).searchParams.get("id"));
