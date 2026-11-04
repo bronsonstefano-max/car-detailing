@@ -12,6 +12,8 @@
 //   LEAD_WEBHOOK_URL  (secret, optional)       POST each new lead and each new call ("NEW LEAD: Incoming call") as JSON, with a ready-made `text` line (Zapier, Make, Slack...)
 //   CALL_WEBHOOK_URL  (secret, optional)       same as LEAD_WEBHOOK_URL but only for calls (its own Zap); calls use LEAD_WEBHOOK_URL when this is not set
 //   BOOKED_WEBHOOK_URL (secret, optional)     POST a lead as JSON when it is moved to Booked or its appointment changes (Zapier -> Urable calendar). "event" is booked | rescheduled
+//   URABLE_API_KEY    (secret, optional)       Urable API key (scopes: customers, items, products read, jobs, events). Moving a lead to Booked then creates the customer, vehicle and job on the Urable calendar
+//   URABLE_JOB_HOURS  (var, optional)          default length of a booking in hours when none is known (default: tint 3, coating/PPF/correction 8, other 4)
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -88,6 +90,7 @@ async function ensureTableRun(db) {
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
   if (dcols.length && !dcols.includes("result")) await db.prepare("ALTER TABLE dial_log ADD COLUMN result TEXT").run();
   if (dcols.length && !dcols.includes("flagged")) await db.prepare("ALTER TABLE dial_log ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0").run();
+  if (!cols.includes("urable_ref")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN urable_ref TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN urable_kind TEXT")]);
   if (!cols.includes("gbraid")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN gbraid TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN wbraid TEXT")]);
   if (!cols.includes("reminded_at")) await db.prepare("ALTER TABLE leads ADD COLUMN reminded_at TEXT").run();
   if (!cols.includes("follow_up")) {
@@ -930,6 +933,63 @@ async function bookedHook(env, id, event) {
     }) });
   } catch (e) { console.error("booked webhook error", e && e.message); }
 }
+
+// ---- Urable calendar: a booked lead becomes a customer + vehicle + scheduled job (or a calendar event) in Urable ----
+const URABLE = env => (env.URABLE_BASE || "https://app.urable.com/api").replace(/\/$/, "");
+async function urableCall(env, method, path, body) {
+  const r = await fetch(URABLE(env) + path, { method, headers: { authorization: "Bearer " + env.URABLE_API_KEY, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(8000) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.success === false) throw new Error(`Urable ${method} ${path.split("?")[0]} ${r.status}: ${String(j.error || "").slice(0, 160)}`);
+  return j.data;
+}
+const urableHours = (env, service) => {
+  const sv = String(service || "").toLowerCase();
+  const d = /tint/.test(sv) ? 3 : /coat|ppf|paint|correct|wrap|protection/.test(sv) ? 8 : 4;
+  return Math.max(0.5, Math.min(24, Number(env.URABLE_JOB_HOURS) || d));
+};
+const words = t => String(t || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 2 && !["window", "the", "and", "for"].includes(w));
+async function urableSync(env, id, event) {
+  if (!env.URABLE_API_KEY || !env.DB) return;
+  const l = await env.DB.prepare("SELECT id, stage, name, email, phone, service, make, year, model, value, notes, appt_at, urable_ref, urable_kind FROM leads WHERE id = ?").bind(id).first();
+  if (!l) return;
+  const log = reason => env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(id, l.stage, l.stage, reason, "system").run().catch(() => {});
+  try {
+    const at = l.appt_at ? etLocalToUtc(l.appt_at) : null;
+    const start = at ? at.getTime() : 0, end = start ? start + urableHours(env, l.service) * 3600000 : 0;
+    // already in Urable: only move the time
+    if (l.urable_ref) {
+      if (start) { await urableCall(env, "PATCH", `/v1/${l.urable_kind === "event" ? "events" : "jobs"}/${l.urable_ref}`, { start, end }); await log("Urable: appointment time updated"); }
+      return;
+    }
+    const nm = String(l.name || "").trim().split(/\s+/), first = nm[0] || "Lead", last = nm.slice(1).join(" ");
+    const veh = [l.year, l.make, l.model].filter(Boolean).join(" ") || "Vehicle";
+    // customer: match on email, else create
+    let cid = null;
+    if (l.email) { const m = await urableCall(env, "GET", "/v1/customers?email=" + encodeURIComponent(l.email)); cid = Array.isArray(m) && m[0] && m[0].id; }
+    if (!cid) cid = (await urableCall(env, "POST", "/v1/customers", { type: "person", status: "new", firstName: first, lastName: last, emails: l.email ? [{ label: "main", value: l.email }] : [], phoneNumbers: l.phone ? [{ label: "mobile", value: e164(l.phone) }] : [], origin: "Divine Detailers CRM", notes: l.notes || "" })).id;
+    // best matching service in the Urable catalog
+    const prods = (await urableCall(env, "GET", "/v1/products?limit=100&type=service").catch(() => [])) || [];
+    const want = words(l.service); let best = null, bs = 0;
+    for (const pr of prods) { const w = words(pr.name), sc = want.filter(x => w.includes(x)).length; if (sc > bs) { bs = sc; best = pr; } }
+    const title = `${l.service || "Booking"}: ${l.name || prettyPhone(l.phone)} (${veh})`;
+    if (best) {
+      let iid = null;
+      const its = (await urableCall(env, "GET", "/v1/items?customerId=" + cid).catch(() => [])) || [];
+      const hit = its.find(x => String(x.name || "").toLowerCase() === veh.toLowerCase()); iid = hit && hit.id;
+      if (!iid) iid = (await urableCall(env, "POST", "/v1/items", { customerId: cid, industry: "vehicleCare", type: "automotive", name: veh })).id;
+      const job = { customerId: cid, industry: "vehicleCare", itemIds: [iid], type: "shop", status: "scheduled", name: title, lineItems: [{ productServiceId: best.id, quantity: 1 }], notes: l.notes || "", autoTax: false };
+      if (start) { job.start = start; job.end = end; }
+      const made = await urableCall(env, "POST", "/v1/jobs", job);
+      await env.DB.prepare("UPDATE leads SET urable_ref = ?, urable_kind = 'job' WHERE id = ?").bind(made.id, id).run();
+      await log(`Urable: job #${made.num || ""} created (${best.name})${start ? "" : ", no time yet"}`);
+    } else if (start) {
+      const made = await urableCall(env, "POST", "/v1/events", { type: "other", name: title, customerId: cid, start, end, notes: `Booked from the CRM. ${l.notes || ""}`.trim() });
+      await env.DB.prepare("UPDATE leads SET urable_ref = ?, urable_kind = 'event' WHERE id = ?").bind(made.id, id).run();
+      await log("Urable: calendar event created (no matching service in your Urable catalog)");
+    } else await log("Urable: customer saved. No calendar entry yet: pick an appointment time");
+  } catch (e) { console.error("urable sync error", e && e.message); await log("Urable sync failed: " + String(e && e.message).slice(0, 200)); }
+}
+const afterBooked = (env, id, event) => Promise.all([bookedHook(env, id, event), urableSync(env, id, event)]);
 
 // one message to everyone who should react fast: push (NTFY_TOPIC), email list (NOTIFY_TO) and text list (ALERT_SMS_TO)
 async function alertTeam(env, { subject, text, html, push }) {
@@ -2481,7 +2541,7 @@ async function adminRoute(p, request, env) {
       env.DB.prepare("UPDATE leads SET appt_at = ?, appt_remind_at = ?, appt_reminded = 0, stage = ?, contacted = 1" + (to !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(String(b.appt).slice(0, 16), rem ? sqlUtc(rem) : null, to, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, to, reason, user),
     ]);
-    await bookedHook(env, b.id, cur.stage === "booked" ? "rescheduled" : to === "booked" ? "booked" : "rescheduled");
+    await afterBooked(env, b.id, cur.stage === "booked" ? "rescheduled" : to === "booked" ? "booked" : "rescheduled");
     return done(to, reason);
   }
   if ((p === "/admin/stage" || p === "/admin/lead") && request.method === "POST") {
@@ -2515,7 +2575,7 @@ async function adminRoute(p, request, env) {
     const stmts = [env.DB.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, b.id)];
     for (const [f, t, r] of logs) stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, f, t, r, user));
     await env.DB.batch(stmts);
-    if (moved && stage === "booked") await bookedHook(env, b.id, "booked");
+    if (moved && stage === "booked") await afterBooked(env, b.id, "booked");
     const abs = when(new Date().toISOString().slice(0, 19).replace("T", " ")).abs;
     return json({ success: true, stage, followup: follow, follow_up_date: date, log: logs.map(([f, t, r]) => ({ from_stage: f, to_stage: t, reason: r, at: abs })).reverse() });
   }
