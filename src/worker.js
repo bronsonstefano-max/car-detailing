@@ -948,7 +948,30 @@ const urableHours = (env, service) => {
   return Math.max(0.5, Math.min(24, Number(env.URABLE_JOB_HOURS) || d));
 };
 const words = t => String(t || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 2 && !["window", "the", "and", "for"].includes(w));
-async function urableSync(env, id, event) {
+// every service in the Urable catalog (pages of 100)
+async function urableCatalog(env) {
+  const out = [];
+  let after = "";
+  for (let i = 0; i < 5; i++) {
+    const page = (await urableCall(env, "GET", "/v1/products?limit=100&type=service" + (after ? "&startAfter=" + encodeURIComponent(after) : ""))) || [];
+    out.push(...page);
+    if (page.length < 100) break;
+    after = page[page.length - 1].id;
+  }
+  return out;
+}
+// closest catalog service to what the lead asked for: shared words count, extra words and "removal/repair" services count against it, near price breaks ties
+function rankProducts(prods, service, cents) {
+  const want = words(service), bad = ["removal", "remove", "repair", "restoration", "install", "replacement"];
+  return prods.map(pr => {
+    const w = words(pr.name), hit = want.filter(x => w.includes(x)).length;
+    let sc = hit ? hit * 3 - w.filter(x => !want.includes(x)).length * 0.5 : 0;
+    if (hit && w.some(x => bad.includes(x)) && !want.some(x => bad.includes(x))) sc -= 6;
+    const price = Number(pr.prices && pr.prices[0] && pr.prices[0].value) || 0;
+    return { pr, sc: sc > 0 && cents && price ? sc + 1 / (1 + Math.abs(price - cents) / 1000) : sc };
+  }).filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc).map(x => x.pr);
+}
+async function urableSync(env, id, event, opts = {}) {
   if (!env.URABLE_API_KEY || !env.DB) return;
   const l = await env.DB.prepare("SELECT id, stage, name, email, phone, service, make, year, model, value, notes, appt_at, urable_ref, urable_kind FROM leads WHERE id = ?").bind(id).first();
   if (!l) return;
@@ -968,9 +991,8 @@ async function urableSync(env, id, event) {
     if (l.email) { const m = await urableCall(env, "GET", "/v1/customers?email=" + encodeURIComponent(l.email)); cid = Array.isArray(m) && m[0] && m[0].id; }
     if (!cid) cid = (await urableCall(env, "POST", "/v1/customers", { type: "person", status: "new", firstName: first, lastName: last, emails: l.email ? [{ label: "main", value: l.email }] : [], phoneNumbers: l.phone ? [{ label: "mobile", value: e164(l.phone) }] : [], origin: "Divine Detailers CRM", notes: `Vehicle: ${veh}\n${l.notes || ""}`.trim() })).id;
     // best matching service in the Urable catalog
-    const prods = (await urableCall(env, "GET", "/v1/products?limit=100&type=service").catch(() => [])) || [];
-    const want = words(l.service); let best = null, bs = 0;
-    for (const pr of prods) { const w = words(pr.name), sc = want.filter(x => w.includes(x)).length; if (sc > bs) { bs = sc; best = pr; } }
+    const prods = await urableCatalog(env).catch(() => []);
+    const best = (opts.productId && prods.find(x => x.id === opts.productId)) || rankProducts(prods, l.service, Math.round((Number(l.value) || 0) * 100))[0] || null;
     const title = `${l.service || "Booking"}: ${l.name || prettyPhone(l.phone)} (${veh})`;
     const cents = Math.round((Number(l.value) || 0) * 100);
     const desc = [`Service: ${l.service || "n/a"}`, `Vehicle: ${veh}${l.year || l.make || l.model ? ` (Year ${l.year || "?"}, Make ${l.make || "?"}, Model ${l.model || "?"})` : ""}`, `Customer: ${l.name || "n/a"}, ${prettyPhone(l.phone)}${l.email ? ", " + l.email : ""}`, cents ? `Price: $${(cents / 100).toLocaleString("en-US")}` : "", l.appt_at ? `Appointment: ${l.appt_at.replace("T", " ")} (Eastern)` : "", l.notes ? `Notes: ${l.notes}` : "", `Booked from the CRM: ${crmLink(env, "", "/admin/pipeline#id=" + id)}`].filter(Boolean).join("\n");
@@ -994,7 +1016,7 @@ async function urableSync(env, id, event) {
     } else await log("Urable: customer saved. No calendar entry yet: pick an appointment time");
   } catch (e) { console.error("urable sync error", e && e.message); await log("Urable sync failed: " + String(e && e.message).slice(0, 200)); }
 }
-const afterBooked = (env, id, event) => Promise.all([bookedHook(env, id, event), urableSync(env, id, event)]);
+const afterBooked = (env, id, event, opts) => Promise.all([bookedHook(env, id, event), urableSync(env, id, event, opts)]);
 
 // one message to everyone who should react fast: push (NTFY_TOPIC), email list (NOTIFY_TO) and text list (ALERT_SMS_TO)
 async function alertTeam(env, { subject, text, html, push }) {
@@ -1157,16 +1179,19 @@ const FOLLOW_HTML = `<dialog class="rdlg" id="rdlg"><div class="rb"><h3 id="rt">
 <div><label>Appointment date and time</label><input id="bkt" type="datetime-local"></div>
 <div><label>Name</label><input id="bkn2" autocomplete="off"></div><div><label>Phone</label><input id="bkp" type="tel" inputmode="tel"></div><div><label>Email</label><input id="bke" type="email"></div>
 <div><label>Service</label><input id="bks" autocomplete="off"></div>
+<div id="bkqw" hidden><label>Urable service (shows as the job line item)</label><select id="bkq" style="width:100%;min-height:44px;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;color-scheme:dark"></select></div>
 <div style="display:grid;grid-template-columns:1fr 1.3fr 1.3fr;gap:8px"><div><label>Year</label><input id="bky" inputmode="numeric"></div><div><label>Make</label><input id="bkm"></div><div><label>Model</label><input id="bkd"></div></div>
 <div><label>Job value ($) - this is the price sent to the calendar</label><input id="bkv" type="number" inputmode="numeric" min="0"></div>
 <p id="bkerr" style="color:#ff8a8a;min-height:18px"></p><div class="ra"><button type="button" id="bkx">Cancel</button><button type="button" class="ok" id="bkok">Book it</button></div></div></dialog>`;
 const FOLLOW_JS = `
 const FU=${JSON.stringify(FOLLOWUPS)},STG=Object.fromEntries(${JSON.stringify(STAGES)});
-function askBook(id,label){return new Promise(async res=>{const d=document.getElementById('bkdlg');let l=null,uc=false;
-  try{const r=await fetch('/admin/leadinfo?id='+id);const j=await r.json();l=j.lead;uc=!!j.urable}catch(_){}
+function askBook(id,label){return new Promise(async res=>{const d=document.getElementById('bkdlg');let l=null,uc=false,pr=[],bst='';
+  try{const r=await fetch('/admin/leadinfo?id='+id);const j=await r.json();l=j.lead;uc=!!j.urable;pr=j.products||[];bst=j.best||''}catch(_){}
   if(!l){res(null);return}
   const f=(k,v)=>{document.getElementById('bk'+k).value=v==null?'':v};
   f('n2',l.name);f('p',l.phone);f('e',l.email);f('s',l.service);f('y',l.year);f('m',l.make);f('d',l.model);f('v',l.value||'');f('t',l.appt_at||'');
+  const qw=document.getElementById('bkqw'),qs=document.getElementById('bkq');qw.hidden=!pr.length;
+  qs.innerHTML=(bst?'':'<option value="">Pick the Urable service</option>')+pr.map(x=>'<option value="'+x.id+'"'+(x.id===bst?' selected':'')+'>'+String(x.name).replace(/&/g,'&amp;').replace(/</g,'&lt;')+(x.price?' - $'+Math.round(x.price/100):'')+'</option>').join('');
   document.getElementById('bkn').textContent=uc?'Check the details, pick the appointment, and confirm the price. Saving adds this job to the Urable calendar.':'Check the details, pick the appointment, and confirm the price.';
   const err=document.getElementById('bkerr'),ok=document.getElementById('bkok');err.textContent='';ok.disabled=false;ok.textContent='Book it';
   let done=false;const fin=v=>{if(done)return;done=true;d.close();res(v)};
@@ -1174,7 +1199,7 @@ function askBook(id,label){return new Promise(async res=>{const d=document.getEl
     if(!g('t')){err.textContent='Pick the appointment date and time.';return}
     if(!g('n2')&&!g('p')){err.textContent='Add a name or phone.';return}
     ok.disabled=true;ok.textContent='Saving...';
-    try{const r=await fetch('/admin/book',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,label:label||'',name:g('n2'),phone:g('p'),email:g('e'),service:g('s'),year:g('y'),make:g('m'),model:g('d'),value:parseInt(g('v')||'0',10)||0,appt:g('t')})});
+    try{const r=await fetch('/admin/book',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,label:label||'',name:g('n2'),phone:g('p'),email:g('e'),service:g('s'),year:g('y'),make:g('m'),model:g('d'),value:parseInt(g('v')||'0',10)||0,appt:g('t'),product_id:qs.value||''})});
       const j=await r.json().catch(()=>({}));if(!r.ok||!j.success){err.textContent=j.message||'Could not save. Try again.';ok.disabled=false;ok.textContent='Book it';return}
       fin(j)}catch(_){err.textContent='No connection. Try again.';ok.disabled=false;ok.textContent='Book it'}};
   document.getElementById('bkx').onclick=()=>fin(null);d.oncancel=()=>fin(null);d.showModal()})}
@@ -2555,7 +2580,15 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/leadinfo" && request.method === "GET") {
     const id = Number(new URL(request.url).searchParams.get("id"));
     const lead = Number.isInteger(id) ? await env.DB.prepare("SELECT id, name, phone, email, service, year, make, model, value, appt_at, stage FROM leads WHERE id = ?").bind(id).first() : null;
-    return lead ? json({ success: true, lead, urable: !!env.URABLE_API_KEY }) : json({ success: false }, 404);
+    if (!lead) return json({ success: false }, 404);
+    let products = [], best = "";
+    if (env.URABLE_API_KEY) {
+      const cat = await urableCatalog(env).catch(() => []);
+      products = cat.map(x => ({ id: x.id, name: x.name, price: Number(x.prices && x.prices[0] && x.prices[0].value) || 0 })).sort((a, b) => a.name.localeCompare(b.name));
+      const r = rankProducts(cat, lead.service, Math.round((Number(lead.value) || 0) * 100))[0];
+      best = r ? r.id : "";
+    }
+    return json({ success: true, lead, urable: !!env.URABLE_API_KEY, products, best });
   }
   if (p === "/admin/book" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
@@ -2573,7 +2606,7 @@ async function adminRoute(p, request, env) {
       env.DB.prepare("UPDATE leads SET name = ?, phone = ?, email = ?, service = ?, year = ?, make = ?, model = ?, value = ?, appt_at = ?, appt_remind_at = ?, appt_reminded = 0, stage = ?, contacted = 1, follow_up = ''" + (to !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(lead.name, lead.phone, lead.email, lead.service, lead.year, lead.make, lead.model, lead.value, String(b.appt).slice(0, 16), rem ? sqlUtc(rem) : null, to, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, to, reason, user),
     ]);
-    await afterBooked(env, b.id, cur.stage === "booked" ? "rescheduled" : "booked");
+    await afterBooked(env, b.id, cur.stage === "booked" ? "rescheduled" : "booked", { productId: clean(b.product_id, 80) });
     const abs = when(sqlUtc(new Date())).abs;
     return json({ success: true, stage: to, followup: "", follow_up_date: cur.follow_up_date || "", lead: { ...lead, appt_at: String(b.appt).slice(0, 16), follow_up: "" }, log: [{ from_stage: cur.stage, to_stage: to, reason, at: abs }] });
   }
