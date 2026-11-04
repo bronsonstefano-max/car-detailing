@@ -1334,11 +1334,28 @@ b.onclick=async()=>{const s=b.dataset.s;
   try{const p=await Notification.requestPermission();if(p==='granted'){await sub();show('Alerts on','on');fetch('/admin/push/test',{method:'POST'})}else refresh()}catch(e){alert('Could not turn on alerts: '+((e&&e.message)||e))}};
 refresh()})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
-  return `<nav class="bnav" aria-label="Sections"><a href="/admin/today" class="${on === "today" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Texts</a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">${SPEED_ICON}Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M7 7c-1 3 0 6 3 9s6 4 9 3"/></svg>Missed</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>Insights</a>` : ""}</nav>`;
+  const ic = {
+    today: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9l2 2 4-4M9 15h6"/></svg>',
+    leads: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+    pipeline: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>',
+    texts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+    more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>',
+    rate: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>',
+    missed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M7 7c-1 3 0 6 3 9s6 4 9 3"/></svg>',
+    insights: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>',
+    out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg>',
+  };
+  const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
+  const moreKeys = ["speed", "rate", "missed", "insights"];
+  const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
+  return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+<script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
+var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
 const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" });
 const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
@@ -1349,13 +1366,20 @@ async function todayCount(env) {
     return r ? r.n : 0;
   } catch { return 0; }
 }
-const BNAV_CSS = `.bnav{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.navtabs a.on .nb,.bnav a.on .nb{background:#04120a;color:#32cd32}.bnav .nb{margin:0;position:absolute;top:2px;right:calc(50% - 26px)}.bnav a{position:relative}
+const BNAV_CSS = `.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(max-width:700px){
   .navtabs{display:none!important}
-  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));gap:3px}
-  .bnav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border-radius:12px;color:#8a9099;text-decoration:none;font-size:11px;font-weight:600;min-height:52px;justify-content:center}
-  .bnav a.on{color:#04120a;background:#32cd32}.bnav a{min-width:0}.bnav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-  body{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
+  .bnav a,.bnav button{flex:1;min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 0 8px;margin:0;border:0;background:none;color:#7c838d;text-decoration:none;font:inherit;font-size:11px;font-weight:600;min-height:58px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .bnav a.on,.bnav button.on{color:#32cd32}.bnav a.on::before,.bnav button.on::before{content:"";position:absolute;top:0;left:50%;width:24px;height:3px;margin-left:-12px;border-radius:0 0 3px 3px;background:#32cd32}
+  .bnav svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}.bnav svg circle{fill:currentColor;stroke:none}
+  .bnav .nb{position:absolute;top:6px;left:calc(50% + 7px);margin:0;min-width:17px;height:17px;line-height:17px;padding:0 5px;text-align:center;font-size:10.5px;background:#ff5d5d;color:#fff}
+  .msheet.open{display:block;position:fixed;inset:0;z-index:40}.msheet .bd{position:absolute;inset:0;background:rgba(0,0,0,.62)}
+  .msheet .sh{position:absolute;left:0;right:0;bottom:0;background:#0f1319;border-top:1px solid #232932;border-radius:20px 20px 0 0;padding:10px 14px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:2px}
+  .msheet .grab{width:40px;height:4px;border-radius:2px;background:#2a313a;margin:2px auto 8px}
+  .msheet a{display:flex;align-items:center;gap:16px;padding:15px 10px;border-radius:12px;color:#e8eaed;text-decoration:none;font-size:17px;font-weight:600}.msheet a.on{color:#32cd32}.msheet a:active{background:#151a21}
+  .msheet svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;color:#7c838d}.msheet a.on svg{color:#32cd32}
+  body{padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))}
 }`;
 
 // one-tap replies. Merge fields: {first} {service} {vehicle} {shop} {phone} {address} {review}
@@ -2084,7 +2108,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -2730,6 +2754,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env, a);
   if (p === "/admin/messages") return messagesPage(env, a);
+  if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE direction = 'in' AND is_read = 0").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
   if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
