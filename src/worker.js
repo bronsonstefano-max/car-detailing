@@ -960,6 +960,12 @@ async function urableCatalog(env) {
   }
   return out;
 }
+// the shop's own service names in Urable: tint leads go on "Ceramic Tints", coating leads on the paint correction + coating package
+const URABLE_PREFER = [[/tint/i, /^ceramic tints?$/i], [/coat|ceramic pro|paint correction/i, /1 step paint correction and ceramic coating \(truck\)/i]];
+function preferredProduct(prods, service) {
+  for (const [svc, name] of URABLE_PREFER) if (svc.test(service || "")) { const hit = prods.find(x => name.test(String(x.name || "").trim())); if (hit) return hit; }
+  return null;
+}
 // closest catalog service to what the lead asked for: shared words count, extra words and "removal/repair" services count against it, near price breaks ties
 function rankProducts(prods, service, cents) {
   const want = words(service), bad = ["removal", "remove", "repair", "restoration", "install", "replacement"];
@@ -992,7 +998,7 @@ async function urableSync(env, id, event, opts = {}) {
     if (!cid) cid = (await urableCall(env, "POST", "/v1/customers", { type: "person", status: "new", firstName: first, lastName: last, emails: l.email ? [{ label: "main", value: l.email }] : [], phoneNumbers: l.phone ? [{ label: "mobile", value: e164(l.phone) }] : [], origin: "Divine Detailers CRM", notes: `Vehicle: ${veh}\n${l.notes || ""}`.trim() })).id;
     // best matching service in the Urable catalog
     const prods = await urableCatalog(env).catch(() => []);
-    const best = (opts.productId && prods.find(x => x.id === opts.productId)) || rankProducts(prods, l.service, Math.round((Number(l.value) || 0) * 100))[0] || null;
+    const best = (opts.productId && prods.find(x => x.id === opts.productId)) || preferredProduct(prods, l.service) || rankProducts(prods, l.service, Math.round((Number(l.value) || 0) * 100))[0] || null;
     const title = `${l.service || "Booking"}: ${l.name || prettyPhone(l.phone)} (${veh})`;
     const cents = Math.round((Number(l.value) || 0) * 100);
     const desc = [`Service: ${l.service || "n/a"}`, `Vehicle: ${veh}${l.year || l.make || l.model ? ` (Year ${l.year || "?"}, Make ${l.make || "?"}, Model ${l.model || "?"})` : ""}`, `Customer: ${l.name || "n/a"}, ${prettyPhone(l.phone)}${l.email ? ", " + l.email : ""}`, cents ? `Price: $${(cents / 100).toLocaleString("en-US")}` : "", l.appt_at ? `Appointment: ${l.appt_at.replace("T", " ")} (Eastern)` : "", l.notes ? `Notes: ${l.notes}` : "", `Booked from the CRM: ${crmLink(env, "", "/admin/pipeline#id=" + id)}`].filter(Boolean).join("\n");
@@ -2585,7 +2591,7 @@ async function adminRoute(p, request, env) {
     if (env.URABLE_API_KEY) {
       const cat = await urableCatalog(env).catch(() => []);
       products = cat.map(x => ({ id: x.id, name: x.name, price: Number(x.prices && x.prices[0] && x.prices[0].value) || 0 })).sort((a, b) => a.name.localeCompare(b.name));
-      const r = rankProducts(cat, lead.service, Math.round((Number(lead.value) || 0) * 100))[0];
+      const r = preferredProduct(cat, lead.service) || rankProducts(cat, lead.service, Math.round((Number(lead.value) || 0) * 100))[0];
       best = r ? r.id : "";
     }
     return json({ success: true, lead, urable: !!env.URABLE_API_KEY, products, best });
