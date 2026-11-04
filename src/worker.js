@@ -960,10 +960,10 @@ async function urableCatalog(env) {
   }
   return out;
 }
-// the shop's own service names in Urable: tint leads go on "Ceramic Tints", coating leads on the paint correction + coating package
-const URABLE_PREFER = [[/tint/i, /^ceramic tints?$/i], [/coat|ceramic pro|paint correction/i, /1 step paint correction and ceramic coating \(truck\)/i]];
+// the shop's own service names in Urable: tint leads go on "Ceramic Tints", coating leads on the "1 Step Paint Correction and Ceramic Coating" package (plain name first, then the shortest variant)
+const URABLE_PREFER = [[/tint/i, /^ceramic tints?$/i], [/coat|ceramic pro|paint correction/i, /^1 step paint correction and ceramic coating/i]];
 function preferredProduct(prods, service) {
-  for (const [svc, name] of URABLE_PREFER) if (svc.test(service || "")) { const hit = prods.find(x => name.test(String(x.name || "").trim())); if (hit) return hit; }
+  for (const [svc, name] of URABLE_PREFER) if (svc.test(service || "")) { const ms = prods.filter(x => name.test(String(x.name || "").trim())).sort((x, y) => String(x.name).length - String(y.name).length); if (ms[0]) return ms[0]; }
   return null;
 }
 // closest catalog service to what the lead asked for: shared words count, extra words and "removal/repair" services count against it, near price breaks ties
