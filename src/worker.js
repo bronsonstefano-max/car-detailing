@@ -139,6 +139,13 @@ async function ensureTableRun(db) {
   // one time: the monthly ad spend entered so far was Google Ads spend
   const flag5 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('ad_spend_by_channel')").run();
   if (flag5.meta && flag5.meta.changes) await db.prepare("INSERT OR IGNORE INTO ad_spend2 (month, channel, amount) SELECT month, 'google', amount FROM ad_spend").run();
+  const flagCar = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('split_car_v1')").run();
+  if (flagCar.meta && flagCar.meta.changes) {
+    const rows = (await db.prepare("SELECT id, model FROM leads WHERE COALESCE(make,'') = '' AND COALESCE(year,'') = '' AND COALESCE(model,'') != '' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' LIMIT 3000").all()).results || [];
+    const ups = [];
+    for (const r of rows) { const sp = splitCar(r.model); if (sp.make || sp.year) ups.push(db.prepare("UPDATE leads SET year = ?, make = ?, model = ? WHERE id = ?").bind(sp.year, sp.make, sp.model, r.id)); }
+    for (let i = 0; i < ups.length; i += 50) await db.batch(ups.slice(i, i + 50));
+  }
   const flag2 = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('coating_value_599')").run();
   if (flag2.meta && flag2.meta.changes) await db.prepare("UPDATE leads SET value = ? WHERE value = 0 AND service LIKE '%coating%' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND stage IN ('new','nocontact','contacted','quoted')").bind(CERAMIC_COATING_VALUE).run();
   // lookups by lead and by date stay fast as the history grows (only adds indexes: nothing is changed or removed)
@@ -700,6 +707,34 @@ async function handleCallrail(request, env, url, ctx) {
 
 // ---- Meta (Facebook / Instagram) Instant Form leads: Zapier's "Facebook Lead Ads" trigger posts each lead here as JSON.
 // URL: https://<site>/api/meta?key=<META_KEY>   (META_KEY is a Cloudflare secret you choose). The lead lands in the CRM like a website form lead (and auto-dials if that is on).
+// "26 VW Tiguan", "2019 Honda Accord EX", "Tesla Model 3 2022" -> { year, make, model }
+const CAR_MAKES = ["Mercedes-Benz", "Land Rover", "Range Rover", "Alfa Romeo", "Aston Martin", "Rolls-Royce", "Rolls Royce", "Acura", "Audi", "Bentley", "BMW", "Buick", "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Ferrari", "Fiat", "Ford", "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "Jaguar", "Jeep", "Kia", "Lamborghini", "Lexus", "Lincoln", "Lotus", "Maserati", "Mazda", "McLaren", "Mercedes", "Mini", "Mitsubishi", "Nissan", "Polestar", "Porsche", "Ram", "Rivian", "Subaru", "Tesla", "Toyota", "Volkswagen", "Volvo", "Lucid", "Scion", "Saturn", "Pontiac", "Hummer"];
+const CAR_ALIAS = { vw: "Volkswagen", chevy: "Chevrolet", benz: "Mercedes-Benz", mercedes: "Mercedes-Benz", "mercedes benz": "Mercedes-Benz", merc: "Mercedes-Benz", "range rover": "Land Rover", "rolls royce": "Rolls-Royce", landrover: "Land Rover", bmw: "BMW", gmc: "GMC" };
+function splitCar(text) {
+  let t = String(text || "").trim().replace(/\s+/g, " ");
+  if (!t) return { year: "", make: "", model: "" };
+  let year = "";
+  const four = /(^|\s)((?:19|20)\d{2})(?=\s|$)/.exec(t);
+  if (four) { year = four[2]; t = t.replace(four[0], " ").trim(); }
+  else {
+    const two = /^(\d{2})(?=\s)/.exec(t);
+    if (two) { const n = Number(two[1]), cur = new Date().getFullYear() % 100; year = String(n <= cur + 1 ? 2000 + n : 1900 + n); t = t.slice(two[0].length).trim(); }
+  }
+  t = t.replace(/^(older|old|newer|new|my|a|the)\s+/i, "");
+  const low = t.toLowerCase();
+  let make = "", rest = t;
+  const cands = [...CAR_MAKES.map(m => [m.toLowerCase(), m]), ...Object.entries(CAR_ALIAS)].sort((a, b) => b[0].length - a[0].length);
+  for (const [k, v] of cands) {
+    if (low === k || low.startsWith(k + " ") || low.endsWith(" " + k)) {
+      make = CAR_ALIAS[k] || v;
+      if (k === "range rover") { rest = t; break; }
+      rest = low === k ? "" : low.startsWith(k + " ") ? t.slice(k.length + 1) : t.slice(0, t.length - k.length - 1);
+      break;
+    }
+  }
+  return { year, make, model: rest.trim() };
+}
+
 async function handleMeta(request, env, url, ctx) {
   if (!env.META_KEY) return json({ success: false, message: "META_KEY is not set" }, 503);
   if (!safeEqual(url.searchParams.get("key") || "", env.META_KEY)) return json({ success: false }, 401);
@@ -741,7 +776,10 @@ async function handleMeta(request, env, url, ctx) {
     answers.push(label + (label.endsWith("?") ? " " : ": ") + String(v).trim());
   }
   const msg = clean([pick("message", "notes", "comments"), answers.join("\n"), extras].filter(Boolean).join("\n"), MAX.message);
-  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(pick("make", "Make") || makeAns, 60), year: clean(pick("year", "Year") || yearAns, 10), model: clean(pick("model", "Model") || modelAns || (pick("make", "Make") || makeAns ? "" : pick("vehicle", "Vehicle", "car", "Car") || carAnswer), 80), message: msg,
+  let vMake = pick("make", "Make") || makeAns, vYear = pick("year", "Year") || yearAns, vModel = pick("model", "Model") || modelAns;
+  const vCombined = pick("vehicle", "Vehicle", "car", "Car") || carAnswer;
+  if (vCombined && !vMake && !vModel) { const sp = splitCar(vCombined); vMake = sp.make; vYear = vYear || sp.year; vModel = sp.model || (sp.make ? "" : vCombined); }
+  const lead = { type: "quote", name: name || "Meta lead", email, phone, service, also_interested: "", make: clean(vMake, 60), year: clean(vYear, 10), model: clean(vModel, 80), message: msg,
     page: "Meta Instant Form", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "meta", utm_medium: "paid_social", utm_campaign: clean(pick("campaign_name", "campaign", "utm_campaign"), 200), utm_term: clean(pick("ad_name", "adset_name"), 200) };
   const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,call_id,ip,user_agent,value)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
