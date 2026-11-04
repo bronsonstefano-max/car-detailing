@@ -900,7 +900,9 @@ async function pushToDevices(env, { title, message, click, users }) {
   if (!env.DB) return 0;
   await ensureTable(env.DB);
   const rows = (await env.DB.prepare("SELECT endpoint, p256dh, auth, user FROM push_subs").all()).results || [];
-  const targets = users && users.length ? rows.filter(r => users.includes(r.user)) : rows;
+  let targets = users && users.length ? rows.filter(r => users.includes(r.user)) : rows;
+  // the shop owner's phone only gets "New Lead Incoming" (and the alerts-on confirmation); every other alert goes to the owner login only
+  if (title !== "New Lead Incoming" && title !== "Alerts are on") targets = targets.filter(r => r.user === OWNER);
   if (!targets.length) return 0;
   let path = "/today"; try { const u = new URL(click); path = u.pathname + u.search + u.hash; } catch (e) { /* no link */ }
   const payload = { title, body: message, url: path };
