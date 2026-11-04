@@ -966,24 +966,29 @@ async function urableSync(env, id, event) {
     // customer: match on email, else create
     let cid = null;
     if (l.email) { const m = await urableCall(env, "GET", "/v1/customers?email=" + encodeURIComponent(l.email)); cid = Array.isArray(m) && m[0] && m[0].id; }
-    if (!cid) cid = (await urableCall(env, "POST", "/v1/customers", { type: "person", status: "new", firstName: first, lastName: last, emails: l.email ? [{ label: "main", value: l.email }] : [], phoneNumbers: l.phone ? [{ label: "mobile", value: e164(l.phone) }] : [], origin: "Divine Detailers CRM", notes: l.notes || "" })).id;
+    if (!cid) cid = (await urableCall(env, "POST", "/v1/customers", { type: "person", status: "new", firstName: first, lastName: last, emails: l.email ? [{ label: "main", value: l.email }] : [], phoneNumbers: l.phone ? [{ label: "mobile", value: e164(l.phone) }] : [], origin: "Divine Detailers CRM", notes: `Vehicle: ${veh}\n${l.notes || ""}`.trim() })).id;
     // best matching service in the Urable catalog
     const prods = (await urableCall(env, "GET", "/v1/products?limit=100&type=service").catch(() => [])) || [];
     const want = words(l.service); let best = null, bs = 0;
     for (const pr of prods) { const w = words(pr.name), sc = want.filter(x => w.includes(x)).length; if (sc > bs) { bs = sc; best = pr; } }
     const title = `${l.service || "Booking"}: ${l.name || prettyPhone(l.phone)} (${veh})`;
+    const cents = Math.round((Number(l.value) || 0) * 100);
+    const desc = [`Service: ${l.service || "n/a"}`, `Vehicle: ${veh}${l.year || l.make || l.model ? ` (Year ${l.year || "?"}, Make ${l.make || "?"}, Model ${l.model || "?"})` : ""}`, `Customer: ${l.name || "n/a"}, ${prettyPhone(l.phone)}${l.email ? ", " + l.email : ""}`, cents ? `Price: $${(cents / 100).toLocaleString("en-US")}` : "", l.appt_at ? `Appointment: ${l.appt_at.replace("T", " ")} (Eastern)` : "", l.notes ? `Notes: ${l.notes}` : "", `Booked from the CRM: ${crmLink(env, "", "/admin/pipeline#id=" + id)}`].filter(Boolean).join("\n");
     if (best) {
       let iid = null;
       const its = (await urableCall(env, "GET", "/v1/items?customerId=" + cid).catch(() => [])) || [];
       const hit = its.find(x => String(x.name || "").toLowerCase() === veh.toLowerCase()); iid = hit && hit.id;
-      if (!iid) iid = (await urableCall(env, "POST", "/v1/items", { customerId: cid, industry: "vehicleCare", type: "automotive", name: veh })).id;
-      const job = { customerId: cid, industry: "vehicleCare", itemIds: [iid], type: "shop", status: "scheduled", name: title, lineItems: [{ productServiceId: best.id, quantity: 1 }], notes: l.notes || "", autoTax: false };
+      if (!iid) iid = (await urableCall(env, "POST", "/v1/items", { customerId: cid, industry: "vehicleCare", type: "automotive", name: veh, notes: `Year: ${l.year || ""}\nMake: ${l.make || ""}\nModel: ${l.model || ""}` })).id;
+      const job = { customerId: cid, industry: "vehicleCare", itemIds: [iid], type: "shop", status: "scheduled", name: title, lineItems: [{ productServiceId: best.id, quantity: 1 }], notes: desc, autoTax: false };
+      // the CRM job value is the price: adjust the Urable service price up or down to land exactly on it
+      const base = Number(best.prices && best.prices[0] && best.prices[0].value) || 0;
+      if (cents && cents !== base) job.adjustments = [cents > base ? { type: "fee", name: "Quoted price", value: cents - base, taxable: false } : { type: "discount", name: "Quoted price", value: base - cents }];
       if (start) { job.start = start; job.end = end; }
       const made = await urableCall(env, "POST", "/v1/jobs", job);
       await env.DB.prepare("UPDATE leads SET urable_ref = ?, urable_kind = 'job' WHERE id = ?").bind(made.id, id).run();
       await log(`Urable: job #${made.num || ""} created (${best.name})${start ? "" : ", no time yet"}`);
     } else if (start) {
-      const made = await urableCall(env, "POST", "/v1/events", { type: "other", name: title, customerId: cid, start, end, notes: `Booked from the CRM. ${l.notes || ""}`.trim() });
+      const made = await urableCall(env, "POST", "/v1/events", { type: "other", name: title, customerId: cid, start, end, notes: desc });
       await env.DB.prepare("UPDATE leads SET urable_ref = ?, urable_kind = 'event' WHERE id = ?").bind(made.id, id).run();
       await log("Urable: calendar event created (no matching service in your Urable catalog)");
     } else await log("Urable: customer saved. No calendar entry yet: pick an appointment time");
