@@ -1308,7 +1308,7 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const u=(e.
 const MANIFEST = { name: "Divine Detailers CRM", short_name: "DD CRM", start_url: "/today", scope: "/", display: "standalone", background_color: "#000000", theme_color: "#000000",
   icons: [{ src: "/assets/crm-icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" }, { src: "/assets/crm-icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" }] };
 const PWA_HEAD = `<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/crm-icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="DD CRM"><meta name="theme-color" content="#000000">`;
-const PUSH_NAV = `<style>.pushbtn{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:7px 13px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.pushbtn[data-s=act]{background:#32cd32;border-color:#32cd32;color:#04120a}.pushbtn[data-s=on]{color:#7fe07f}.pushbtn[data-s=off],.pushbtn[data-s=help]{color:#ffb86b;border-color:#4d3a1d}</style><button type="button" id="pushbtn" class="pushbtn" hidden></button>
+const PUSH_NAV = `<style>.pushbtn{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:7px 13px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.pushbtn[data-s=act]{background:#32cd32;border-color:#32cd32;color:#04120a}.pushbtn[data-s=on]{color:#7fe07f}.pushbtn[data-s=off],.pushbtn[data-s=help]{color:#ffb86b;border-color:#4d3a1d}</style><button type="button" id="rfbtn" class="pushbtn" aria-label="Refresh" title="Refresh">&#8635;</button><button type="button" id="pushbtn" class="pushbtn" hidden></button>
 <script>(()=>{const b=document.getElementById('pushbtn');if(!b||window.__pushInit)return;window.__pushInit=1;
 const standalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone;
 const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -1332,7 +1332,14 @@ b.onclick=async()=>{const s=b.dataset.s;
   if(s==='off'){alert('Alerts are blocked for this app. Turn them on in your phone Settings under Notifications, then reopen the app.');return}
   if(s==='on'){const r=await fetch('/admin/push/test',{method:'POST'});const j=await r.json().catch(()=>({}));b.textContent=j.sent?'Test sent':'No device found';setTimeout(refresh,2500);return}
   try{const p=await Notification.requestPermission();if(p==='granted'){await sub();show('Alerts on','on');fetch('/admin/push/test',{method:'POST'})}else refresh()}catch(e){alert('Could not turn on alerts: '+((e&&e.message)||e))}};
-refresh()})();</script>`;
+refresh()})();</script>
+<script>(function(){var rf=document.getElementById('rfbtn');function go(){var t=document.createElement('div');t.textContent='Refreshing...';t.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);background:#32cd32;color:#04120a;font:700 13px system-ui;padding:7px 14px;border-radius:999px;z-index:99';document.body.appendChild(t);location.reload()}
+if(rf)rf.onclick=go;
+var hiddenAt=0;document.addEventListener('visibilitychange',function(){if(document.hidden){hiddenAt=Date.now();return}var a=document.activeElement;if(hiddenAt&&Date.now()-hiddenAt>120000&&!document.querySelector('dialog[open]')&&!(a&&/^(INPUT|TEXTAREA)$/.test(a.tagName)))location.reload()});
+window.addEventListener('pageshow',function(e){if(e.persisted)location.reload()});
+var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window.scrollY>0||e.touches.length!==1)return;if(e.target.closest&&e.target.closest('dialog,.msgs,.board,textarea,input,select'))return;y0=e.touches[0].clientY},{passive:true});
+document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
+document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
   return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
 }
@@ -1366,7 +1373,7 @@ async function todayCount(env) {
     return r ? r.n : 0;
   } catch { return 0; }
 }
-const BNAV_CSS = `.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+const BNAV_CSS = `article.lead{content-visibility:auto;contain-intrinsic-size:auto 230px}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(max-width:700px){
   .navtabs{display:none!important}
   .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
