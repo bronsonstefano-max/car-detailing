@@ -1373,7 +1373,7 @@ async function todayCount(env) {
     return r ? r.n : 0;
   } catch { return 0; }
 }
-const BNAV_CSS = `article.lead{content-visibility:auto;contain-intrinsic-size:auto 230px}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+const BNAV_CSS = `article.lead{content-visibility:auto;contain-intrinsic-size:auto 230px}article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(max-width:700px){
   .navtabs{display:none!important}
   .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
@@ -1461,7 +1461,7 @@ async function adminPage(env, user = "") {
     const t = when(l.created_at), src = sourceOf(l);
     const veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
-    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : isNewish(l.stage) ? "new" : ""}" data-id="${l.id}" data-q="${esc([l.name, l.email, l.phone, l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${isNewish(l.stage) ? "new" : "done"}" data-ad="${src.ad ? 1 : 0}">
+    return `<article class="lead ${["done", "lost"].includes(l.stage) ? "done" : isNewish(l.stage) ? "new" : ""}" data-id="${l.id}" data-q="${esc([l.name, l.email, l.phone, String(l.phone || "").replace(/\D/g, ""), l.service, veh, l.message, src.label, src.detail].join(" ").toLowerCase())}" data-st="${isNewish(l.stage) ? "new" : "done"}" data-stg="${esc(l.stage)}" data-svc="${esc(String(l.service || "").toLowerCase())}" data-ad="${src.ad ? 1 : 0}">
       <div class="top"><div><h3>${esc(l.name || l.email)}</h3><div class="when" title="${esc(t.abs)} ET">${esc(t.ago)} &middot; ${esc(t.abs)}</div></div>
         <div class="tags">${l.type === "newsletter" ? '<span class="tag nl">Newsletter</span>' : ""}${callTag(l)}${own ? `<span class="tag ${src.ad ? "ad" : ""}">${esc(src.label)}</span>` : ""}${l.type === "newsletter" ? "" : l.stage === "new" ? '<span class="tag hot">New</span>' : `<span class="tag ok">${esc(stageName(l.stage))}</span>`}${l.follow_up ? `<span class="tag fu">${esc(l.follow_up)}</span>` : ""}</div></div>
       <div class="grid">
@@ -1513,14 +1513,14 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 </style></head>
 <body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc, user === OWNER)}
 <div class="stats"><div class="stat"><b>${last24}</b><span>leads in the past 24 hours</span></div><div class="stat hot"><b>${notContacted}</b><span>${own ? "Meta leads not contacted" : "leads not contacted"}</span></div><div class="stat"><b>${last7}</b><span>leads in the past 7 days</span></div></div></header>
-<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button>${own ? '<button class="chip" data-f="ad">Google Ads</button>' : ""}<a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
+<div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="nocontact">Not contacted</button><button class="chip" data-f="coating">Coatings</button><button class="chip" data-f="tint">Tints</button><button class="chip" data-f="booked">Booked</button><a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
 ${bnav("leads", tc, user === OWNER)}
 ${FOLLOW_HTML}
 ${OUTCOME_HTML}
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
 <script>
 const list=document.getElementById('list'),q=document.getElementById('q');let f='all';
-function apply(){const t=q.value.trim().toLowerCase();list.querySelectorAll('.lead').forEach(e=>{const ok=(!t||e.dataset.q.includes(t))&&(f==='all'||(f==='ad'?e.dataset.ad==='1':e.dataset.st===f));e.hidden=!ok})}
+function apply(){const t=q.value.trim().toLowerCase(),td=t.replace(/\D/g,'');list.querySelectorAll('.lead').forEach(e=>{const d=e.dataset,txt=!t||d.q.includes(t)||(td.length>=3&&d.q.includes(td)),fl=f==='all'||(f==='coating'||f==='tint'?d.svc.includes(f):d.stg===f);e.hidden=!(txt&&fl)})}
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
 ${FOLLOW_JS}
 ${OUTCOME_JS}
