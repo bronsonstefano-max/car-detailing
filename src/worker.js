@@ -1457,7 +1457,7 @@ async function adminPage(env, user = "") {
   const cutoff7 = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19).replace("T", " ");
   const last7 = results.filter(l => l.type !== "newsletter" && l.created_at >= cutoff7).length;
   const ads = results.filter(l => sourceOf(l).ad).length;
-  const cards = results.map(l => {
+  const cardList = results.map(l => {
     const t = when(l.created_at), src = sourceOf(l);
     const veh = [l.year, l.make, l.model].filter(Boolean).join(" ");
     const tel = (l.phone || "").replace(/[^\d+]/g, "");
@@ -1475,7 +1475,8 @@ async function adminPage(env, user = "") {
       <div class="actions">${tel ? `<a class="btn call" href="tel:${esc(tel)}">Call ${esc(l.phone)}</a>` : ""}<a class="btn" href="mailto:${esc(l.email)}">Email</a>
         <select class="btn stage" data-id="${l.id}" data-cur="${l.stage}" aria-label="Stage">${STAGES.map(([k, n]) => `<option value="${k}"${k === l.stage ? " selected" : ""}>${n}</option>`).join("")}</select></div>
     </article>`;
-  }).join("");
+  });
+  const FIRST = 60, cards = cardList.slice(0, FIRST).join(""), restCards = cardList.slice(FIRST);
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Leads | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
@@ -1518,9 +1519,12 @@ ${bnav("leads", tc, user === OWNER)}
 ${FOLLOW_HTML}
 ${OUTCOME_HTML}
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
+${restCards.length ? `<div style="text-align:center;padding:4px 14px 20px"><button type="button" id="moreb" class="chip">Show ${restCards.length} older leads</button></div><script type="application/json" id="rest">${JSON.stringify(restCards).replace(/</g, "\\u003c")}</script>` : ""}
 <script>
-const list=document.getElementById('list'),q=document.getElementById('q');let f='all';
-function apply(){const t=q.value.trim().toLowerCase(),td=t.replace(/\D/g,'');list.querySelectorAll('.lead').forEach(e=>{const d=e.dataset,txt=!t||d.q.includes(t)||(td.length>=3&&d.q.includes(td)),fl=f==='all'||(f==='coating'||f==='tint'?d.svc.includes(f):d.stg===f);e.hidden=!(txt&&fl)})}
+const list=document.getElementById('list'),q=document.getElementById('q');let f='all',REST=[];try{const r=document.getElementById('rest');if(r)REST=JSON.parse(r.textContent)}catch(_){}
+function more(){if(!REST.length)return;list.insertAdjacentHTML('beforeend',REST.join(''));REST=[];const b=document.getElementById('moreb');if(b)b.parentNode.remove()}
+const mb=document.getElementById('moreb');if(mb)mb.onclick=more;
+function apply(){const t=q.value.trim().toLowerCase(),td=t.replace(/\\D/g,'');if(t||f!=='all')more();list.querySelectorAll('.lead').forEach(e=>{const d=e.dataset,txt=!t||d.q.includes(t)||(td.length>=3&&d.q.includes(td)),fl=f==='all'||(f==='coating'||f==='tint'?d.svc.includes(f):d.stg===f);e.hidden=!(txt&&fl)})}
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
 ${FOLLOW_JS}
 ${OUTCOME_JS}
@@ -1611,6 +1615,7 @@ const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.l
 const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
 const M=window.matchMedia('(max-width:700px)');let cur='new';
 function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="tel:'+$(tel)+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
+const LIM={};const lim=k=>LIM[k]||40;const moreBtn=(k,n)=>n>lim(k)?'<button type="button" class="chip" data-more="'+k+'" style="margin:8px auto;display:block">Show '+Math.min(60,n-lim(k))+' more ('+(n-lim(k))+' left)</button>':'';
 function draw(){
   let open=0,won=0,booked=0;
   S.forEach(([k])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);if(k==='new'||k==='nocontact')open+=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot});
@@ -1620,16 +1625,17 @@ function draw(){
   if(M.matches){
     tabs.innerHTML=S.map(([k,n])=>'<button class="tab'+(k===cur?' on':'')+'" data-tab="'+k+'">'+n+' <i>'+L.filter(l=>l.stage===k).length+'</i></button>').join('');
     const ls=L.filter(l=>l.stage===cur),tot=ls.reduce((a,l)=>a+(l.value||0),0),name=(S.find(x=>x[0]===cur)||[0,''])[1];
-    board.innerHTML='<section class="col" data-stage="'+cur+'"><h2>'+name+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+(ls.map(l=>cardHtml(l,true)).join('')||'<div class="empty">Nothing in '+$(name)+' right now</div>')+'</div></section>';
+    board.innerHTML='<section class="col" data-stage="'+cur+'"><h2>'+name+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+(ls.slice(0,lim(cur)).map(l=>cardHtml(l,true)).join('')||'<div class="empty">Nothing in '+$(name)+' right now</div>')+moreBtn(cur,ls.length)+'</div></section>';
     const on=tabs.querySelector('.tab.on');if(on&&on.scrollIntoView)on.scrollIntoView({inline:'center',block:'nearest'});
     return;
   }
   tabs.innerHTML='';
   board.innerHTML=S.map(([k,n])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);
     return '<section class="col s-'+k+'" data-stage="'+k+'"><h2>'+n+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+
-    (ls.map(l=>cardHtml(l,false)).join('')||'<div class="empty">Drop leads here</div>')+'</div></section>';}).join('');
+    (ls.slice(0,lim(k)).map(l=>cardHtml(l,false)).join('')||'<div class="empty">Drop leads here</div>')+moreBtn(k,ls.length)+'</div></section>';}).join('');
 }
 M.addEventListener&&M.addEventListener('change',draw);
+board.addEventListener('click',e=>{const m=e.target.closest('[data-more]');if(m){LIM[m.dataset.more]=lim(m.dataset.more)+60;draw()}});
 document.getElementById('tabs').addEventListener('click',e=>{const t=e.target.closest('[data-tab]');if(t){cur=t.dataset.tab;draw();window.scrollTo({top:0})}});
 const SN=k=>(S.find(x=>x[0]===k)||[0,k])[1];const TODAY=D.today;const fmtD=d=>{const p=d.split('-');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1]+' '+(+p[2])};
 function parseMsg(l){const x={answers:[],form:'',ad:'',adset:'',plat:'',rest:[]};(l.message||'').split('\\n').forEach(line=>{line=line.trim();if(!line)return;
