@@ -2102,6 +2102,8 @@ export default {
     const crmHost = (env.CRM_HOST || "").toLowerCase();
     const onCrm = !!crmHost && url.hostname.toLowerCase() === crmHost;
 
+    // Twilio domain verification: the file has to answer at exactly this address (the static site would redirect a .html name)
+    if (p === "/6b27245cfce7349ca55c00a5acb5d511.html") return new Response("twilio-domain-verification=6b27245cfce7349ca55c00a5acb5d511", { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
     if (p === "/sw.js") return new Response(SW_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache", "service-worker-allowed": "/" } });
     if (p === "/manifest.webmanifest") return new Response(JSON.stringify(MANIFEST), { headers: { "content-type": "application/manifest+json", "cache-control": "public, max-age=3600" } });
 
