@@ -1276,7 +1276,7 @@ function draw(s){if(!s||s.disabled){bar.innerHTML='';bar.style.display='none';re
 async function refresh(){draw(await get())}
 refresh().then(()=>{if(location.hash==='#start'){const g=document.getElementById('qgo');if(g)g.click()}});const poll=setInterval(()=>{if(bar.style.display==='none'){clearInterval(poll);return}if(!document.hidden)refresh()},12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 })();`;
-const OUTCOME_HTML = `<dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
+const OUTCOME_HTML = `<style>#odlg{position:fixed;inset:0;margin:auto;height:fit-content;z-index:60;box-shadow:0 0 0 100vmax rgba(0,0,0,.72)}</style><dialog class="rdlg" id="odlg"><div class="rb"><h3 id="ot"></h3><p>Did they pick up?</p><div class="fu-chips" id="og"></div><div class="ra"><button type="button" id="os">I did not make this call</button></div></div></dialog>`;
 const OUTCOME_JS = `
 const OUTC=${JSON.stringify(OUTCOMES)};
 function pcq(){try{const a=JSON.parse(localStorage.getItem('dd_pcq')||'[]');return Array.isArray(a)?a:[]}catch(_){return []}}
@@ -1287,7 +1287,7 @@ function askOutcome(){const d=document.getElementById('odlg');if(!d||d.open)retu
   const done=()=>{pcs(pcq().filter(x=>x.id!==p.id));d.close();setTimeout(askOutcome,300)};
   document.getElementById('ot').textContent='Did '+p.name+' answer?';const g=document.getElementById('og');g.innerHTML='';
   OUTC.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.onclick=async()=>{b.disabled=true;try{await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:p.id,outcome:v})})}catch(_){}done()};g.appendChild(b)});
-  document.getElementById('os').onclick=done;d.showModal()}
+  document.getElementById('os').onclick=done;try{d.show()}catch(_){}}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(askOutcome,400)});window.addEventListener('focus',()=>setTimeout(askOutcome,400));window.addEventListener('pageshow',()=>setTimeout(askOutcome,600));setTimeout(askOutcome,800);
 document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');const id=(h&&+h.dataset.id)||window.DD_LEAD;if(!id)return;e.preventDefault();if(a.dataset.busy)return;a.dataset.busy='1';const t=a.textContent;a.textContent='Calling your phone...';
   fetch('/admin/dial',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})}).then(r=>r.json()).catch(()=>({})).then(j=>{if(j.success){a.textContent='Answer your phone and press 1';setTimeout(()=>{a.textContent=t;delete a.dataset.busy},15000)}else{a.textContent=t;delete a.dataset.busy;if(confirm((j.message||'Could not start the call.')+'\\n\\nCall without recording?'))location.href=a.getAttribute('href')}})},true);
@@ -1335,8 +1335,8 @@ b.onclick=async()=>{const s=b.dataset.s;
 refresh()})();</script>
 <script>(function(){var rf=document.getElementById('rfbtn');function go(){var t=document.createElement('div');t.textContent='Refreshing...';t.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);background:#32cd32;color:#04120a;font:700 13px system-ui;padding:7px 14px;border-radius:999px;z-index:99';document.body.appendChild(t);location.reload()}
 if(rf)rf.onclick=go;
-var hiddenAt=0;document.addEventListener('visibilitychange',function(){if(document.hidden){hiddenAt=Date.now();return}var a=document.activeElement;if(hiddenAt&&Date.now()-hiddenAt>120000&&!document.querySelector('dialog[open]')&&!(a&&/^(INPUT|TEXTAREA)$/.test(a.tagName)))location.reload()});
-window.addEventListener('pageshow',function(e){if(e.persisted)location.reload()});
+var hiddenAt=0;document.addEventListener('visibilitychange',function(){if(document.hidden){hiddenAt=Date.now();return}var a=document.activeElement;if(hiddenAt&&Date.now()-hiddenAt>300000&&!document.querySelector('dialog[open]')&&!(a&&/^(INPUT|TEXTAREA)$/.test(a.tagName))){var last=0;try{last=+sessionStorage.getItem('dd_rl')||0}catch(_){}if(Date.now()-last<60000)return;try{sessionStorage.setItem('dd_rl',String(Date.now()))}catch(_){}setTimeout(function(){if(navigator.onLine!==false)location.reload()},1200)}});
+window.addEventListener('pageshow',function(e){if(e.persisted)setTimeout(function(){location.reload()},600)});
 var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window.scrollY>0||e.touches.length!==1)return;if(e.target.closest&&e.target.closest('dialog,.msgs,.board,textarea,input,select'))return;y0=e.touches[0].clientY},{passive:true});
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
@@ -1373,10 +1373,10 @@ async function todayCount(env) {
     return r ? r.n : 0;
   } catch { return 0; }
 }
-const BNAV_CSS = `article.lead{content-visibility:auto;contain-intrinsic-size:auto 230px}article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(max-width:700px){
   .navtabs{display:none!important}
-  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,17,.97);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
+  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:#0a0d11;border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
   .bnav a,.bnav button{flex:1;min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 0 8px;margin:0;border:0;background:none;color:#7c838d;text-decoration:none;font:inherit;font-size:11px;font-weight:600;min-height:58px;cursor:pointer;-webkit-tap-highlight-color:transparent}
   .bnav a.on,.bnav button.on{color:#32cd32}.bnav a.on::before,.bnav button.on::before{content:"";position:absolute;top:0;left:50%;width:24px;height:3px;margin-left:-12px;border-radius:0 0 3px 3px;background:#32cd32}
   .bnav svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}.bnav svg circle{fill:currentColor;stroke:none}
@@ -1449,7 +1449,7 @@ function sourceOf(l) {
 async function adminPage(env, user = "") {
   await ensureTable(env.DB);
   const own = user === OWNER;
-  const [tc, rs] = await Promise.all([todayCount(env), env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all()]);
+  const [tc, rs] = await Promise.all([todayCount(env), env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 300").all()]);
   const results = own ? rs.results : rs.results.map(noAds);
   const cutoff = new Date(Date.now() - 864e5).toISOString().slice(0, 19).replace("T", " ");
   const notContacted = results.filter(l => isNewish(l.stage) && l.type !== "newsletter" && (!own || l.utm_medium === "paid_social")).length;
