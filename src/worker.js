@@ -1444,7 +1444,9 @@ async function adminPage(env, user = "") {
   const own = user === OWNER;
   const [tc, rs] = await Promise.all([todayCount(env), env.DB.prepare("SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 500").all()]);
   const results = own ? rs.results : rs.results.map(noAds);
-  const open = results.filter(l => isNewish(l.stage) && l.type === "quote").length;
+  const cutoff = new Date(Date.now() - 864e5).toISOString().slice(0, 19).replace("T", " ");
+  const notContacted = results.filter(l => isNewish(l.stage) && l.type !== "newsletter" && (!own || l.utm_medium === "paid_social")).length;
+  const last24 = results.filter(l => l.type !== "newsletter" && l.created_at >= cutoff).length;
   const ads = results.filter(l => sourceOf(l).ad).length;
   const cards = results.map(l => {
     const t = when(l.created_at), src = sourceOf(l);
@@ -1501,7 +1503,7 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
 }
 </style></head>
 <body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc, user === OWNER)}
-<div class="stats"><div class="stat hot"><b>${open}</b><span>to contact</span></div><div class="stat"><b>${results.length}</b><span>total</span></div>${own ? `<div class="stat"><b>${ads}</b><span>from Google Ads</span></div>` : ""}</div></header>
+<div class="stats"><div class="stat hot"><b>${notContacted}</b><span>${own ? "Meta leads not contacted" : "leads not contacted"}</span></div><div class="stat"><b>${last24}</b><span>leads in the past 24 hours</span></div></div></header>
 <div class="tools"><input type="search" id="q" placeholder="Search name, phone, vehicle, service..."><button class="chip on" data-f="all">All</button><button class="chip" data-f="new">New</button><button class="chip" data-f="done">Worked</button>${own ? '<button class="chip" data-f="ad">Google Ads</button>' : ""}<a class="csv" href="/admin/pipeline#add">+ Add lead</a><a class="csv" href="/admin/leads.csv">Download CSV</a></div>
 ${bnav("leads", tc, user === OWNER)}
 ${FOLLOW_HTML}
