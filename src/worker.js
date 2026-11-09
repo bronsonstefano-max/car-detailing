@@ -1370,7 +1370,9 @@ ${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
-const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" });
+// review requests use a link on our own domain (it forwards to Google), which is what carriers expect for links in registered texts
+const reviewLink = env => (env.GOOGLE_REVIEW_URL ? `${env.PUBLIC_URL || "https://divinedetailers.com"}/review` : "");
+const cfgOf = env => ({ shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: reviewLink(env) });
 const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
 async function todayCount(env) {
   try {
@@ -1784,7 +1786,7 @@ const TEXT_MAX = 5;
 const textTemplateFor = (n, l) => n === 1 ? TEMPLATES.find(t => t.id === (/coating/i.test(l.service || "") ? "first_coating" : "first")) : TEMPLATES.find(t => t.id === "fu" + n);
 function fillTemplate(t, l, env) {
   const veh = [l.year, l.make, l.model].filter(Boolean).join(" ") || "your vehicle", first = String(l.name || "").trim().split(/\s+/)[0];
-  const v = { first: first && !/^\+?[\d\s()-]+$/.test(first) ? first : "there", service: String(l.service || "our services").toLowerCase(), vehicle: /your/.test(veh) ? veh : "your " + veh, shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: env.GOOGLE_REVIEW_URL || "" };
+  const v = { first: first && !/^\+?[\d\s()-]+$/.test(first) ? first : "there", service: String(l.service || "our services").toLowerCase(), vehicle: /your/.test(veh) ? veh : "your " + veh, shop: SHOP.name, phone: SHOP.phone, address: SHOP.address, review: reviewLink(env) };
   const f = x => x.replace(/\{(\w+)\}/g, (m, k) => (v[k] === undefined ? m : v[k])).replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return { subject: f(t.subject), body: f(t.body) };
 }
@@ -2112,6 +2114,8 @@ export default {
 
     // Twilio domain verification: the file has to answer at exactly this address (the static site would redirect a .html name)
     if (p === "/6b27245cfce7349ca55c00a5acb5d511.html") return new Response("twilio-domain-verification=6b27245cfce7349ca55c00a5acb5d511", { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
+    // /review forwards to the Google review page (set GOOGLE_REVIEW_URL); texts link to this address on our own domain
+    if (p === "/review" && env.GOOGLE_REVIEW_URL) return new Response(null, { status: 302, headers: { location: env.GOOGLE_REVIEW_URL, "cache-control": "no-store", "x-robots-tag": "noindex" } });
     if (p === "/sw.js") return new Response(SW_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache", "service-worker-allowed": "/" } });
     if (p === "/manifest.webmanifest") return new Response(JSON.stringify(MANIFEST), { headers: { "content-type": "application/manifest+json", "cache-control": "public, max-age=3600" } });
 
