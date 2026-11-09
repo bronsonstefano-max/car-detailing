@@ -1397,8 +1397,8 @@ const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{disp
 
 // one-tap replies. Merge fields: {first} {service} {vehicle} {shop} {phone} {address} {review}
 const TEMPLATES = [
-  { id: "first", label: "First reply", subject: "Your ceramic tint request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic tint for your car.\n\nOur tint keeps your ride cooler, protected, and more private, with a clean, factory look. We've got a special running with limited spots, when would you like to get it done?" },
-  { id: "first_coating", label: "First reply (ceramic coating)", subject: "Your ceramic coating request at {shop}", body: "Hey {first}, this is {shop}. You reached out from one of our ads about ceramic coating for your car.\n\nOur ceramic coating adds a deep, glossy finish, protects your paint, and makes every wash easier. When would you like to get it done?" },
+  { id: "first", label: "First reply", subject: "Your ceramic tint request at {shop}", body: "Hey {first}, this is {shop}. Thanks for requesting a quote for ceramic tint for {vehicle}.\n\nOur tint keeps your ride cooler, protected and more private, with a clean, factory look. When would you like to get it done?" },
+  { id: "first_coating", label: "First reply (ceramic coating)", subject: "Your ceramic coating request at {shop}", body: "Hey {first}, this is {shop}. Thanks for requesting a quote for ceramic coating for {vehicle}.\n\nOur ceramic coating adds a deep, glossy finish, protects your paint and makes every wash easier. When would you like to get it done?" },
   { id: "scheduled", label: "Scheduled", subject: "Your appointment with {shop}", body: "Hi {first}, you are scheduled! Your {service} appointment for {vehicle} is set for {appointment}. We are at {address}. Reply here if you need to change anything." },
   { id: "reminder", label: "Appointment reminder", subject: "Reminder: your appointment with {shop}", body: "Hi {first}, a quick reminder about your {service} appointment for {vehicle} on {appointment}. We are at {address}. See you then!" },
   { id: "fu2", label: "Follow-up #2", subject: "Following up on your {service} request", body: "Hey {first}, it's {shop} following up about {service} for {vehicle}. Are you still interested? I can get you on the schedule this week." },
@@ -1409,7 +1409,7 @@ const TEMPLATES = [
   { id: "quote", label: "Quote follow-up", subject: "Following up on your {service} quote", body: "Hi {first}, just following up on the {service} quote for {vehicle}. Any questions I can answer? Happy to get you on the schedule." },
   { id: "invoice", label: "Invoice sent", subject: "Your invoice from {shop}", body: "Hi {first}, your invoice for {service} on {vehicle} is on its way. Let us know when you have seen it and we will lock in your date." },
   { id: "booked", label: "Booking confirmed", subject: "You are booked with {shop}", body: "Hi {first}, you are booked for {service} on {vehicle}. We are at {address}. Text us here if anything changes." },
-  { id: "ready", label: "Ready for pickup", subject: "Your vehicle is ready", body: "Hi {first}, your {vehicle} is ready for pickup at {address}. We are open Mon to Sat, 9 AM to 6 PM." },
+  { id: "ready", label: "Ready for pickup", subject: "Your vehicle is ready", body: "Hi {first}, your {vehicle} is ready for pickup at {shop}, {address}. We are open Mon to Sat, 9 AM to 6 PM." },
   { id: "review", label: "Ask for a review", subject: "How did we do?", body: "Hi {first}, thank you for trusting {shop} with your {vehicle}! If you are happy with the work, a quick Google review helps a lot: {review}" },
   { id: "checkin", label: "Checking in", subject: "Checking in", body: "Hi {first}, just checking in. Still thinking about {service}? Glad to answer any questions." },
 ];
