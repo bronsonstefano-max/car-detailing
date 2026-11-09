@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Call miner: turn a folder of sales-call recordings into a short list of the moments worth teaching the AI coach.
+"""Call miner: turn a folder of sales-call recordings into a deep, comparable record of every call, then learn across all of them.
 
 Runs on your own computer. Only needs python3 and curl (both come with a Mac). Your keys stay on your computer.
 
@@ -7,28 +7,81 @@ Runs on your own computer. Only needs python3 and curl (both come with a Mac). Y
   export ANTHROPIC_API_KEY=...       # analysis (console.anthropic.com)
   python3 call_miner.py run audio --limit 30
 
-Steps (each one can also be run alone, and every step skips work that is already done):
-  transcribe  audio files  -> out/transcripts/*.json and *.txt   (Deepgram)
-  mine        transcripts  -> out/mined/*.json                   (Claude: finds the questions, pushback, and how the rep answered)
-  report      mined        -> out/moments.csv and out/moments.json
+Optional but strongly recommended: put your call scripts in a folder called "scripts" next to this file
+(bundle.json, or tint.json and coating.json). The analysis then compares every call to your script step by step.
+
+Steps (each can also be run alone; every step skips work that is already done):
+  transcribe  audio files   -> out/transcripts/*.txt            (Deepgram)
+  mine        transcripts   -> out/mined/*.json                 (Claude: one deep record per call)
+  report      mined calls   -> out/calls.csv, agents.csv, deviations.csv, pivotal.csv, moments.csv, knowledge.csv
+  learn       all of it     -> out/lessons.md                    (Claude: what wins, what loses, what to teach the coach)
+
+What one call record contains (out/mined/<call>.json):
+  meta         agent name, client name, service, vehicle, call type, language
+  outcome      result (booked, deposit, callback, lost...), evidence, price quoted, next step
+  timeline     phase by phase: what happened and when
+  script       which script steps were covered or skipped, and every place the rep went off script
+               (better, worse, or neutral, with the rep's actual words and whether to keep it)
+  lead         goals, pain points, vehicle condition, budget signals, decision maker, timing
+  moments      each question or pushback from the lead, how the rep answered, a better answer
+  pivotal      the turning points that helped or hurt the call
+  knowledge    facts about tint, coating, correction and PPF said on the call, checked against the script
+  scores       rapport, discovery, ACA framework, pitch, objections, close, control, overall (1-5)
+  coaching     strengths, fixes, and one lesson the coach should learn
 """
-import argparse, csv, glob, json, os, re, subprocess, sys, time
+import argparse, collections, csv, glob, json, os, re, subprocess, sys, time
 
 AUDIO_EXT = (".wav", ".wave", ".mp3", ".m4a", ".mp4", ".ogg", ".opus", ".flac", ".aac", ".webm")
 DG_BASE = os.environ.get("DEEPGRAM_BASE", "https://api.deepgram.com")
 AN_BASE = os.environ.get("ANTHROPIC_BASE", "https://api.anthropic.com")
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
-TOPICS = "what_is_it, price, scratches_swirls, how_long, warranty, brand_or_film, legal_tint, location, booking_time, deposit_or_payment, wax_comparison, need_to_think, spouse, send_me_info, shopping_around, too_expensive, other"
+TOPICS = "what_is_it, price, scratches_swirls, paint_condition_or_repaint, how_long, warranty, brand_or_film, legal_tint, heat_uv_privacy, location, booking_time, deposit_or_payment, wax_comparison, need_to_think, spouse, send_me_info, shopping_around, too_expensive, aftercare, other"
 
-MINE_SYSTEM = f"""You review a recorded sales phone call for a car detailing shop that sells window tint and ceramic coating (including paint correction). The transcript labels speakers only as S0/S1 (or C0/C1); work out which one is the sales rep (the one introducing the shop and pitching) and which is the lead.
+SCHEMA = """{
+ "meta": {"agent_name": "first name of the sales rep as said on the call, or null", "agent_confidence": "high|medium|low", "client_name": "the lead's name as said on the call, or null", "service": "tint|coating|correction|ppf|wrap|detail|multiple|other", "vehicle": {"year": null, "make": null, "model": null, "color": null, "condition_notes": null}, "call_type": "outbound_followup|inbound|callback|voicemail|wrong_number|other", "language": "en|es|mixed", "transcript_quality": "good|fair|poor"},
+ "rep_speaker": "S0",
+ "outcome": {"result": "booked|deposit_taken|callback_set|not_interested|no_decision|lost_to_competitor|no_answer_or_voicemail|unclear", "evidence": "what in the call shows this", "price_quoted": null, "deposit_asked": null, "appointment": null, "next_step": null},
+ "summary": "two sentences: who the lead is, what they wanted, how it ended",
+ "timeline": [{"t": "m:ss", "phase": "opener|rapport|discovery|recap|pitch|price|objection|close|deposit|wrap_up|other", "script_step": "step id like s06 or null", "what_happened": "one sentence"}],
+ "script": {"compared_against": "tint|coating|none", "steps_covered": ["s02"], "steps_skipped": ["s09"], "order_notes": "how the call's order differed from the script, and whether that mattered",
+   "deviations": [{"t": "m:ss", "script_step": "s15 or null", "script_said": "what the script says here, short", "rep_said": "what the rep actually said, close to verbatim", "type": "better|worse|neutral|missed_step|extra", "impact": "effect on the lead or the outcome", "keep_this": true}]},
+ "lead": {"goals": [], "pain_points": [], "vehicle_condition": null, "budget_signals": null, "decision_maker": null, "timeline": null, "objections_raised": [], "buying_signals": []},
+ "moments": [{"t": "m:ss", "kind": "question|objection", "topic": "one of the topics", "lead_said": "close to verbatim", "rep_said": "the rep's answer, close to verbatim, up to about 70 words", "quality": 1, "why": "why it worked or did not", "better_answer": "what the rep should have said, using only script facts or clearly general knowledge, or null if the answer was already strong"}],
+ "pivotal": [{"t": "m:ss", "kind": "turning_point|lost_opportunity|strong_close|rapport_win|mistake|recovery", "description": "what happened", "effect": "how it changed the call", "repeat_or_avoid": "what to repeat or avoid next time"}],
+ "knowledge": [{"topic": "short topic", "claim": "a factual statement about the product, process, price or paint/tint science made on the call", "said_by": "rep|lead", "vs_script": "matches|contradicts|not_in_script", "note": "why it matters or what to verify"}],
+ "scores": {"rapport": 1, "discovery": 1, "aca_framework": 1, "pitch": 1, "objection_handling": 1, "close": 1, "control": 1, "overall": 1, "justification": "two or three sentences"},
+ "coaching": {"strengths": [], "fixes": [], "one_lesson": "the single most useful lesson from this call for an AI coach"}
+}"""
 
-Find the moments where the lead asked a question or pushed back, and judge how the rep answered. Return ONLY one JSON object, no markdown:
-{{"service": "tint|coating|other", "outcome": "booked|not_booked|unclear", "outcome_evidence": "short reason (for example: a date was set and a deposit was taken)", "rep_speaker": "S0", "summary": "one sentence",
- "moments": [{{"kind": "question|objection", "topic": "one of: {TOPICS}", "lead_said": "what the lead said, close to verbatim", "rep_said": "the rep's answer, close to verbatim (up to about 60 words)", "quality": 1-5, "why": "one short sentence on why the answer was good or weak"}}]}}
+RUBRIC = """Scoring (1 to 5; use the whole range; a typical average call is a 3):
+- rapport: warmth, listening, using the lead's words, natural conversation
+- discovery: learned the vehicle, the goal or problem, condition, timeline, and who decides, before pitching
+- aca_framework: acknowledged what the lead said, added a real comment, then asked a question that built on the answer
+- pitch: explained the service in terms of the lead's own problem (not generic)
+- objection_handling: empathy, qualifying question, calm rebuttal, held price sensibly
+- close: asked for a day and a deposit, handled the card concern, confirmed details
+- control: kept the call moving toward a booking; answered questions then steered back; did not ramble or let the lead drive off
+- overall: your overall judgement of the call, not an average"""
 
-Rules: use only what is actually in the transcript. Quality 5 = clear, confident, answers the question, then steers back with a question; 1 = vague, wrong, or lost the lead. Skip small talk. Include at most 12 moments. If the call is voicemail, wrong number or too short to matter, return "moments": [] and "outcome": "unclear"."""
+MINE_RULES = """You are the head of sales training for a car detailing shop in Miami that sells window tint, ceramic coating, paint correction, paint protection film and wraps. You will be given the transcript of ONE recorded sales call (speakers are labeled S0/S1, or C0/C1 for the two audio channels; work out who is the sales rep: the one who introduces the shop and pitches) and the shop's call SCRIPTS.
+
+Evaluate the call deeply and return ONLY one JSON object, no markdown, in exactly this shape (every key present; use null or [] when unknown):
+""" + SCHEMA + """
+
+""" + RUBRIC + """
+
+Rules:
+- Use only what is in the transcript. Quote the rep's and lead's words closely. Never invent names, prices or facts. If unsure, say so (lower the confidence, use null).
+- Compare the rep to the script that matches the service sold. Script step ids look like s06; scripts are labeled [tint] or [coating]. A deviation is any place the rep said something materially different from the script, skipped a step, or added something not in the script. Mark type "better" only when it plausibly helped; "worse" when it hurt or risked a false claim; set keep_this true for deviations worth teaching to the coach. If no script is provided, set compared_against "none" and leave steps_covered, steps_skipped and deviations empty.
+- "moments": every question or pushback from the lead (not small talk), at most 15, in order. "better_answer" must rely only on script facts or well-known general knowledge, and must be null when the rep's answer was already strong.
+- "pivotal": 2 to 6 turning points. Say what changed because of it.
+- "knowledge": factual claims about the products, process, pricing, durations, warranty, paint or tint science (for example whether a sun-damaged clear coat needs correction or repainting). Mark vs_script as contradicts or not_in_script when the script does not cover it, so a human can verify it. Do not treat opinions or small talk as knowledge.
+- If the call is a voicemail, wrong number, or too short to evaluate, still return the full shape with empty lists, outcome.result "no_answer_or_voicemail" or "unclear", and scores of 1 with a justification saying it was not a real conversation.
+- Topics for moments: """ + TOPICS + "."
 
 
+# ------------------------------------------------------------------ helpers
 def sh(args, stdin=None):
     p = subprocess.run(args, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return p.returncode, p.stdout, p.stderr
@@ -61,14 +114,21 @@ def mmss(t):
     return "%d:%02d" % (t // 60, t % 60)
 
 
+def secs(label):
+    m = re.match(r"(\d+):(\d+)", str(label or ""))
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else 0
+
+
+# ------------------------------------------------------------------ transcribe
 def transcribe_one(path, lang, key):
-    ch = wav_channels(path) if path.lower().endswith(".wav") else 1
+    ch = wav_channels(path) if path.lower().endswith((".wav", ".wave")) else 1
     q = "model=nova-3&smart_format=true&punctuate=true&utterances=true&language=%s" % lang
     q += "&multichannel=true" if ch == 2 else "&diarize=true"
-    ctype = {"wav": "audio/wav", "mp3": "audio/mpeg", "m4a": "audio/mp4", "mp4": "audio/mp4", "ogg": "audio/ogg", "flac": "audio/flac", "aac": "audio/aac", "webm": "audio/webm"}.get(path.rsplit(".", 1)[-1].lower(), "application/octet-stream")
+    ext = path.rsplit(".", 1)[-1].lower()
+    ctype = {"wav": "audio/wav", "wave": "audio/wav", "mp3": "audio/mpeg", "m4a": "audio/mp4", "mp4": "audio/mp4", "ogg": "audio/ogg", "opus": "audio/ogg", "flac": "audio/flac", "aac": "audio/aac", "webm": "audio/webm"}.get(ext, "application/octet-stream")
 
     def go():
-        code, out, err = sh(["curl", "-sS", "--max-time", "600", "-X", "POST", "%s/v1/listen?%s" % (DG_BASE, q),
+        code, out, err = sh(["curl", "-sS", "--max-time", "900", "-X", "POST", "%s/v1/listen?%s" % (DG_BASE, q),
                              "-H", "Authorization: Token " + key, "-H", "Content-Type: " + ctype, "--data-binary", "@" + path])
         if code != 0:
             raise RuntimeError("curl failed: " + err.decode("utf-8", "ignore")[:200])
@@ -121,12 +181,69 @@ def cmd_transcribe(a):
     print("Transcription: %d new, %d already done, %d failed" % (done, skipped, fail))
 
 
-def claude(model, effort, system, user, key):
-    body = json.dumps({"model": model, "max_tokens": 3000, "output_config": {"effort": effort},
-                       "system": system, "messages": [{"role": "user", "content": user}]})
+# ------------------------------------------------------------------ scripts
+def script_text(sc, label):
+    """Plain-text version of one imported call script (same format the dialer exports)."""
+    def f(t):
+        t = re.sub(r"\{(\w+)\}", lambda m: "(" + m.group(1) + ")", str(t or ""))
+        return re.sub(r"\[\[([^\]]+)\]\]", lambda m: "<" + m.group(1).lower() + ">", t)
+
+    def node(n):
+        if not n:
+            return ""
+        k = n.get("k")
+        if k == "outcomes":
+            return "\n".join("IF " + f(o.get("cond")) + ":\n" + "\n".join(x for x in (node(y) for y in o.get("nodes", [])) if x) for o in n.get("opts", []))
+        if k == "cond":
+            return "IF " + f(n.get("t")) + ":"
+        if k in ("ret", "pill", "router"):
+            return ""
+        tag = {"say": "SAY", "resp": "SAY", "obj": "LEAD SAYS", "probe": "ASK", "coach": "NOTE", "ex": "EXAMPLE"}.get(k, "SAY")
+        ps = "\n".join(("NOTE: " + f(p.get("note"))) if p.get("note") else tag + ": " + f(p.get("t")) for p in n.get("ps", []))
+        li = "\n".join("- %s: %s" % (i.get("h"), f(i.get("t"))) for i in n.get("list", []))
+        return "\n".join(x for x in (ps, li) if x)
+    out = []
+    for st in sc.get("steps", []):
+        out.append("## [%s] STEP %s%s - phase %s" % (label, st.get("id"), " (#%s)" % st.get("n") if st.get("n") else "", st.get("phase", "")))
+        out.append("\n".join(x for x in (node(n) for n in st.get("main", [])) if x))
+        if st.get("side"):
+            out.append("If it comes up here:\n" + "\n".join(x for x in (node(n) for n in st["side"]) if x))
+    for pl in sc.get("plays", []):
+        out.append("## [%s] PLAYBOOK %s - %s" % (label, pl.get("id"), pl.get("title")))
+        out.append("\n".join(x for x in (node(n) for n in pl.get("nodes", [])) if x))
+    return "\n".join(out)
+
+
+def load_scripts(folder):
+    if not folder or not os.path.isdir(folder):
+        return ""
+    found = {}
+    for name in ("bundle.json", "tint.json", "coating.json"):
+        p = os.path.join(folder, name)
+        if os.path.exists(p):
+            try:
+                found[name] = json.load(open(p))
+            except Exception as e:
+                print("Could not read %s: %s" % (p, e))
+    parts = []
+    b = found.get("bundle.json")
+    if b:
+        for k in ("tint", "coating"):
+            if b.get(k):
+                parts.append(script_text(b[k], k))
+    for k in ("tint", "coating"):
+        if found.get(k + ".json") and not (b and b.get(k)):
+            parts.append(script_text(found[k + ".json"], k))
+    return "\n\n".join(parts)
+
+
+# ------------------------------------------------------------------ claude
+def claude(model, effort, system_blocks, user, key, max_tokens=8000):
+    body = json.dumps({"model": model, "max_tokens": max_tokens, "output_config": {"effort": effort}, "system": system_blocks,
+                       "messages": [{"role": "user", "content": user}]})
 
     def go():
-        code, out, err = sh(["curl", "-sS", "--max-time", "120", "-X", "POST", AN_BASE + "/v1/messages",
+        code, out, err = sh(["curl", "-sS", "--max-time", "300", "-X", "POST", AN_BASE + "/v1/messages",
                              "-H", "content-type: application/json", "-H", "x-api-key: " + key, "-H", "anthropic-version: 2023-06-01", "-d", "@-"], stdin=body.encode("utf-8"))
         if code != 0:
             raise RuntimeError("curl failed: " + err.decode("utf-8", "ignore")[:200])
@@ -135,7 +252,8 @@ def claude(model, effort, system, user, key):
             raise RuntimeError(str((j.get("error") or {}).get("message"))[:200])
         return j
     j = retry(go)
-    return "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
+    text = "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
+    return text, j.get("stop_reason")
 
 
 def parse_json(text):
@@ -145,10 +263,34 @@ def parse_json(text):
     return json.loads(text[a:b + 1])
 
 
+def call_stats(transcript, rep):
+    """Numbers we can measure ourselves instead of asking the model: talk share, length, time to the first price mention."""
+    words = {"rep": 0, "lead": 0}
+    last = first_price = 0
+    for line in transcript.split("\n"):
+        m = re.match(r"\[(\d+:\d+)\] ([SC]\d+|S\?|C\?): (.*)", line)
+        if not m:
+            continue
+        t = secs(m.group(1))
+        last = max(last, t)
+        who = "rep" if m.group(2) == rep else "lead"
+        words[who] += len(m.group(3).split())
+        if not first_price and re.search(r"\$|\bprice\b|\bcost\b|how much|\bquote\b|\bbucks\b|hundred", m.group(3), re.I) and t > 20:
+            first_price = t
+    tot = words["rep"] + words["lead"]
+    return {"duration_sec": last, "rep_word_share_pct": round(words["rep"] * 100 / tot) if tot else None, "first_price_mention_sec": first_price or None}
+
+
 def cmd_mine(a):
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         sys.exit("Set ANTHROPIC_API_KEY first:  export ANTHROPIC_API_KEY=your-key")
+    scripts = load_scripts(a.scripts)
+    if scripts:
+        print("Comparing every call against your scripts (%d characters)." % len(scripts))
+    else:
+        print("No scripts found in '%s'. Calls will be evaluated without a script comparison. (Put bundle.json or tint.json and coating.json there to compare.)" % a.scripts)
+    system = [{"type": "text", "text": MINE_RULES + ("\n\nSCRIPTS:\n" + scripts if scripts else "\n\nNo scripts were provided."), "cache_control": {"type": "ephemeral"}}]
     files = sorted(glob.glob(os.path.join(a.out, "transcripts", "*.txt")))
     if a.limit:
         files = files[:a.limit]
@@ -162,16 +304,23 @@ def cmd_mine(a):
             continue
         text = open(f).read()
         if len(text.split()) < 40:
-            json.dump({"service": "other", "outcome": "unclear", "moments": [], "summary": "too short"}, open(mp, "w"))
+            json.dump({"call": base, "meta": {"service": "other", "call_type": "voicemail"}, "outcome": {"result": "no_answer_or_voicemail"}, "scores": {"overall": 1}, "moments": [], "summary": "too short to evaluate"}, open(mp, "w"))
             skipped += 1
             continue
         try:
-            reply = claude(a.model, a.effort, MINE_SYSTEM, "Transcript:\n" + text[:60000] + "\n\nReturn the JSON.", key)
+            user = "Transcript of one call:\n" + text[:90000] + "\n\nReturn the JSON."
+            reply, stop = claude(a.model, a.effort, system, user, key)
+            if stop == "max_tokens":
+                reply, stop = claude(a.model, a.effort, system, user + "\nBe more concise in every text field.", key, max_tokens=16000)
             data = parse_json(reply)
             data["call"] = base
+            data["stats"] = call_stats(text, data.get("rep_speaker"))
             json.dump(data, open(mp, "w"), ensure_ascii=False, indent=1)
             done += 1
-            print("[%d/%d] mined %s: %s, %s, %d moments" % (i, len(files), base[:30], data.get("service"), data.get("outcome"), len(data.get("moments") or [])))
+            m = data.get("meta") or {}
+            print("[%d/%d] %s: agent %s, client %s, %s, %s, overall %s, %d moments, %d deviations" % (
+                i, len(files), base[:24], m.get("agent_name"), m.get("client_name"), m.get("service"), (data.get("outcome") or {}).get("result"),
+                (data.get("scores") or {}).get("overall"), len(data.get("moments") or []), len((data.get("script") or {}).get("deviations") or [])))
         except Exception as e:
             fail += 1
             print("[%d/%d] FAILED %s: %s" % (i, len(files), base[:30], e))
@@ -180,50 +329,165 @@ def cmd_mine(a):
     print("Analysis: %d new, %d already done, %d failed" % (done, skipped, fail))
 
 
-def cmd_report(a):
-    rows = []
-    calls = {"booked": 0, "not_booked": 0, "unclear": 0}
-    for f in sorted(glob.glob(os.path.join(a.out, "mined", "*.json"))):
-        d = json.load(open(f))
-        calls[d.get("outcome") if d.get("outcome") in calls else "unclear"] += 1
-        for m in d.get("moments") or []:
-            rows.append({"call": d.get("call") or os.path.basename(f)[:-5], "service": d.get("service"), "outcome": d.get("outcome"), "kind": m.get("kind"), "topic": m.get("topic"),
-                         "quality": m.get("quality"), "lead_said": m.get("lead_said"), "rep_said": m.get("rep_said"), "why": m.get("why")})
-    rows.sort(key=lambda r: (str(r["topic"]), -(r["quality"] or 0)))
-    with open(os.path.join(a.out, "moments.json"), "w") as fh:
-        json.dump(rows, fh, ensure_ascii=False, indent=1)
-    with open(os.path.join(a.out, "moments.csv"), "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=["call", "service", "outcome", "kind", "topic", "quality", "lead_said", "rep_said", "why"])
+# ------------------------------------------------------------------ report
+def load_mined(out):
+    calls = []
+    for f in sorted(glob.glob(os.path.join(out, "mined", "*.json"))):
+        try:
+            calls.append(json.load(open(f)))
+        except Exception:
+            pass
+    return calls
+
+
+def g(d, *path, **kw):
+    for p in path:
+        if not isinstance(d, dict):
+            return kw.get("default")
+        d = d.get(p)
+    return d if d is not None else kw.get("default")
+
+
+def write_csv(path, rows, fields):
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
-    print("\nCalls: %d booked, %d not booked, %d unclear" % (calls["booked"], calls["not_booked"], calls["unclear"]))
-    by = {}
-    for r in rows:
-        by.setdefault(r["topic"], []).append(r)
-    print("Moments found: %d" % len(rows))
-    for t, rs in sorted(by.items(), key=lambda kv: -len(kv[1])):
-        good = len([r for r in rs if (r["quality"] or 0) >= 4])
-        print("  %-22s %3d moments, %d rated 4-5" % (t, len(rs), good))
-    print("\nFiles written: %s and %s" % (os.path.join(a.out, "moments.csv"), os.path.join(a.out, "moments.json")))
 
 
+def won(c):
+    return g(c, "outcome", "result") in ("booked", "deposit_taken")
+
+
+def agent_key(c):
+    n = str(g(c, "meta", "agent_name", default="") or "").strip().split(" ")[0].lower()
+    return n.capitalize() if n and n not in ("none", "null", "unknown") else "Unknown"
+
+
+def cmd_report(a):
+    calls = load_mined(a.out)
+    if not calls:
+        sys.exit("Nothing to report yet. Run the mine step first.")
+    rows, dev, piv, mom, kn = [], [], [], [], []
+    for c in calls:
+        sc = c.get("scores") or {}
+        rows.append({"call": c.get("call"), "agent": agent_key(c), "client": g(c, "meta", "client_name"), "service": g(c, "meta", "service"),
+                     "vehicle": " ".join(str(g(c, "meta", "vehicle", k) or "") for k in ("year", "make", "model")).strip(), "call_type": g(c, "meta", "call_type"),
+                     "result": g(c, "outcome", "result"), "price_quoted": g(c, "outcome", "price_quoted"), "evidence": g(c, "outcome", "evidence"),
+                     "overall": sc.get("overall"), "rapport": sc.get("rapport"), "discovery": sc.get("discovery"), "aca": sc.get("aca_framework"), "pitch": sc.get("pitch"),
+                     "objections": sc.get("objection_handling"), "close": sc.get("close"), "control": sc.get("control"),
+                     "minutes": round((g(c, "stats", "duration_sec", default=0) or 0) / 60, 1), "rep_talk_pct": g(c, "stats", "rep_word_share_pct"), "first_price_sec": g(c, "stats", "first_price_mention_sec"),
+                     "steps_skipped": ", ".join(g(c, "script", "steps_skipped", default=[]) or []), "deviations": len(g(c, "script", "deviations", default=[]) or []),
+                     "summary": c.get("summary"), "lesson": g(c, "coaching", "one_lesson")})
+        base = {"call": c.get("call"), "agent": agent_key(c), "service": g(c, "meta", "service"), "result": g(c, "outcome", "result")}
+        for d in g(c, "script", "deviations", default=[]) or []:
+            dev.append(dict(base, **{k: d.get(k) for k in ("t", "script_step", "type", "script_said", "rep_said", "impact", "keep_this")}))
+        for p in c.get("pivotal") or []:
+            piv.append(dict(base, **{k: p.get(k) for k in ("t", "kind", "description", "effect", "repeat_or_avoid")}))
+        for m in c.get("moments") or []:
+            mom.append(dict(base, **{k: m.get(k) for k in ("t", "kind", "topic", "quality", "lead_said", "rep_said", "why", "better_answer")}))
+        for k in c.get("knowledge") or []:
+            kn.append(dict(base, **{x: k.get(x) for x in ("topic", "claim", "said_by", "vs_script", "note")}))
+    mom.sort(key=lambda r: (str(r.get("topic")), -(r.get("quality") or 0)))
+    write_csv(os.path.join(a.out, "calls.csv"), rows, ["call", "agent", "client", "service", "vehicle", "call_type", "result", "price_quoted", "evidence", "overall", "rapport", "discovery", "aca", "pitch", "objections", "close", "control", "minutes", "rep_talk_pct", "first_price_sec", "steps_skipped", "deviations", "summary", "lesson"])
+    write_csv(os.path.join(a.out, "deviations.csv"), dev, ["call", "agent", "service", "result", "t", "script_step", "type", "script_said", "rep_said", "impact", "keep_this"])
+    write_csv(os.path.join(a.out, "pivotal.csv"), piv, ["call", "agent", "service", "result", "t", "kind", "description", "effect", "repeat_or_avoid"])
+    write_csv(os.path.join(a.out, "moments.csv"), mom, ["call", "agent", "service", "result", "t", "kind", "topic", "quality", "lead_said", "rep_said", "why", "better_answer"])
+    write_csv(os.path.join(a.out, "knowledge.csv"), kn, ["call", "agent", "service", "topic", "claim", "said_by", "vs_script", "note"])
+    json.dump(mom, open(os.path.join(a.out, "moments.json"), "w"), ensure_ascii=False, indent=1)
+    # per-agent table
+    ag = collections.defaultdict(list)
+    for c in calls:
+        if g(c, "meta", "call_type") in ("voicemail", "wrong_number") or g(c, "outcome", "result") == "no_answer_or_voicemail":
+            continue
+        ag[agent_key(c)].append(c)
+    arows = []
+    for name, cs in sorted(ag.items(), key=lambda kv: -len(kv[1])):
+        def avg(k):
+            v = [g(c, "scores", k) for c in cs if isinstance(g(c, "scores", k), (int, float))]
+            return round(sum(v) / len(v), 2) if v else None
+        arows.append({"agent": name, "calls": len(cs), "booked_pct": round(100 * len([c for c in cs if won(c)]) / len(cs)), "overall": avg("overall"), "discovery": avg("discovery"), "aca": avg("aca_framework"), "pitch": avg("pitch"),
+                      "objections": avg("objection_handling"), "close": avg("close"), "control": avg("control")})
+    write_csv(os.path.join(a.out, "agents.csv"), arows, ["agent", "calls", "booked_pct", "overall", "discovery", "aca", "pitch", "objections", "close", "control"])
+    real = [c for c in calls if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number")]
+    print("\nCalls analyzed: %d (%d real conversations). Booked or deposit: %d" % (len(calls), len(real), len([c for c in real if won(c)])))
+    for r in arows:
+        print("  %-12s %3d calls, %3d%% booked, overall %s" % (r["agent"], r["calls"], r["booked_pct"], r["overall"]))
+    tc = collections.Counter(m.get("topic") for m in mom)
+    print("Questions and pushback by topic: " + ", ".join("%s %d" % (t, n) for t, n in tc.most_common(8)))
+    print("Off-script moments: %d (%d marked worth keeping). Pivotal moments: %d. Product claims to verify: %d" % (len(dev), len([d for d in dev if d.get("keep_this")]), len(piv), len([k for k in kn if k.get("vs_script") != "matches"])))
+    print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv" % a.out)
+
+
+# ------------------------------------------------------------------ learn
+LEARN_SYSTEM = """You are the head of sales training for a car detailing shop (window tint, ceramic coating, paint correction, PPF). You are given compact digests of many analyzed sales calls (agent, service, outcome, scores, pivotal moments, off-script moments, lessons, product claims). Find patterns that repeat across calls; ignore one-offs unless they are striking. Be specific, quote the rep's words where the digest has them, and say how many calls support each point (for example "7 of 12 booked calls"). Never invent facts that are not in the digests."""
+
+LEARN_ASK = """Write a markdown report with these sections:
+1. What winning calls have in common (booked or deposit) versus losing calls
+2. Best answers by topic (what is it, price, scratches, how long, warranty, objections...), quoting the strongest wording and noting which agent said it
+3. Where reps beat the script and should keep it, and where going off script hurt
+4. Pivotal moments that repeat: what turns calls, and what loses them
+5. Questions leads ask that the script does not answer well (script gaps)
+6. Product and process claims reps made that the script does not cover, grouped by topic, with a note on which look consistent across calls and which conflict (a human must verify these before the coach uses them)
+7. Coaching notes per agent (strengths, fixes)
+8. Ten specific rules the AI coach should follow, each tied to evidence"""
+
+
+def digest(c):
+    d = {"call": str(c.get("call", ""))[:8], "agent": agent_key(c), "service": g(c, "meta", "service"), "result": g(c, "outcome", "result"), "evidence": g(c, "outcome", "evidence"),
+         "price": g(c, "outcome", "price_quoted"), "overall": g(c, "scores", "overall"), "scores": {k: g(c, "scores", k) for k in ("discovery", "aca_framework", "pitch", "objection_handling", "close", "control")},
+         "talk_pct": g(c, "stats", "rep_word_share_pct"), "first_price_sec": g(c, "stats", "first_price_mention_sec"), "summary": c.get("summary"),
+         "pivotal": [{"kind": p.get("kind"), "what": p.get("description"), "effect": p.get("effect")} for p in (c.get("pivotal") or [])[:4]],
+         "deviations": [{"type": x.get("type"), "rep_said": x.get("rep_said"), "impact": x.get("impact"), "keep": x.get("keep_this")} for x in (g(c, "script", "deviations", default=[]) or [])[:5]],
+         "best_moments": [{"topic": m.get("topic"), "lead": m.get("lead_said"), "rep": m.get("rep_said"), "q": m.get("quality")} for m in sorted(c.get("moments") or [], key=lambda m: -(m.get("quality") or 0))[:3]],
+         "claims": [{"topic": k.get("topic"), "claim": k.get("claim"), "vs_script": k.get("vs_script")} for k in (c.get("knowledge") or []) if k.get("vs_script") != "matches"][:4],
+         "lesson": g(c, "coaching", "one_lesson")}
+    return d
+
+
+def cmd_learn(a):
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        sys.exit("Set ANTHROPIC_API_KEY first.")
+    calls = [c for c in load_mined(a.out) if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number")]
+    if len(calls) < 3:
+        print("Need at least 3 real conversations to learn patterns. Skipping the learning step.")
+        return
+    system = [{"type": "text", "text": LEARN_SYSTEM}]
+    chunks = [calls[i:i + 40] for i in range(0, len(calls), 40)]
+    parts = []
+    for n, ch in enumerate(chunks, 1):
+        print("Learning from calls %d-%d of %d..." % ((n - 1) * 40 + 1, (n - 1) * 40 + len(ch), len(calls)))
+        text, _ = claude(a.model, a.effort, system, "Digests of %d calls (JSON):\n%s\n\n%s" % (len(ch), json.dumps([digest(c) for c in ch], ensure_ascii=False), LEARN_ASK), key, max_tokens=8000)
+        parts.append(text)
+    if len(parts) > 1:
+        print("Merging the batches...")
+        text, _ = claude(a.model, a.effort, system, "Below are %d reports, each written from a different batch of calls. Merge them into ONE report with the same 8 sections. Keep counts honest by adding them up across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(parts), "\n\n=====\n\n".join(parts)), key, max_tokens=12000)
+    else:
+        text = parts[0]
+    with open(os.path.join(a.out, "lessons.md"), "w") as fh:
+        fh.write("# What we learned from %d calls\n\n%s\n" % (len(calls), text))
+    print("Wrote %s" % os.path.join(a.out, "lessons.md"))
+
+
+# ------------------------------------------------------------------ main
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("transcribe", "run"):
+    for name in ("transcribe", "run", "mine", "report", "learn"):
         s = sub.add_parser(name)
-        s.add_argument("audio", help="folder with the recordings")
+        if name in ("transcribe", "run"):
+            s.add_argument("audio", help="folder with the recordings")
+            s.add_argument("--lang", default="en", help="en, es, or multi")
         s.add_argument("--out", default="out")
         s.add_argument("--limit", type=int, default=0, help="only the first N files (use 30 for a pilot)")
-        s.add_argument("--lang", default="en", help="en, es, or multi")
-        s.add_argument("--model", default="claude-haiku-5-5")
-        s.add_argument("--effort", default="low")
-    for name in ("mine", "report"):
-        s = sub.add_parser(name)
-        s.add_argument("--out", default="out")
-        s.add_argument("--limit", type=int, default=0)
-        s.add_argument("--model", default="claude-haiku-5-5")
-        s.add_argument("--effort", default="low")
+        if name in ("run", "mine", "learn"):
+            s.add_argument("--model", default=DEFAULT_MODEL, help="default %s; use claude-haiku-5-5 for a cheaper, shallower pass" % DEFAULT_MODEL)
+            s.add_argument("--effort", default="medium", help="low, medium or high")
+        if name in ("run", "mine"):
+            s.add_argument("--scripts", default="scripts", help="folder with bundle.json (or tint.json and coating.json)")
+        if name == "run":
+            s.add_argument("--no-learn", action="store_true", help="skip the cross-call learning step")
     a = p.parse_args()
     if a.cmd == "transcribe":
         cmd_transcribe(a)
@@ -231,11 +495,14 @@ def main():
         cmd_mine(a)
     elif a.cmd == "report":
         cmd_report(a)
+    elif a.cmd == "learn":
+        cmd_learn(a)
     else:
         cmd_transcribe(a)
-        a.limit = a.limit
         cmd_mine(a)
         cmd_report(a)
+        if not a.no_learn:
+            cmd_learn(a)
 
 
 if __name__ == "__main__":
