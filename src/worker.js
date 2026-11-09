@@ -1845,7 +1845,7 @@ go.addEventListener('click',note);setTimeout(()=>{note();location.href=go.getAtt
 // ---- Twilio texting: send and receive texts inside the CRM (Messages tab), plus automatic follow-up texts ----
 const twilioOn = env => !!(env.TWILIO_SID && env.TWILIO_TOKEN && (env.TWILIO_FROM || env.TWILIO_MESSAGING_SERVICE));
 const last10 = p => String(p || "").replace(/\D/g, "").slice(-10);
-const OPT_OUT_WORDS = /^\s*(stop|stopall|unsubscribe|cancel|end|quit)\s*[.!]*\s*$/i, OPT_IN_WORDS = /^\s*(start|unstop|yes)\s*[.!]*\s*$/i;
+const OPT_OUT_WORDS = /^\s*(stop|stopall|unsubscribe|cancel|end|quit)\s*[.!]*\s*$/i, OPT_IN_WORDS = /^\s*(start|unstop)\s*[.!]*\s*$/i;
 async function isOptedOut(env, phone) {
   const d = last10(phone);
   return !!d && !!(await env.DB.prepare("SELECT 1 FROM sms_optout WHERE phone = ?").bind(d).first());
