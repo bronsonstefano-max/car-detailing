@@ -19,6 +19,7 @@
 //   META_SMS_CONSENT / META_SMS_MARKETING (var, "1") the Facebook lead form's consent covers texts / promotional texts: new Meta leads are marked as agreed (marketing also marks texts)
 //   TEXT_HOURS        (var, optional "8-21")   hours (Eastern) when texts may go out
 //   TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, TWILIO_TWIML_APP_SID (secrets)  in-browser dialing on the Dial page (Twilio Voice SDK); the TwiML App's Voice URL is https://divinedetailers.com/api/twilio/voice. TWILIO_VOICE_FROM (optional) is the caller ID for calls (defaults to TWILIO_FROM)
+//   DEEPGRAM_API_KEY  (secret)                 live transcript of dialer calls (Twilio Media Streams -> a Durable Object -> Deepgram). DEEPGRAM_LANGUAGE (optional, default "multi") sets the language
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -139,6 +140,7 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS dial_calls_lead ON dial_calls (lead_id, started_at)"),
     db.prepare("CREATE TABLE IF NOT EXISTS dial_audio (kind TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL, token TEXT NOT NULL, updated_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS dial_settings (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')"),
+    db.prepare("CREATE TABLE IF NOT EXISTS call_transcripts (call_sid TEXT PRIMARY KEY, lead_id INTEGER, turns TEXT, signals TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), ended_at TEXT)"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
   if (flagAuto.meta && flagAuto.meta.changes) await seedAutomations(db);
@@ -2462,13 +2464,13 @@ Hi {first}, this is Bronson with Divine Detailers in Miami. You asked about cera
 - When do they want it done, and can they drop the car off for the day?
 
 # PRICE
-Ceramic tint starts at {price} for {vehicle}. It blocks the heat, protects the interior and has a lifetime warranty. (Confirm the final price for their car.)
+Ceramic tint starts at {price} for {vehicle}. It cuts the heat and glare and protects the interior. (Confirm the final price and what the warranty covers for their car.)
 
 # CLOSE
 I have openings this week. What day works best for you? We are at {address}. I can lock you in right now.
 
 # IF THEY HESITATE
-- "Too expensive": compare to cheap film that bubbles and turns purple. Ours does not.
+- "Too expensive": cheaper film can bubble or fade and need redoing. Ask what they are comparing it to.
 - "Need to think": totally fine. Which day would you pencil in so you do not lose the spot?
 - "Shopping around": ask what quote they have and what film it is.`,
   coating: `# OPENER
@@ -2481,15 +2483,15 @@ Hi {first}, this is Bronson with Divine Detailers in Miami. You asked about a ce
 - When do they want it done?
 
 # PRICE
-Our ceramic coating package starts at {price} for {vehicle}. It adds a deep gloss, protects the paint from sun and salt, and makes washing easy. (Confirm the final price after seeing the car.)
+Our ceramic coating package starts at {price} for {vehicle}. It adds gloss, protects the paint, and makes washing easier. (Confirm the final price after seeing the car.)
 
 # CLOSE
 The car needs to be here for the day. What day works best? We are at {address}. I can get you on the schedule now.
 
 # IF THEY HESITATE
-- "Too expensive": a coating protects the paint for years and saves you on waxing and detailing.
+- "Too expensive": a coating protects the paint and cuts down on waxing and detailing. Ask what they are comparing it to.
 - "Need to think": no problem. Which day should I hold for you?
-- "Is it worth it": absolutely, especially in Miami sun and salt air.`,
+- "Is it worth it": ask what bothers them most about the paint, then match the answer to that.`,
   missed: "Hi {first}, this is Bronson with Divine Detailers. I just tried to call you about your {service} for {vehicle} and missed you. What's a good time to talk? Reply STOP to opt out.",
 };
 async function dialSetting(env, k) {
@@ -2521,7 +2523,9 @@ async function handleVoice(request, env) {
   const from = e164(env.TWILIO_VOICE_FROM || env.TWILIO_FROM);
   if (!from) return xmlRes("<Say>No caller ID number is set up.</Say><Hangup/>");
   const base = env.PUBLIC_URL || "https://divinedetailers.com";
-  return xmlRes(`<Dial callerId="${from}" answerOnBridge="true" timeout="40" record="record-from-answer-dual" recordingStatusCallback="${base}/api/twilio/voice/recording?lead=${lead.id}" recordingStatusCallbackEvent="completed"><Number>${e164(lead.phone)}</Number></Dial>`);
+  const sid = /^CA[0-9a-f]{32}$/.test(String(params.CallSid || "")) ? params.CallSid : "";
+  const stream = sid && coachEnabled(env) ? `<Start><Stream url="${base.replace(/^http/, "ws")}/api/twilio/stream/${sid}/${await coachSig(env, sid)}" track="both_tracks"><Parameter name="lead" value="${lead.id}"/></Stream></Start>` : "";
+  return xmlRes(`${stream}<Dial callerId="${from}" answerOnBridge="true" timeout="40" record="record-from-answer-dual" recordingStatusCallback="${base}/api/twilio/voice/recording?lead=${lead.id}" recordingStatusCallbackEvent="completed"><Number>${e164(lead.phone)}</Number></Dial>`);
 }
 async function handleVoiceRecording(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
@@ -2643,7 +2647,9 @@ main{max-width:1100px;margin:0 auto;padding:16px 22px 40px;display:grid;grid-tem
 textarea,input[type=text]{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;color-scheme:dark}textarea{resize:vertical;min-height:84px}
 .script{font-size:15px;line-height:1.5}.script h4{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:#32cd32}.script p{margin:0 0 6px}.script ul{margin:0 0 6px;padding-left:20px}.script li{margin:2px 0}
 .tabs{display:flex;gap:6px}.tabs button{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:6px 14px;font:inherit;font-weight:700;cursor:pointer}.tabs button.on{background:#32cd32;border-color:#32cd32;color:#04120a}
-.q .it{display:block;width:100%;text-align:left;background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:10px 12px;color:inherit;font:inherit;cursor:pointer;margin-bottom:8px}.q .it.cur{border-color:#32cd32}.q .it.fresh{border-color:#32cd32;background:#0b1a10}.chip.new{background:#32cd32;color:#04120a;font-weight:800}
+.q .it{display:block;width:100%;text-align:left;background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:10px 12px;color:inherit;font:inherit;cursor:pointer;margin-bottom:8px}.tr{max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;font-size:14px;background:#0b0e12;border:1px solid #1b1f25;border-radius:10px;padding:8px 10px}.ln.w-rep b{color:#7fb7ff}.ln.w-lead b{color:#32cd32}.ln.partial{opacity:.65;font-style:italic}
+.card2{background:#0b1a10;border:1px solid #1f5a2a;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}.aca{display:flex;flex-direction:column;gap:6px}.aca div{display:flex;gap:10px;align-items:baseline}.aca span{font-weight:800;color:#32cd32;min-width:96px;font-size:11px;letter-spacing:.6px}.aca p{margin:0;font-size:14.5px}.aca p.ask{font-size:18px;font-weight:700}
+.q .it.cur{border-color:#32cd32}.q .it.fresh{border-color:#32cd32;background:#0b1a10}.chip.new{background:#32cd32;color:#04120a;font-weight:800}
 .newb{background:#10301a;border:1px solid #1f5a2a;color:#cdf5cd;border-radius:12px;padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.q .it b{display:block;overflow-wrap:anywhere}.q .it small{color:#8a9099}
 .note{color:#7c838d;font-size:13px}.err{color:#ff8a8a;font-size:14px;min-height:18px}.okm{color:#9fe29f}
 dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(560px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog::backdrop{background:rgba(0,0,0,.7)}
@@ -2662,6 +2668,7 @@ ${bnav("dialer", tc, true)}
 <div id="lead" class="lead"></div>
 <div id="ctl" class="ctl"></div>
 <div id="kp" class="kp" hidden></div>
+<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span></div><div id="cards" style="display:flex;flex-direction:column;gap:8px"></div><div id="trn" class="tr"></div></div>
 <div id="after" class="panel" hidden>
 <h3>How did it go?</h3>
 <div class="outs" id="outs"></div>
@@ -2727,7 +2734,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
@@ -2771,6 +2778,45 @@ el('vdlg').addEventListener('click',async e=>{const r=e.target.closest('[data-re
     rcr.onstop=async()=>{clearTimeout(rto);st.getTracks().forEach(t=>t.stop());const b=new Blob(chunks,{type:rcr.mimeType||'audio/webm'});rcr=null;vmDraw([k,'Saving...']);try{await saveAudio(k,await toWav(b));vmDraw([k,'Saved.'])}catch(er){vmDraw([k,'Could not save: '+((er&&er.message)||er)])}};
     rcr.start();rto=setTimeout(()=>{if(rcr)rcr.stop()},40000);vmDraw([k,'Recording... tap Stop and save when done.'])}catch(_){vmDraw([k,'Allow the microphone to record.'])}});
 el('vdlg').addEventListener('change',async e=>{const u=e.target.closest('[data-up]');if(!u||!u.files[0])return;const k=u.dataset.up;vmDraw([k,'Converting...']);try{await saveAudio(k,await toWav(u.files[0]));vmDraw([k,'Saved.'])}catch(er){vmDraw([k,'Could not use that file: '+((er&&er.message)||er)])}});
+
+// ---- live coach: transcript and instant objection cards (ACA format)
+const OBJ=[
+ {id:'price',label:'Price pushback',en:/(too (much|expensive|high)|expensive|that'?s a lot|a lot of money|over (my )?budget|out of (my )?budget|cheaper|can'?t afford)/i,es:/(muy caro|es caro|cuesta mucho|demasiado|más barato|mas barato|presupuesto|no puedo pagar)/i,
+  enc:['Totally get it, it is an investment.','Most people end up comparing it to the cheaper option that has to be redone, so it is worth looking at what you are getting.','What number did you have in mind, or what are you comparing it to?'],
+  esc:['Lo entiendo, es una inversión.','Mucha gente compara con la opción barata que luego hay que repetir, por eso conviene ver qué incluye.','¿Qué precio tenía en mente, o con qué lo está comparando?']},
+ {id:'think',label:'Needs to think',en:/(think about it|let me think|get back to you|talk (it over )?(to|with) (my )?(wife|husband|partner|girlfriend|boyfriend|dad|mom)|sleep on it|not sure yet|i'?ll let you know)/i,es:/(lo voy a pensar|d[eé]jame pensar|te aviso|hablar con mi (esposa|esposo|pareja)|m[aá]s adelante|no estoy seguro)/i,
+  enc:['That makes sense, it is a decision worth thinking through.','A lot of people just want to see how it fits their schedule before they commit.','What would you want to be sure about before deciding?'],
+  esc:['Tiene sentido, es una decisión para pensarla bien.','Mucha gente solo quiere ver cómo encaja con su agenda antes de decidir.','¿Qué le gustaría tener claro antes de decidir?']},
+ {id:'compare',label:'Comparing quotes',en:/(other (quotes?|shops?|places?)|shopping around|getting (a few |some )?quotes|another (shop|place|company)|someone else|found (it )?cheaper|a guy (who|that))/i,es:/(otras? cotizaci|otro (taller|lugar|sitio)|comparando|buscando m[aá]s|alguien m[aá]s)/i,
+  enc:['Smart to compare.','Quotes can look alike and still be different products and different coverage.','What are they offering, and what product is it?'],
+  esc:['Es buena idea comparar.','Las cotizaciones pueden parecerse y aun así ser productos y coberturas distintas.','¿Qué le ofrecen, y qué producto es?']},
+ {id:'worth',label:'Is it worth it?',en:/(is it worth|worth it|do i (really )?need|does it (really )?work|is it necessary|why would i)/i,es:/(vale la pena|realmente funciona|lo necesito de verdad|es necesario)/i,
+  enc:['Fair question.','It depends on how you use the car and what bugs you most, whether that is heat, glare, or how it looks.','What made you start looking into this?'],
+  esc:['Buena pregunta.','Depende de cómo use el carro y qué le molesta más: el calor, el brillo o la apariencia.','¿Qué le hizo empezar a buscar esto?']},
+ {id:'timing',label:'Timing',en:/(not right now|next month|later on|in a few (weeks|months)|after (the )?(holidays?|summer|new year)|not yet|maybe later)/i,es:/(ahora no|el pr[oó]ximo mes|m[aá]s tarde|despu[eé]s de|todav[ií]a no)/i,
+  enc:['No problem, timing matters.','A lot of people book ahead so they have a date locked in.','When were you thinking, so I can see what is open?'],
+  esc:['Sin problema, el momento importa.','Mucha gente reserva con tiempo para asegurar una fecha.','¿Para cuándo pensaba, para ver qué hay disponible?']},
+ {id:'trust',label:'Warranty / trust',en:/(warranty|guarantee|how long (have you|has the shop)|reviews|are you (licensed|insured)|references)/i,es:/(garant[ií]a|cu[aá]nto tiempo llevan|rese[nñ]as|referencias|est[aá]n asegurados)/i,
+  enc:['Good thing to ask.','I will walk you through exactly what is covered for this service.','Which service are we talking about for your car?'],
+  esc:['Buena pregunta.','Le explico exactamente qué cubre este servicio.','¿De qué servicio hablamos para su carro?']},
+];
+let cws=null,coachOn=false,lastCard={};
+async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled}catch(_){}}
+function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';lastCard={};el('cst').textContent='Connecting...';
+  try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){el('cst').textContent='Transcript unavailable';return}
+  cws.onopen=()=>{el('cst').textContent='Listening'};cws.onclose=()=>{if(el('cst').textContent==='Listening')el('cst').textContent='Transcript stopped'};
+  cws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}coachMsg(m)}}
+function coachStop(){if(cws){try{cws.close()}catch(_){}cws=null}}
+function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
+  if(m.type==='live'){el('cst').textContent='Listening';return}
+  if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead')objCheck(m.text);return}
+  if(m.type==='error'){el('cst').textContent=m.message;return}
+  if(m.type==='ended'){el('cst').textContent='Call ended'}}
+function addLine(who,text,final){const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
+function showCard(o,es){const c=es?o.esc:o.enc,d=document.createElement('div');d.className='card2';
+  d.innerHTML='<div class="bar"><span class="pill warn">'+$(o.label)+'</span></div><div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(c[0])+'</p></div><div><span>COMMENT</span><p>'+$(c[1])+'</p></div><div><span>ASK</span><p class="ask">'+$(c[2])+'</p></div></div>';
+  const box=el('cards');box.insertBefore(d,box.firstChild);while(box.children.length>2)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},60000)}
 let known=new Set(),defTitle=document.title;
 function beep(){try{const C=window.AudioContext||window.webkitAudioContext,c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(_){}}
 async function poll(){let q;try{q=await (await fetch('/admin/dialer/queue')).json()}catch(_){return}if(!q||!q.leads)return;
@@ -2787,12 +2833,101 @@ function bannerDraw(){const b=el('newb');if(!nb){b.hidden=true;return}const busy
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)document.title=defTitle});
 async function init(){
   try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
-  await loadAudio();
+  await loadAudio();await coachStatus();
   try{const q=await (await fetch('/admin/dialer/queue')).json();Q=q.leads||[]}catch(_){}
   ix=0;Q.forEach(l=>known.add(l.id));drawLead();drawQ();drawScript();setInterval(poll,10000);el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
   await initDev()}
 init();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Live call coach, phase 1: Twilio sends both sides of a dialer call here (one Durable Object per call), each side is transcribed live by Deepgram,
+// and the words are pushed to the Dial page over a WebSocket. The audio never goes through the browser. Needs DEEPGRAM_API_KEY.
+const coachEnabled = env => !!(env.COACH && env.DEEPGRAM_API_KEY);
+async function coachSig(env, sid) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(env.TWILIO_TOKEN || "")), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("stream:" + sid)))].map(x => x.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+const DG_KEYTERMS = ["ceramic coating", "ceramic tint", "paint correction", "paint protection film", "PPF", "Divine Detailers", "window tint", "clear coat", "XPEL", "Llumar", "3M", "Tesla", "Mercedes", "BMW", "Porsche"];
+const ulaw = b => { b = ~b & 0xff; const s = (((b & 0x0f) << 3) + 0x84) << ((b >> 4) & 7); return (b & 0x80) ? -(s - 0x84) : s - 0x84; };
+export class CallRoom {
+  constructor(state, env) {
+    this.env = env; this.browsers = new Set(); this.turns = []; this.dg = {}; this.pending = { inbound: [], outbound: [] };
+    this.sid = ""; this.leadId = null; this.t0 = Date.now(); this.ended = false;
+    this.sig = { talk: { rep: 0, lead: 0 }, words: { rep: 0, lead: 0 }, leadQuestions: 0, firstPriceSecs: null, turns: 0 };
+    this.acc = { inbound: { sum: 0, n: 0 }, outbound: { sum: 0, n: 0 } }; this.energy = { rep: [], lead: [] };
+  }
+  async fetch(request) {
+    if (request.headers.get("upgrade") !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
+    const path = new URL(request.url).pathname;
+    const pair = new WebSocketPair(); const [client, server] = Object.values(pair);
+    server.accept();
+    if (path.startsWith("/api/twilio/stream/")) { this.sid = path.split("/")[4] || ""; this.attachTwilio(server); } else this.attachBrowser(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+  broadcast(msg) { const t = JSON.stringify(msg); for (const b of this.browsers) { try { b.send(t); } catch (e) { this.browsers.delete(b); } } }
+  attachBrowser(ws) {
+    this.browsers.add(ws);
+    try { ws.send(JSON.stringify({ type: "hello", turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
+    ws.addEventListener("close", () => this.browsers.delete(ws)); ws.addEventListener("error", () => this.browsers.delete(ws));
+  }
+  attachTwilio(ws) {
+    this.twilioWs = ws;
+    ws.addEventListener("message", ev => { try { this.onTwilio(JSON.parse(ev.data)); } catch (e) { /* ignore bad frame */ } });
+    ws.addEventListener("close", () => this.finish()); ws.addEventListener("error", () => this.finish());
+  }
+  onTwilio(m) {
+    if (m.event === "start") { const cp = (m.start && m.start.customParameters) || {}; this.leadId = Number(cp.lead) || this.leadId; this.t0 = Date.now(); this.broadcast({ type: "live" }); return; }
+    if (m.event === "stop") { this.finish(); return; }
+    if (m.event !== "media" || !m.media || !m.media.payload) return;
+    const track = m.media.track === "outbound" ? "outbound" : "inbound"; // outbound = what the rep hears (the lead); inbound = the rep's own voice
+    const bin = Uint8Array.from(atob(m.media.payload), c => c.charCodeAt(0));
+    // loudness per second is only logged, never shown (it is for testing whether it predicts sales)
+    const a = this.acc[track]; for (let i = 0; i < bin.length; i += 4) { const v = ulaw(bin[i]); a.sum += v * v; a.n++; }
+    if (a.n >= 8000 / 4) { const who = track === "outbound" ? "lead" : "rep"; if (this.energy[who].length < 1800) this.energy[who].push(Math.round(20 * Math.log10(Math.sqrt(a.sum / a.n) / 32768 + 1e-6))); a.sum = 0; a.n = 0; }
+    const sock = this.dg[track];
+    if (sock && sock.ready) sock.ws.send(bin); else { this.pending[track].push(bin); if (!sock) this.openDg(track); if (this.pending[track].length > 400) this.pending[track].shift(); }
+  }
+  async openDg(track) {
+    const slot = this.dg[track] = { ready: false, ws: null };
+    try {
+      const qs = new URLSearchParams({ model: "nova-3", language: this.env.DEEPGRAM_LANGUAGE || "multi", encoding: "mulaw", sample_rate: "8000", channels: "1", interim_results: "true", endpointing: "300", utterance_end_ms: "1000", smart_format: "true", punctuate: "true" });
+      for (const k of DG_KEYTERMS) qs.append("keyterm", k);
+      const resp = await fetch(`${this.env.DEEPGRAM_BASE || "https://api.deepgram.com"}/v1/listen?${qs}`, { headers: { Upgrade: "websocket", Authorization: `Token ${this.env.DEEPGRAM_API_KEY}` } });
+      const ws = resp.webSocket;
+      if (!ws) { this.broadcast({ type: "error", message: "The transcription service refused the connection." }); return; }
+      ws.accept(); slot.ws = ws; slot.ready = true;
+      ws.addEventListener("message", ev => { try { this.onDg(track, JSON.parse(typeof ev.data === "string" ? ev.data : "")); } catch (e) { /* not json */ } });
+      ws.addEventListener("close", () => { slot.ready = false; });
+      for (const f of this.pending[track].splice(0)) ws.send(f);
+      slot.keep = setInterval(() => { try { if (slot.ready) ws.send(JSON.stringify({ type: "KeepAlive" })); } catch (e) { /* closed */ } }, 8000);
+    } catch (e) { this.broadcast({ type: "error", message: "Could not reach the transcription service." }); }
+  }
+  onDg(track, d) {
+    if (d.type !== "Results") return;
+    const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0]; const text = alt && String(alt.transcript || "").trim();
+    if (!text) return;
+    const who = track === "outbound" ? "lead" : "rep";
+    const final = !!d.is_final, at = Math.round((Date.now() - this.t0) / 1000);
+    this.broadcast({ type: "transcript", who, text, final, end: !!d.speech_final, at });
+    if (!final) return;
+    this.turns.push({ who, text, at });
+    this.sig.talk[who] += Number(d.duration) || 0; this.sig.words[who] += text.split(/\s+/).length; this.sig.turns++;
+    if (who === "lead" && /\?/.test(text)) this.sig.leadQuestions++;
+    if (this.sig.firstPriceSecs == null && /\$|price|how much|cost|precio|cu[aá]nto/i.test(text)) this.sig.firstPriceSecs = at;
+  }
+  async finish() {
+    if (this.ended) return; this.ended = true;
+    for (const t of ["inbound", "outbound"]) { const s = this.dg[t]; if (s) { clearInterval(s.keep); try { if (s.ws) { s.ws.send(JSON.stringify({ type: "CloseStream" })); s.ws.close(); } } catch (e) { /* closed */ } } }
+    this.broadcast({ type: "ended" });
+    try {
+      if (this.env.DB && this.turns.length) {
+        const tot = this.sig.talk.rep + this.sig.talk.lead;
+        const signals = { ...this.sig, repTalkShare: tot ? Math.round(this.sig.talk.rep * 100 / tot) : null, secs: Math.round((Date.now() - this.t0) / 1000), energyDb: this.energy };
+        await this.env.DB.prepare("INSERT INTO call_transcripts (call_sid, lead_id, turns, signals) VALUES (?,?,?,?) ON CONFLICT(call_sid) DO UPDATE SET turns = excluded.turns, signals = excluded.signals, ended_at = datetime('now')").bind(this.sid, this.leadId, JSON.stringify(this.turns), JSON.stringify(signals)).run();
+      }
+    } catch (e) { /* the transcript is also on screen; not saving is not fatal */ }
+  }
 }
 // ---- Urable bookings on the calendar: jobs and calendar events straight from Urable, including ones made there and not in the CRM
 let urableCal = { at: 0, items: [] };
@@ -3013,7 +3148,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -3030,6 +3165,11 @@ export default {
       catch (e) { console.error("callrail error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
     }
 
+    if (p.startsWith("/api/twilio/stream/") && request.headers.get("upgrade") === "websocket") {
+      const [, , , , sid, sig] = p.split("/");
+      if (!coachEnabled(env) || !/^CA[0-9a-f]{32}$/.test(sid || "") || sig !== (await coachSig(env, sid))) return new Response("Forbidden", { status: 403 });
+      return env.COACH.get(env.COACH.idFromName(sid)).fetch(request);
+    }
     if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : await handleVoiceRecording(request, env); }
@@ -3670,6 +3810,13 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
+  if (p === "/admin/coach/status") return a === OWNER ? json({ enabled: coachEnabled(env) }) : json({ success: false }, 403);
+  if (p === "/admin/coach/ws") {
+    const sid = new URL(request.url).searchParams.get("sid") || "";
+    if (a !== OWNER) return new Response("Forbidden", { status: 403 });
+    if (!coachEnabled(env) || request.headers.get("upgrade") !== "websocket" || !/^CA[0-9a-f]{32}$/.test(sid)) return new Response("Not available", { status: 404 });
+    return env.COACH.get(env.COACH.idFromName(sid)).fetch(request);
+  }
   if (p === "/admin/dialer") return a === OWNER ? dialerPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p.startsWith("/admin/rec/")) return a === OWNER ? recordingProxy(env, p.slice(11), request) : new Response("Not found", { status: 404 });
   if (p.startsWith("/admin/dialer/")) {

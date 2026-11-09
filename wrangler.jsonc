@@ -9,6 +9,9 @@
   },
   // Lead database. Wrangler creates it automatically on the first deploy if it does not exist yet.
   "d1_databases": [{ "binding": "DB", "database_name": "divine-detailers-leads" }],
+  // Live call coach: one Durable Object per dialer call receives the call audio from Twilio and streams the transcript to the Dial page
+  "durable_objects": { "bindings": [{ "name": "COACH", "class_name": "CallRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CallRoom"] }],
   // The domains (divinedetailers.com, www and crm) are connected in the Cloudflare dashboard:
   // Workers & Pages > this Worker > Settings > Domains & Routes > Add > Custom domain.
   // Only CRM_HOST lives here. Everything else (NOTIFY_TO, NOTIFY_FROM, ALERT_SMS_TO, AUTO_REPLY, GOOGLE_REVIEW_URL and the secrets)
