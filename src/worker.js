@@ -16,6 +16,8 @@
 //   URABLE_JOB_HOURS  (var, optional)          default length of a booking in hours when none is known (default: tint 3, coating/PPF/correction 8, other 4)
 //   TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM (secrets)  Twilio texting: the Messages tab sends and receives texts. TWILIO_MESSAGING_SERVICE (optional) sends through a Messaging Service instead of one number
 //   TEXT_AUTO         (var, optional, "1")      send the follow-up texts (#1 right away, #2 after 2 hours...) automatically instead of a push for each one; stops when the lead replies
+//   META_SMS_CONSENT / META_SMS_MARKETING (var, "1") the Facebook lead form's consent covers texts / promotional texts: new Meta leads are marked as agreed (marketing also marks texts)
+//   TEXT_HOURS        (var, optional "8-21")   hours (Eastern) when texts may go out
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -805,7 +807,9 @@ async function handleMeta(request, env, url, ctx) {
   const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
   // the Instant Form has a required text-message consent box, so a Meta lead has agreed to texts. META_SMS_CONSENT=1 says so for every lead; otherwise a consent-looking answer on the form has to be ticked
   const consentAns = Object.entries(nd).find(([k, v]) => /consent|agree|optin|sms|text/.test(k) && !/^(no|false|0|)$/i.test(String(v).trim()));
-  if (newLead.id && (env.META_SMS_CONSENT === "1" || consentAns)) await env.DB.prepare("UPDATE leads SET sms_consent = 1 WHERE id = ?").bind(newLead.id).run().catch(() => {});
+  if (newLead.id && (env.META_SMS_CONSENT === "1" || env.META_SMS_MARKETING === "1" || consentAns)) await env.DB.prepare("UPDATE leads SET sms_consent = 1 WHERE id = ?").bind(newLead.id).run().catch(() => {});
+  // META_SMS_MARKETING=1: the Facebook lead form's consent covers promotional texts too, so a new Meta lead can receive campaigns
+  if (newLead.id && env.META_SMS_MARKETING === "1") await env.DB.prepare("UPDATE leads SET sms_marketing = 1 WHERE id = ?").bind(newLead.id).run().catch(() => {});
   if (newLead.id) ctx.waitUntil(linkByPhone(env, newLead.id).catch(() => {}));
   ctx.waitUntil(notify(env, newLead, url.origin));
   if (env.AUTO_DIAL === "1" && newLead.id && phone && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDialOnce(env, newLead));
@@ -2231,6 +2235,7 @@ ${bnav("automations", tc, true)}
 <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
 <div class="top" style="margin-top:14px"><h2 style="margin:0">Promotional campaigns</h2><button class="btn g" id="cnew" type="button">+ New promotional campaign</button></div>
 <div id="cban" class="ban"></div>
+<div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="cmeta">Record promotional consent for Facebook leads</button><span id="cmres" class="note"></span></div>
 <p class="note">One-off promotional texts to a group you choose. They go only to leads who agreed to promotional texts, only Monday to Saturday, 9 AM to 6 PM Eastern, never to a number that replied STOP, and each one ends with &ldquo;Reply STOP to opt out.&rdquo;</p>
 <div id="clist" style="display:flex;flex-direction:column;gap:10px"></div>
 <h2>Recent sends</h2>
@@ -2304,6 +2309,10 @@ function drawC(){const l=document.getElementById('clist');
   l.innerHTML=CD.campaigns.map(c=>'<div class="card" data-cid="'+c.id+'"><div class="t"><b>'+$(c.name)+'</b><small><span class="pill">'+$(CSTAT[c.status]||c.status)+'</span>'+(c.status==='scheduled'?fmtT(c.send_at):c.status==='sent'||c.status==='sending'?c.sent+' sent'+(c.failed?', '+c.failed+' failed':''):'')+'</small></div>'+(c.status==='draft'||c.status==='scheduled'?'<button class="btn" data-cedit="'+c.id+'" type="button">Edit</button>':'')+(c.status==='scheduled'||c.status==='sending'?'<button class="btn r" data-ccancel="'+c.id+'" type="button">Cancel</button>':'')+'</div>').join('')||'<p class="note">No campaigns yet.</p>'}
 document.getElementById('clist').addEventListener('click',async e=>{const ed=e.target.closest('[data-cedit]');if(ed){editC(CD.campaigns.find(c=>c.id==ed.dataset.cedit));return}
   const cn=e.target.closest('[data-ccancel]');if(cn){if(!confirm('Cancel this campaign? Texts already sent stay sent.'))return;await fetch('/admin/campaign/cancel',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+cn.dataset.ccancel})});loadC()}});
+document.getElementById('cmeta').onclick=async()=>{const el=document.getElementById('cmres');el.textContent='Checking...';const r=await fetch('/admin/campaigns/mark-meta',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});const j=await r.json().catch(()=>({}));
+  if(!j.success){el.textContent='Could not check.';return}if(!j.count){el.textContent='Every Facebook lead is already marked.';return}
+  if(!confirm('Record that '+j.count+' Facebook lead'+(j.count===1?'':'s')+' agreed to promotional texts when they submitted the Facebook lead form?\\n\\nDo this only if the consent box on that form clearly covers promotional texts. Each lead gets a note in its history with your name and the date.'))return;
+  const r2=await fetch('/admin/campaigns/mark-meta',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({confirm:true})});const j2=await r2.json().catch(()=>({}));el.textContent=j2.success?j2.count+' lead'+(j2.count===1?'':'s')+' marked.':'Could not save.';loadC()};
 document.getElementById('cnew').onclick=()=>editC({id:null,name:'',body:'Hi {first}, ',audience:{stages:[],services:[],days:90},status:'draft'});
 function editC(c){EC=JSON.parse(JSON.stringify(c));confirmN=null;const a=EC.audience||{},sv=(a.services&&a.services[0])||'';
   const cd=document.getElementById('cdlg');
@@ -2385,6 +2394,18 @@ async function campaignsData(env) {
     FROM campaigns c ORDER BY c.id DESC LIMIT 50`).all()).results || [];
   const opted = ((await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE sms_marketing = 1 AND COALESCE(ip,'') != 'demo'").first()) || {}).n || 0;
   return json({ success: true, opted, testPhone: !!env.AGENT_PHONE_BRONSON, campaigns: rows.map(r => { let aud = {}; try { aud = JSON.parse(r.audience || "{}"); } catch (e) { /* */ } return { ...r, audience: aud }; }) });
+}
+async function markMetaPromo(env, b, user) {
+  await ensureTable(env.DB);
+  const where = "utm_medium = 'paid_social' AND type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND COALESCE(phone,'') != '' AND sms_marketing = 0";
+  const n = ((await env.DB.prepare(`SELECT COUNT(*) n FROM leads WHERE ${where}`).first()) || {}).n || 0;
+  if (!b.confirm) return json({ success: true, count: n });
+  if (!n) return json({ success: true, count: 0, done: true });
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE ${where}`).bind("Promotional text consent recorded (Facebook lead form), marked by " + user, user),
+    env.DB.prepare(`UPDATE leads SET sms_marketing = 1, sms_consent = 1 WHERE ${where}`),
+  ]);
+  return json({ success: true, count: n, done: true });
 }
 async function campaignPreview(env, b) {
   await ensureTable(env.DB);
@@ -2646,7 +2667,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -3298,6 +3319,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
   if (p === "/admin/campaigns/data" && request.method === "GET") return a === OWNER ? campaignsData(env) : json({ success: false }, 403);
+  if (p === "/admin/campaigns/mark-meta" && request.method === "POST") return a === OWNER ? markMetaPromo(env, await request.json().catch(() => ({})), a) : json({ success: false }, 403);
   if (p === "/admin/campaigns/preview" && request.method === "POST") return a === OWNER ? campaignPreview(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
   if (p === "/admin/campaign" && request.method === "POST") return a === OWNER ? saveCampaign(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
   if (p === "/admin/campaign/test" && request.method === "POST") return a === OWNER ? campaignTest(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
