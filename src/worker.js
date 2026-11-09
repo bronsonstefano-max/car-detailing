@@ -1811,7 +1811,7 @@ async function remindTexts(env) {
       // sends itself. Once the lead has texted back, a person takes over and the automatic texts stop
       if (r.replies) continue;
       let body = fillTemplate(textTemplateFor(n, r), r, env).body;
-      if (n === 1 && !/stop/i.test(body)) body += "\n\nReply STOP to opt out.";
+      if (n === 1 && !/stop/i.test(body)) body += "\n\nMsg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.";
       const res = await sendLeadText(env, r, body, { auto: true, label: n === 1 ? "First reply" : "Follow-up #" + n });
       if (!res.ok && !res.optout) await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind("Auto text #" + n + " failed: " + String(res.message || "").slice(0, 120), r.id).run().catch(() => {});
       if (++sent >= 3) break;
