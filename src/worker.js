@@ -3130,11 +3130,14 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
    +fld('o-sp','Special name',o.special,'text','e.g. Spring')+fld('o-end','Special ends',o.specialEnd,'date')+fld('o-tp','Tint price (if the lead has none)',o.tintPrice,'number')+fld('o-td','Tint deposit',o.tintDeposit,'number')+fld('o-tf','Tint lowest price',o.tintFloor,'number')
    +fld('o-cp','Coating special price',o.coatPrice,'number')+fld('o-cr','Coating normal price',o.coatReg,'number')+fld('o-cd','Coating deposit',o.coatDeposit,'number')+fld('o-cy','Coating warranty (years)',o.coatYears,'number')+'</div></details>'
    +'<details class="gdet"><summary>Word swaps (optional)</summary><div><label>Word swaps (one per line: find => replace). Use this to change brand names, warranty wording or anything else in the script.</label><textarea id="o-sw" rows="5" placeholder="old word => new word">'+$((o.swaps||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div></details>'
+   +'<div class="vm"><b>AI coach</b><span class="note" id="ai-st">Checks that the Anthropic key you added in Cloudflare works.</span><div class="bar"><button class="btn sm" id="ai-t" type="button">Test AI coach</button></div></div>'
    +'<div class="err" id="ge"></div><div class="bar" style="justify-content:flex-end"><button class="btn" id="gx" type="button">Close</button><button class="btn g" id="gs" type="button">Save</button></div></div>';
   d.showModal();el('gx').onclick=()=>d.close();
   d.querySelectorAll('[data-imp]').forEach(inp=>inp.onchange=async()=>{const f=inp.files&&inp.files[0];if(!f)return;let j;try{j=JSON.parse(await f.text())}catch(_){el('ge').textContent='That file is not valid JSON.';return}
     const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:inp.dataset.imp,script:j})});const jj=await r.json().catch(()=>({}));
     if(!jj.success){el('ge').textContent=jj.message||'Could not import.';return}GS[inp.dataset.imp]=j;el('gst-'+inp.dataset.imp).textContent=st(inp.dataset.imp);el('ge').textContent='';gi=0;drawScript();drawBrief(Q[ix])});
+  el('ai-t').onclick=async()=>{const st=el('ai-st');st.textContent='Testing...';let j={};try{j=await (await fetch('/admin/coach/aitest')).json()}catch(_){}
+    st.textContent=j.ok?'Working. '+(j.model||'')+' answered.':(j.message||'No answer from the server.')+(j.status?' (status '+j.status+')':'')};
   el('g-pb').onclick=async()=>{let j;try{j=JSON.parse(el('g-paste').value)}catch(_){el('g-pm').textContent='That does not look like the copied scripts. Copy them again and paste all of it.';return}
     const list=j&&j.bundle?['tint','coating'].filter(k=>j[k]).map(k=>[k,j[k]]):(j&&j.service?[[j.service,j]]:[]);if(!list.length){el('g-pm').textContent='No scripts found in what you pasted.';return}
     let n=0;for(const [k,sc] of list){const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:k,script:sc})});const jj=await r.json().catch(()=>({}));if(!jj.success){el('g-pm').textContent=jj.message||'Could not import.';return}GS[k]=sc;n++}
@@ -3347,6 +3350,19 @@ Ground rules:
 
 Reply with ONLY one JSON object, no markdown, in this shape:
 {"answer": true, "kind": "question|objection|info", "lead_said": "<=10 word paraphrase", "say": "...", "ack": "...", "comment": "...", "ask": "...", "anchor": "s15", "next": "s07", "needs_eyes": false, "note": ""}`;
+// one tiny request so the owner can confirm the key, model and network work without placing a call
+async function coachAiTest(env) {
+  if (!coachAi(env)) return json({ ok: false, message: "The ANTHROPIC_API_KEY secret is not set in Cloudflare yet." });
+  const model = env.COACH_MODEL || COACH_MODEL_DEFAULT, ac = new AbortController(), timer = setTimeout(() => ac.abort(), 12000);
+  try {
+    const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, { method: "POST", signal: ac.signal,
+      headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model, max_tokens: 40, output_config: { effort: "low" }, messages: [{ role: "user", content: "Reply with the single word OK." }] }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return json({ ok: false, status: r.status, model, message: String((j.error && j.error.message) || "The request was refused.").slice(0, 300) });
+    return json({ ok: true, model, reply: (j.content || []).filter(b => b.type === "text").map(b => b.text).join("").slice(0, 60) });
+  } catch (e) { return json({ ok: false, model, message: "Could not reach Anthropic from Cloudflare." }); } finally { clearTimeout(timer); }
+}
 async function coachContext(env, leadId) {
   await ensureTable(env.DB);
   const lead = Number.isInteger(leadId) ? await env.DB.prepare("SELECT id, name, service, year, make, model, value, message FROM leads WHERE id = ?").bind(leadId).first() : null;
@@ -3701,7 +3717,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -4363,6 +4379,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
+  if (p === "/admin/coach/aitest") return a === OWNER ? coachAiTest(env) : json({ success: false }, 403);
   if (p === "/admin/coach/status") return a === OWNER ? json({ enabled: coachEnabled(env), ai: coachAi(env) }) : json({ success: false }, 403);
   if (p === "/admin/coach/ws") {
     const sid = new URL(request.url).searchParams.get("sid") || "";
