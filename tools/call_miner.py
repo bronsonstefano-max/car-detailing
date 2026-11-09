@@ -514,6 +514,25 @@ def cmd_report(a):
                       "objections": avg("objection_handling"), "close": avg("close"), "control": avg("control")})
     write_csv(os.path.join(a.out, "agents.csv"), arows, ["agent", "calls", "booked_pct", "overall", "discovery", "aca", "pitch", "objections", "close", "control"])
     real = [c for c in calls if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number")]
+    # how many calls of each service, and how each one does
+    sv = collections.defaultdict(list)
+    for c in calls:
+        sv[str(g(c, "meta", "service") or "unknown")].append(c)
+    srows = []
+    for name, cs in sorted(sv.items(), key=lambda kv: -len(kv[1])):
+        rc = [c for c in cs if c in real]
+        def avg2(vals):
+            vals = [v for v in vals if isinstance(v, (int, float))]
+            return round(sum(vals) / len(vals), 1) if vals else None
+        srows.append({"service": name, "calls": len(cs), "real_conversations": len(rc), "booked_or_deposit": len([c for c in rc if won(c)]),
+                      "booked_pct_of_real": round(100 * len([c for c in rc if won(c)]) / len(rc)) if rc else None,
+                      "callbacks_set": len([c for c in rc if g(c, "outcome", "result") == "callback_set"]),
+                      "avg_overall_score": avg2([g(c, "scores", "overall") for c in rc]), "avg_minutes": avg2([(g(c, "stats", "duration_sec", default=0) or 0) / 60 for c in rc]),
+                      "avg_rep_talk_pct": avg2([g(c, "stats", "rep_word_share_pct") for c in rc]), "avg_secs_to_price": avg2([g(c, "stats", "first_price_mention_sec") for c in rc])})
+    write_csv(os.path.join(a.out, "services.csv"), srows, ["service", "calls", "real_conversations", "booked_or_deposit", "booked_pct_of_real", "callbacks_set", "avg_overall_score", "avg_minutes", "avg_rep_talk_pct", "avg_secs_to_price"])
+    print("\nCalls by service:")
+    for r in srows:
+        print("  %-12s %3d calls, %3d real conversations, %3d booked (%s%%), avg score %s" % (r["service"], r["calls"], r["real_conversations"], r["booked_or_deposit"], r["booked_pct_of_real"], r["avg_overall_score"]))
     print("\nCalls analyzed: %d (%d real conversations). Booked or deposit: %d" % (len(calls), len(real), len([c for c in real if won(c)])))
     for r in arows:
         print("  %-12s %3d calls, %3d%% booked, overall %s" % (r["agent"], r["calls"], r["booked_pct"], r["overall"]))
@@ -521,7 +540,7 @@ def cmd_report(a):
     print("Questions and pushback by topic: " + ", ".join("%s %d" % (t, n) for t, n in tc.most_common(8)))
     print("Off-script moments: %d (%d marked worth keeping). Pivotal moments: %d. Product claims to verify: %d" % (len(dev), len([d for d in dev if d.get("keep_this")]), len(piv), len([k for k in kn if k.get("vs_script") != "matches"])))
     print("Full logs: %d turns across %d calls; %d lead statements linked to the rep's answer (response_library)." % (len(trows), len(calls), len(lib)))
-    print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv turns_all.csv response_library.csv response_playbook.md" % a.out)
+    print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv turns_all.csv response_library.csv response_playbook.md services.csv" % a.out)
 
 
 # ------------------------------------------------------------------ learn
