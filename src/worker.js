@@ -2655,6 +2655,25 @@ textarea,input[type=text]{width:100%;background:#12171e;border:1px solid #2a313a
 dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(560px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog::backdrop{background:rgba(0,0,0,.7)}
 dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{margin:0}dialog label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
 .vm{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+#cards{display:flex;flex-direction:column;gap:10px;min-width:0}.cw{display:flex;flex-direction:column;gap:10px}
+.callrow{display:flex;flex-direction:column;gap:14px}.cctl{display:flex;flex-direction:column;gap:10px}
+.card2:not(:first-child){opacity:.72}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
+#cards:empty::before{content:"Objection help shows up here the moment the lead pushes back.";color:#6d747e;font-size:14px;border:1px dashed #2a313a;border-radius:12px;padding:18px;text-align:center}
+#trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
+.side{display:contents}
+@media(min-width:1100px){
+main{max-width:1560px;padding:20px 28px 40px;gap:0 22px;grid-template-columns:minmax(0,1fr) 420px;grid-template-areas:"setup setup" "bar bar" "newb newb" "call side" "coach side" "after side" "nxt side"}
+#setup{grid-area:setup}#topbar{grid-area:bar}#newb{grid-area:newb}.callrow{grid-area:call;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:stretch}#coach{grid-area:coach}#after{grid-area:after}#nxtrow{grid-area:nxt}
+main>.col{display:contents}#setup,#topbar,#newb,.callrow,#coach,#after,#nxtrow{margin-bottom:16px}
+.side{display:flex;flex-direction:column;gap:16px;grid-area:side;position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow-y:auto;align-self:start;padding-right:2px}
+.lead{background:linear-gradient(160deg,#0f1a13,#0d1116 60%);border-color:#1f3a27}.lead h2{font-size:30px}.lead .ph{font-size:24px}
+.cctl{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:16px;justify-content:center}.ctl .call{min-height:76px;font-size:22px}.timer{font-size:40px}
+#coach{min-height:460px;border-color:#1f3a27;background:linear-gradient(180deg,#0c1410,#0d1116 45%)}#coach[hidden]{display:flex!important}
+.cw{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;flex:1;min-height:380px}
+.tr{max-height:520px;min-height:380px;font-size:15px;gap:7px;padding:12px}
+.card2{padding:14px 16px;gap:10px;border-left:4px solid #32cd32}.aca{gap:10px}.aca div{flex-direction:column;gap:2px}.aca span{min-width:0}.aca p{font-size:16px}.aca p.ask{font-size:23px;line-height:1.25;color:#fff}.aca p.ask::before{content:"\\2192  ";color:#32cd32}
+.side .script{font-size:15.5px}
+}
 ${BNAV_CSS}
 @media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
 </style></head><body>
@@ -2663,12 +2682,12 @@ ${bnav("dialer", tc, true)}
 <main>
 <div class="col">
 <div id="setup" class="ban" hidden></div>
-<div class="bar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
+<div class="bar" id="topbar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
 <div id="newb" class="newb" hidden></div>
-<div id="lead" class="lead"></div>
-<div id="ctl" class="ctl"></div>
-<div id="kp" class="kp" hidden></div>
-<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span></div><div id="cards" style="display:flex;flex-direction:column;gap:8px"></div><div id="trn" class="tr"></div></div>
+<div class="callrow"><div id="lead" class="lead"></div>
+<div class="cctl"><div id="ctl" class="ctl"></div>
+<div id="kp" class="kp" hidden></div></div></div>
+<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span></div><div class="cw"><div id="cards"></div><div id="trn" class="tr"></div></div></div>
 <div id="after" class="panel" hidden>
 <h3>How did it go?</h3>
 <div class="outs" id="outs"></div>
@@ -2676,10 +2695,10 @@ ${bnav("dialer", tc, true)}
 <div class="bar"><button class="btn sm" id="ntb" type="button">Save note</button><button class="btn sm" id="mtb" type="button">Text: I missed you</button><span id="am" class="note"></span></div>
 <div id="mt" hidden><textarea id="mtx" rows="4"></textarea><div class="bar" style="margin-top:6px"><button class="btn g sm" id="mts" type="button">Send text</button><span id="mtm" class="note"></span></div></div>
 </div>
-<div class="bar"><button class="btn" id="nxt" type="button" style="flex:1;min-height:52px">Next lead &rarr;</button></div>
-<div class="panel"><div class="bar"><h3 style="margin:0">Script</h3><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div></div>
+<div class="bar" id="nxtrow"><button class="btn" id="nxt" type="button" style="flex:1;min-height:52px">Next lead &rarr;</button></div>
+<div class="side"><div class="panel"><div class="bar"><h3 style="margin:0">Script</h3><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div></div>
+<div class="panel q"><h3 style="margin:0">Up next</h3><div id="q"></div></div></div>
 </div>
-<div class="col q"><h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf">Up next</h3><div id="q"></div></div>
 </main>
 <dialog id="vdlg"></dialog><dialog id="sdlg"></dialog>
 <script src="/assets/twilio-voice.min.js"></script>
@@ -2801,7 +2820,7 @@ const OBJ=[
   esc:['Buena pregunta.','Le explico exactamente qué cubre este servicio.','¿De qué servicio hablamos para su carro?']},
 ];
 let cws=null,coachOn=false,lastCard={};
-async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled}catch(_){}}
+async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled}catch(_){}if(window.matchMedia('(min-width:1100px)').matches){el('coach').hidden=false;el('cst').textContent=coachOn?'Starts when the call connects':'Not set up yet (needs the Deepgram key)'}}
 function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';lastCard={};el('cst').textContent='Connecting...';
   try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){el('cst').textContent='Transcript unavailable';return}
   cws.onopen=()=>{el('cst').textContent='Listening'};cws.onclose=()=>{if(el('cst').textContent==='Listening')el('cst').textContent='Transcript stopped'};
@@ -2816,7 +2835,7 @@ function addLine(who,text,final){const box=el('trn');let ln=box.querySelector('.
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc,d=document.createElement('div');d.className='card2';
   d.innerHTML='<div class="bar"><span class="pill warn">'+$(o.label)+'</span></div><div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(c[0])+'</p></div><div><span>COMMENT</span><p>'+$(c[1])+'</p></div><div><span>ASK</span><p class="ask">'+$(c[2])+'</p></div></div>';
-  const box=el('cards');box.insertBefore(d,box.firstChild);while(box.children.length>2)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},60000)}
+  const box=el('cards');box.insertBefore(d,box.firstChild);while(box.children.length>3)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},60000)}
 let known=new Set(),defTitle=document.title;
 function beep(){try{const C=window.AudioContext||window.webkitAudioContext,c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(_){}}
 async function poll(){let q;try{q=await (await fetch('/admin/dialer/queue')).json()}catch(_){return}if(!q||!q.leads)return;
