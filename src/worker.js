@@ -92,6 +92,7 @@ async function ensureTableRun(db) {
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
   if (dcols.length && !dcols.includes("result")) await db.prepare("ALTER TABLE dial_log ADD COLUMN result TEXT").run();
   if (dcols.length && !dcols.includes("flagged")) await db.prepare("ALTER TABLE dial_log ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0").run();
+  if (!cols.includes("sms_marketing")) await db.prepare("ALTER TABLE leads ADD COLUMN sms_marketing INTEGER NOT NULL DEFAULT 0").run();
   if (!cols.includes("sms_consent")) await db.prepare("ALTER TABLE leads ADD COLUMN sms_consent INTEGER NOT NULL DEFAULT 0").run();
   if (!cols.includes("urable_ref")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN urable_ref TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN urable_kind TEXT")]);
   if (!cols.includes("gbraid")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN gbraid TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN wbraid TEXT")]);
@@ -129,6 +130,8 @@ async function ensureTableRun(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS automation_steps (id INTEGER PRIMARY KEY AUTOINCREMENT, automation_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, after_min INTEGER NOT NULL DEFAULT 0, gap_min INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL DEFAULT '')"),
     db.prepare("CREATE TABLE IF NOT EXISTS automation_runs (automation_id INTEGER NOT NULL, lead_id INTEGER NOT NULL, step_id INTEGER NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')), status TEXT, body TEXT, PRIMARY KEY (automation_id, lead_id, step_id))"),
     db.prepare("CREATE INDEX IF NOT EXISTS automation_steps_a ON automation_steps (automation_id, pos)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS campaigns (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'draft', send_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), finished_at TEXT)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS campaign_sends (campaign_id INTEGER NOT NULL, lead_id INTEGER NOT NULL, status TEXT, at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (campaign_id, lead_id))"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
   if (flagAuto.meta && flagAuto.meta.changes) await seedAutomations(db);
@@ -2028,9 +2031,11 @@ setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur)ope
 // Texting only ever goes to leads who agreed (sms_consent), never in quiet hours (before 8 AM or after 9 PM Eastern), and stops for a number that replied STOP.
 const AUTO_KINDS = ["sequence", "stage", "appointment"];
 const autoMode = env => env.TEXT_AUTO === "1" && twilioOn(env);
-function quietHoursOk(d = new Date()) {
+// texts only go out between 8 AM and 9 PM Eastern (TEXT_HOURS, e.g. "9-20", can narrow that window)
+function quietHoursOk(env = {}, d = new Date()) {
+  const [from, to] = /^\d{1,2}-\d{1,2}$/.test(String(env.TEXT_HOURS || "")) ? String(env.TEXT_HOURS).split("-").map(Number) : [8, 21];
   const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" }).format(d));
-  return h >= 8 && h < 21;
+  return h >= from && h < to;
 }
 const AUTO_FIELDS = ["first", "service", "service_name", "vehicle", "pitch", "shop", "address", "appointment", "review"];
 function renderAuto(body, l, env) {
@@ -2060,7 +2065,7 @@ async function autoSend(env, a, step, lead) {
   return 1;
 }
 async function runAutomations(env) {
-  if (!env.DB || !autoMode(env) || !quietHoursOk()) return;
+  if (!env.DB || !autoMode(env) || !quietHoursOk(env)) return;
   await ensureTable(env.DB);
   const autos = (await env.DB.prepare("SELECT * FROM automations WHERE active = 1 ORDER BY id").all()).results || [];
   if (!autos.length) return;
@@ -2204,12 +2209,12 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;mar
 .card{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;justify-content:space-between}.card .t{min-width:0;flex:1}.card b{display:block}.card small{color:#8a9099}
 .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:2px 9px;background:#1a2027;color:#aab0b9;margin-right:6px}
 .sw{position:relative;width:48px;height:28px;flex:0 0 auto}.sw input{opacity:0;width:100%;height:100%;position:absolute;inset:0;margin:0;cursor:pointer;z-index:2}.sw i{position:absolute;inset:0;border-radius:999px;background:#2a313a;transition:.15s}.sw i::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.15s}.sw input:checked+i{background:#32cd32}.sw input:checked+i::after{left:23px}
-.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:9px 12px;border-bottom:1px solid #1b1f25;vertical-align:top;font-size:13.5px}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}
-dialog#adlg{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(640px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog#adlg::backdrop{background:rgba(0,0,0,.7)}
-#adlg .rb{padding:16px;display:flex;flex-direction:column;gap:12px}#adlg h3{margin:0;font-size:18px}#adlg label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
-#adlg input[type=text],#adlg input[type=number],#adlg select,#adlg textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;min-height:44px;color-scheme:dark}#adlg textarea{resize:vertical;min-height:96px}
-#adlg .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#adlg .row>*{min-width:0}#adlg .num{width:84px!important}#adlg .un{width:120px!important}
-#adlg input[type=checkbox]{accent-color:#32cd32}#adlg .chk{display:flex;gap:8px;align-items:center;font-size:14.5px;color:#e8eaed;text-transform:none;letter-spacing:0;margin:0}.chk input{width:20px;height:20px}
+.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:9px 12px;border-bottom:1px solid #1b1f25;vertical-align:top;font-size:13.5px}#log{min-width:620px}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+dialog:is(#adlg,#cdlg){background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(640px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog:is(#adlg,#cdlg)::backdrop{background:rgba(0,0,0,.7)}
+:is(#adlg,#cdlg) .rb{padding:16px;display:flex;flex-direction:column;gap:12px}:is(#adlg,#cdlg) h3{margin:0;font-size:18px}:is(#adlg,#cdlg) label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+:is(#adlg,#cdlg) input[type=text],:is(#adlg,#cdlg) input[type=number],:is(#adlg,#cdlg) select,:is(#adlg,#cdlg) textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;min-height:44px;color-scheme:dark}:is(#adlg,#cdlg) textarea{resize:vertical;min-height:96px}
+:is(#adlg,#cdlg) .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}:is(#adlg,#cdlg) .row>*{min-width:0}:is(#adlg,#cdlg) .num{width:84px!important}:is(#adlg,#cdlg) .un{width:120px!important}
+:is(#adlg,#cdlg) input[type=checkbox]{accent-color:#32cd32}:is(#adlg,#cdlg) .chk{display:flex;gap:8px;align-items:center;font-size:14.5px;color:#e8eaed;text-transform:none;letter-spacing:0;margin:0}.chk input{width:20px;height:20px;flex:0 0 auto;margin:0;accent-color:#32cd32}
 .stp{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}.stp .sh{display:flex;justify-content:space-between;align-items:center}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chips button{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer}.cnt{color:#7c838d;font-size:12px}
 .prev{background:#0b1a10;border-left:3px solid #32cd32;border-radius:0 10px 10px 0;padding:10px 12px;white-space:pre-line;font-size:14px;color:#d6d9de}.err{color:#ff8a8a;font-size:14px;min-height:18px}
@@ -2222,12 +2227,16 @@ ${bnav("automations", tc, true)}
 <main>
 <div id="ban" class="ban">Loading...</div>
 <div class="top"><h2 style="margin:0">Text automations</h2><button class="btn g" id="newb" type="button">+ New campaign</button></div>
-<p class="note">Each automation texts leads who ticked the text-message box, in order, on the timing you set. It never texts before 8 AM or after 9 PM Eastern, skips anyone who replied STOP, and can stop when the lead replies. Keep messages to your registered use: replies, quotes, scheduling, reminders, follow-ups and review requests. No promotions or blasts.</p>
+<p class="note">Automations text leads who ticked the text-message box, in order, on the timing you set. They never text before 8 AM or after 9 PM Eastern, skip anyone who replied STOP, and can stop when the lead replies.</p>
 <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
+<div class="top" style="margin-top:14px"><h2 style="margin:0">Promotional campaigns</h2><button class="btn g" id="cnew" type="button">+ New promotional campaign</button></div>
+<div id="cban" class="ban"></div>
+<p class="note">One-off promotional texts to a group you choose. They go only to leads who agreed to promotional texts, only Monday to Saturday, 9 AM to 6 PM Eastern, never to a number that replied STOP, and each one ends with &ldquo;Reply STOP to opt out.&rdquo;</p>
+<div id="clist" style="display:flex;flex-direction:column;gap:10px"></div>
 <h2>Recent sends</h2>
 <div class="tbw"><table class="tb" id="log"></table></div>
 </main>
-<dialog id="adlg"></dialog>
+<dialog id="adlg"></dialog><dialog id="cdlg"></dialog>
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dlg=document.getElementById('adlg');let D=null;
@@ -2286,9 +2295,140 @@ function wire(){document.getElementById('ek').onchange=()=>{audience();EA.steps=
     const r=await fetch('/admin/automation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.success){er.textContent=j.message||'Could not save.';return}dlg.close();load()}}
 load();
+const CSTAT={draft:'Draft',scheduled:'Scheduled',sending:'Sending',sent:'Sent',canceled:'Canceled'};
+let CD=null,EC=null,confirmN=null;
+async function loadC(){try{const r=await fetch('/admin/campaigns/data');CD=await r.json();drawC()}catch(_){}}
+function fmtT(s){if(!s)return '';const d=new Date(String(s).replace(' ','T')+'Z');return d.toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' ET'}
+function drawC(){const l=document.getElementById('clist');
+  document.getElementById('cban').innerHTML=CD.opted?(CD.opted+' lead'+(CD.opted===1?'':'s')+' agreed to promotional texts.'):'<b>No leads have agreed to promotional texts yet.</b> Campaigns can be written and tested now, but they only send to leads who tick a separate promotions box. That box is coming next.';
+  l.innerHTML=CD.campaigns.map(c=>'<div class="card" data-cid="'+c.id+'"><div class="t"><b>'+$(c.name)+'</b><small><span class="pill">'+$(CSTAT[c.status]||c.status)+'</span>'+(c.status==='scheduled'?fmtT(c.send_at):c.status==='sent'||c.status==='sending'?c.sent+' sent'+(c.failed?', '+c.failed+' failed':''):'')+'</small></div>'+(c.status==='draft'||c.status==='scheduled'?'<button class="btn" data-cedit="'+c.id+'" type="button">Edit</button>':'')+(c.status==='scheduled'||c.status==='sending'?'<button class="btn r" data-ccancel="'+c.id+'" type="button">Cancel</button>':'')+'</div>').join('')||'<p class="note">No campaigns yet.</p>'}
+document.getElementById('clist').addEventListener('click',async e=>{const ed=e.target.closest('[data-cedit]');if(ed){editC(CD.campaigns.find(c=>c.id==ed.dataset.cedit));return}
+  const cn=e.target.closest('[data-ccancel]');if(cn){if(!confirm('Cancel this campaign? Texts already sent stay sent.'))return;await fetch('/admin/campaign/cancel',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+cn.dataset.ccancel})});loadC()}});
+document.getElementById('cnew').onclick=()=>editC({id:null,name:'',body:'Hi {first}, ',audience:{stages:[],services:[],days:90},status:'draft'});
+function editC(c){EC=JSON.parse(JSON.stringify(c));confirmN=null;const a=EC.audience||{},sv=(a.services&&a.services[0])||'';
+  const cd=document.getElementById('cdlg');
+  cd.innerHTML='<div class="rb"><h3>'+(EC.id?'Edit campaign':'New promotional campaign')+'</h3>'
+  +'<div><label>Name</label><input type="text" id="cn" maxlength="80" value="'+$(EC.name)+'"></div>'
+  +'<div><label>Message</label><textarea id="cb" rows="5" maxlength="600">'+$(EC.body)+'</textarea><div class="chips" style="margin-top:6px">'+FIELDS.filter(f=>f!=='appointment'&&f!=='review').map(f=>'<button type="button" data-cf="'+f+'">{'+f+'}</button>').join('')+'</div><div class="cnt" id="cc"></div><p class="note" style="margin:4px 0 0">&ldquo;Reply STOP to opt out.&rdquo; is added automatically if the message does not already say it.</p></div>'
+  +'<div><label>Preview</label><div class="prev" id="cp"></div></div>'
+  +'<div><label>Who gets it</label><div class="row">'+D.stages.map(s=>'<label class="chk"><input type="checkbox" class="cst" value="'+s[0]+'"'+((a.stages||[]).includes(s[0])?' checked':'')+'> '+$(s[1])+'</label>').join('')+'</div><p class="note" style="margin:4px 0 0">None ticked means every stage except Lost.</p></div>'
+  +'<div class="row"><div style="flex:1;min-width:150px"><label>Service</label><select id="csv"><option value="">Any service</option><option value="tint"'+(sv==='tint'?' selected':'')+'>Tint</option><option value="coat"'+(sv==='coat'?' selected':'')+'>Ceramic coating</option></select></div><div style="flex:1;min-width:150px"><label>Lead came in</label><select id="cdy">'+[[0,'Any time'],[30,'Last 30 days'],[90,'Last 90 days'],[180,'Last 6 months'],[365,'Last year']].map(x=>'<option value="'+x[0]+'"'+((+a.days||0)===x[0]?' selected':'')+'>'+x[1]+'</option>').join('')+'</select></div></div>'
+  +'<div class="row"><button type="button" class="btn" id="ccount">Count who will get it</button><span id="cres" class="note"></span></div>'
+  +'<div><label>When</label><label class="chk"><input type="radio" name="cm" value="draft" checked> Save as a draft</label><label class="chk"><input type="radio" name="cm" value="now"> Send now (Monday to Saturday, 9 AM to 6 PM Eastern; otherwise it starts at the next opening)</label><label class="chk"><input type="radio" name="cm" value="schedule"> Schedule it</label><input type="datetime-local" id="cat" style="margin-top:6px;display:none"></div>'
+  +'<div class="err" id="cer"></div><div class="acts"><button type="button" class="btn" id="ctest" style="margin-right:auto">Send a test to my phone</button><button type="button" class="btn" id="ccx">Cancel</button><button type="button" class="btn g" id="csave">Save</button></div></div>';
+  cwire();cupd();cd.showModal()}
+function caud(){const sv=document.getElementById('csv').value;return{stages:[].map.call(document.querySelectorAll('.cst:checked'),x=>x.value),services:sv?[sv]:[],days:+document.getElementById('cdy').value||0}}
+function cupd(){const t=document.getElementById('cb').value,n=t.length;document.getElementById('cc').textContent=n+' characters'+(n>160?' (about '+Math.ceil(n/153)+' text segments)':'');let p=sample(t);if(!/stop/i.test(p))p+='\\n\\nReply STOP to opt out.';document.getElementById('cp').textContent=p}
+function cwire(){const cd=document.getElementById('cdlg');
+  document.getElementById('ccx').onclick=()=>cd.close();
+  cd.addEventListener('click',e=>{const f=e.target.closest('[data-cf]');if(f){const ta=document.getElementById('cb'),t='{'+f.dataset.cf+'}',s=ta.selectionStart==null?ta.value.length:ta.selectionStart;ta.value=ta.value.slice(0,s)+t+ta.value.slice(ta.selectionEnd==null?s:ta.selectionEnd);ta.focus();ta.selectionStart=ta.selectionEnd=s+t.length;cupd()}});
+  document.getElementById('cb').oninput=cupd;
+  cd.querySelectorAll('input[name=cm]').forEach(r=>r.onchange=()=>{const m=cd.querySelector('input[name=cm]:checked').value;document.getElementById('cat').style.display=m==='schedule'?'':'none';document.getElementById('csave').textContent=m==='draft'?'Save':m==='now'?'Send now':'Schedule';confirmN=null});
+  document.getElementById('ccount').onclick=async()=>{const el=document.getElementById('cres');el.textContent='Counting...';const r=await fetch('/admin/campaigns/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({audience:caud()})});const j=await r.json().catch(()=>({}));el.textContent=j.success?(j.count?j.count+' lead'+(j.count===1?'':'s')+' will get it (for example '+j.sample.join(', ')+').':'Nobody yet: only leads who agreed to promotional texts are included.'):'Could not count.'};
+  document.getElementById('ctest').onclick=async()=>{const er=document.getElementById('cer');er.textContent='';const r=await fetch('/admin/campaign/test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({body:document.getElementById('cb').value})});const j=await r.json().catch(()=>({}));er.style.color=j.success?'#9fe29f':'#ff8a8a';er.textContent=j.success?'Test sent to your phone.':(j.message||'Could not send the test.')};
+  document.getElementById('csave').onclick=async()=>{const er=document.getElementById('cer');er.style.color='';er.textContent='';const m=cd.querySelector('input[name=cm]:checked').value;
+    if(m!=='draft'&&confirmN===null){const r=await fetch('/admin/campaigns/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({audience:caud()})});const j=await r.json().catch(()=>({}));confirmN=j.count||0;if(!confirmN){er.textContent='Nobody is eligible yet: only leads who agreed to promotional texts are included.';confirmN=null;return}document.getElementById('csave').textContent='Confirm: text '+confirmN+' lead'+(confirmN===1?'':'s');er.textContent='Press again to confirm. This sends real texts.';return}
+    const body={id:EC.id,name:document.getElementById('cn').value,body:document.getElementById('cb').value,audience:caud(),mode:m,send_at:document.getElementById('cat').value};
+    const r=await fetch('/admin/campaign',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.success){er.textContent=j.message||'Could not save.';confirmN=null;return}cd.close();loadC()}}
+loadC();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
+
+// ---- Promotional campaigns (blasts): one-off texts to a chosen group. They go ONLY to leads marked sms_marketing (separate promotions consent),
+// only Monday to Saturday 9 AM to 6 PM Eastern, never to a number that replied STOP, and every one ends with the opt-out line.
+async function campaignAudience(env, aud, limit = 5000) {
+  const a = aud || {};
+  const stages = (Array.isArray(a.stages) ? a.stages : []).filter(x => STAGE_KEYS.includes(x));
+  const useStages = stages.length ? stages : STAGE_KEYS.filter(x => x !== "lost");
+  const svc = (Array.isArray(a.services) ? a.services : []).map(x => String(x).toLowerCase().replace(/[%_]/g, "")).filter(Boolean).slice(0, 5);
+  const days = Number(a.days) > 0 ? Math.min(3650, Math.floor(Number(a.days))) : 0;
+  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.year, l.make, l.model FROM leads l
+      WHERE l.sms_marketing = 1 AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != ''
+        AND l.stage IN (${useStages.map(() => "?").join(",")})${days ? " AND l.created_at >= datetime('now', ?)" : ""}${svc.length ? " AND (" + svc.map(() => "LOWER(l.service) LIKE ?").join(" OR ") + ")" : ""}
+      ORDER BY l.id LIMIT ${limit}`).bind(...useStages, ...(days ? [`-${days} days`] : []), ...svc.map(x => "%" + x + "%")).all()).results || [];
+  const out = new Set(((await env.DB.prepare("SELECT phone FROM sms_optout").all()).results || []).map(x => x.phone));
+  const seen = new Set();
+  return rows.filter(r => { const d = last10(r.phone); if (d.length < 10 || out.has(d) || seen.has(d)) return false; seen.add(d); return true; });
+}
+const CAMPAIGN_TAIL = "Reply STOP to opt out.";
+async function runCampaigns(env) {
+  if (!env.DB || !autoMode(env) || !quietHoursOk(env)) return;
+  if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) return; // promotions only Monday to Saturday, 9 AM to 6 PM
+  await ensureTable(env.DB);
+  await env.DB.prepare("UPDATE campaigns SET status = 'sending' WHERE status = 'scheduled' AND send_at IS NOT NULL AND send_at <= datetime('now')").run();
+  const c = await env.DB.prepare("SELECT * FROM campaigns WHERE status = 'sending' ORDER BY id LIMIT 1").first();
+  if (!c) return;
+  let aud = {}; try { aud = JSON.parse(c.audience || "{}"); } catch (e) { /* all */ }
+  const people = await campaignAudience(env, aud);
+  const done = new Set(((await env.DB.prepare("SELECT lead_id FROM campaign_sends WHERE campaign_id = ?").bind(c.id).all()).results || []).map(x => x.lead_id));
+  const todo = people.filter(l => !done.has(l.id));
+  let n = 0;
+  for (const l of todo.slice(0, 20)) { // a steady trickle, well inside carrier throughput limits
+    const claim = await env.DB.prepare("INSERT OR IGNORE INTO campaign_sends (campaign_id, lead_id, status) VALUES (?,?,'sending')").bind(c.id, l.id).run();
+    if (!claim.meta || !claim.meta.changes) continue;
+    let body = renderAuto(c.body, l, env);
+    if (/\{\w+\}/.test(body)) { await env.DB.prepare("UPDATE campaign_sends SET status = 'skipped: unknown merge field' WHERE campaign_id = ? AND lead_id = ?").bind(c.id, l.id).run(); continue; }
+    if (!/stop/i.test(body)) body += "\n\n" + CAMPAIGN_TAIL;
+    const res = await sendLeadText(env, l, body, { auto: true, label: "Campaign: " + c.name }).catch(e => ({ ok: false, message: String((e && e.message) || e) }));
+    await env.DB.prepare("UPDATE campaign_sends SET status = ? WHERE campaign_id = ? AND lead_id = ?").bind(res.ok ? "sent" : "failed: " + String(res.message || "").slice(0, 80), c.id, l.id).run();
+    n++;
+  }
+  if (todo.length <= n) await env.DB.prepare("UPDATE campaigns SET status = 'sent', finished_at = datetime('now') WHERE id = ?").bind(c.id).run();
+}
+async function campaignsData(env) {
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare(`SELECT c.id, c.name, c.body, c.audience, c.status, c.send_at, c.created_at, c.finished_at,
+      (SELECT COUNT(*) FROM campaign_sends s WHERE s.campaign_id = c.id AND s.status = 'sent') sent,
+      (SELECT COUNT(*) FROM campaign_sends s WHERE s.campaign_id = c.id AND s.status LIKE 'failed%') failed
+    FROM campaigns c ORDER BY c.id DESC LIMIT 50`).all()).results || [];
+  const opted = ((await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE sms_marketing = 1 AND COALESCE(ip,'') != 'demo'").first()) || {}).n || 0;
+  return json({ success: true, opted, testPhone: !!env.AGENT_PHONE_BRONSON, campaigns: rows.map(r => { let aud = {}; try { aud = JSON.parse(r.audience || "{}"); } catch (e) { /* */ } return { ...r, audience: aud }; }) });
+}
+async function campaignPreview(env, b) {
+  await ensureTable(env.DB);
+  const people = await campaignAudience(env, b.audience);
+  return json({ success: true, count: people.length, sample: people.slice(0, 3).map(x => x.name || prettyPhone(x.phone)) });
+}
+async function saveCampaign(env, b) {
+  await ensureTable(env.DB);
+  const name = clean(b.name, 80), body = String(b.body || "").trim();
+  if (!name) return json({ success: false, message: "Give the campaign a name." }, 400);
+  if (!body) return json({ success: false, message: "Write the message." }, 400);
+  if (body.length > 600) return json({ success: false, message: "Keep the message under 600 characters." }, 400);
+  const bad = (body.match(/\{(\w+)\}/g) || []).map(x => x.slice(1, -1)).find(k => !AUTO_FIELDS.includes(k));
+  if (bad) return json({ success: false, message: `{${bad}} is not a merge field. Use: ${AUTO_FIELDS.map(x => "{" + x + "}").join(" ")}` }, 400);
+  const au = b.audience || {};
+  const audience = { stages: (Array.isArray(au.stages) ? au.stages : []).filter(x => STAGE_KEYS.includes(x)), services: (Array.isArray(au.services) ? au.services : []).map(x => clean(x, 40)).filter(Boolean).slice(0, 5), days: Math.max(0, Math.min(3650, Math.floor(Number(au.days)) || 0)) };
+  let id = Number.isInteger(b.id) ? b.id : null, status = "draft", sendAt = null;
+  if (id) { const cur = await env.DB.prepare("SELECT status FROM campaigns WHERE id = ?").bind(id).first(); if (!cur) id = null; else if (!["draft", "scheduled"].includes(cur.status)) return json({ success: false, message: "This campaign already started, so it can't be edited." }, 400); }
+  if (b.mode === "now" || b.mode === "schedule") {
+    if (!autoMode(env)) return json({ success: false, message: "Texting isn't switched on yet (Twilio keys and TEXT_AUTO), so a campaign can't be sent." }, 400);
+    if (!(await campaignAudience(env, audience, 1)).length) return json({ success: false, message: "Nobody is eligible yet: only leads who agreed to promotional texts are included." }, 400);
+    if (b.mode === "now") status = "sending";
+    else { const at = etLocalToUtc(b.send_at); if (!at || at.getTime() < Date.now() - 60000) return json({ success: false, message: "Pick a date and time in the future." }, 400); status = "scheduled"; sendAt = sqlUtc(at); }
+  }
+  if (id) await env.DB.prepare("UPDATE campaigns SET name = ?, body = ?, audience = ?, status = ?, send_at = ? WHERE id = ?").bind(name, body, JSON.stringify(audience), status, sendAt, id).run();
+  else { const ins = await env.DB.prepare("INSERT INTO campaigns (name, body, audience, status, send_at) VALUES (?,?,?,?,?)").bind(name, body, JSON.stringify(audience), status, sendAt).run(); id = ins.meta && ins.meta.last_row_id; }
+  return json({ success: true, id, status });
+}
+// a test goes only to the owner's own phone (AGENT_PHONE_BRONSON), never to a lead
+async function campaignTest(env, b) {
+  if (!twilioOn(env)) return json({ success: false, message: "Texting isn't connected yet. Add the Twilio keys in Cloudflare." }, 400);
+  if (!env.AGENT_PHONE_BRONSON) return json({ success: false, message: "Add AGENT_PHONE_BRONSON (your cell) in Cloudflare to receive test texts." }, 400);
+  let body = renderAuto(String(b.body || ""), { name: "Alex Rivera", service: "Window Tint", year: "2023", make: "Tesla", model: "Model Y", appt_at: "" }, env);
+  if (!body) return json({ success: false, message: "Write the message first." }, 400);
+  if (/\{\w+\}/.test(body)) return json({ success: false, message: "The message has a merge field that doesn't exist." }, 400);
+  if (!/stop/i.test(body)) body += "\n\n" + CAMPAIGN_TAIL;
+  const form = new URLSearchParams({ To: e164(env.AGENT_PHONE_BRONSON), Body: "TEST: " + body });
+  if (env.TWILIO_MESSAGING_SERVICE) form.set("MessagingServiceSid", env.TWILIO_MESSAGING_SERVICE); else form.set("From", env.TWILIO_FROM);
+  try {
+    const r = await fetch(`${env.TWILIO_API_BASE || "https://api.twilio.com"}/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, { method: "POST", headers: { authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_TOKEN}`), "content-type": "application/x-www-form-urlencoded" }, body: form.toString(), signal: AbortSignal.timeout(10000) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && j.sid ? json({ success: true }) : json({ success: false, message: String(j.message || "Twilio refused the test.").slice(0, 160) }, 502);
+  } catch (e) { return json({ success: false, message: "Could not reach Twilio." }, 502); }
+}
 // ---- Urable bookings on the calendar: jobs and calendar events straight from Urable, including ones made there and not in the CRM
 let urableCal = { at: 0, items: [] };
 const etLocal = ms => {
@@ -2465,6 +2605,7 @@ export default {
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
     ctx.waitUntil(runQueue(env).catch(e => console.error("queue error", e && e.message)));
     ctx.waitUntil((autoMode(env) ? runAutomations(env) : remindTexts(env)).catch(e => console.error("text automation error", e && e.message)));
+    ctx.waitUntil(runCampaigns(env).catch(e => console.error("campaign error", e && e.message)));
     ctx.waitUntil(dialSessionReminder(env).catch(e => console.error("dial session error", e && e.message)));
     ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
@@ -2505,7 +2646,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/automations/data" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -3156,6 +3297,17 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
+  if (p === "/admin/campaigns/data" && request.method === "GET") return a === OWNER ? campaignsData(env) : json({ success: false }, 403);
+  if (p === "/admin/campaigns/preview" && request.method === "POST") return a === OWNER ? campaignPreview(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
+  if (p === "/admin/campaign" && request.method === "POST") return a === OWNER ? saveCampaign(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
+  if (p === "/admin/campaign/test" && request.method === "POST") return a === OWNER ? campaignTest(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
+  if (p === "/admin/campaign/cancel" && request.method === "POST") {
+    if (a !== OWNER) return json({ success: false }, 403);
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    await env.DB.prepare("UPDATE campaigns SET status = 'canceled' WHERE id = ? AND status IN ('scheduled','sending','draft')").bind(b.id).run();
+    return json({ success: true });
+  }
   if (p === "/admin/automation/delete" && request.method === "POST") {
     if (a !== OWNER) return json({ success: false }, 403);
     const b = await request.json().catch(() => ({}));
