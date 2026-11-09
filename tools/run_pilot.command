@@ -11,11 +11,12 @@ count=$(ls audio 2>/dev/null | grep -ciE '\.(wav|mp3|m4a|mp4|ogg|flac|aac|webm)$
 if [ "$count" -eq 0 ]; then
   echo "The audio folder is empty. Put your call recordings in:"; echo "  $(pwd)/audio"; open audio; read -r -p "Then run this again. Press Enter to close."; exit 0
 fi
-echo "Found $count recordings. The first 30 will be processed (the rest later)."
+python3 call_miner.py plan audio
+echo "Found $count recordings. Processing ${1:-30} now (pass a bigger number to do more)."
 if [ -z "$DEEPGRAM_API_KEY" ]; then read -r -s -p "Paste your Deepgram key, press Enter (nothing will show as you paste): " DEEPGRAM_API_KEY; echo; fi
 if [ -z "$ANTHROPIC_API_KEY" ]; then read -r -s -p "Paste your Anthropic key, press Enter: " ANTHROPIC_API_KEY; echo; fi
 export DEEPGRAM_API_KEY ANTHROPIC_API_KEY
-python3 call_miner.py run audio --limit "${1:-30}"
+python3 call_miner.py run audio --limit "${1:-30}" --jobs 3
 echo
 echo "Done. Your results are in the out folder. Start with lessons.md and calls.csv."
 open out 2>/dev/null
