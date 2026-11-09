@@ -2743,6 +2743,10 @@ main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
 .ic{display:inline-block;width:18px;height:18px;vertical-align:-4px;margin-right:6px}.ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .rec{display:none}.brk{display:none}.brief,.nl{display:none}#stabs{display:none!important}
+#script,.gs,.rcol,.center,.panel{min-width:0;max-width:100%}.gs{overflow-x:clip}
+.gbar{position:sticky;top:0;z-index:4;background:#0d1116;padding:6px 0 8px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #1b2128}.gline{display:flex;gap:6px;overflow-x:auto;white-space:nowrap}.gline .gpb{flex:none}.gpb.red{background:#2b1b1c;border-color:#6a3633;color:#f2918a}.gpb.now{margin-left:auto;border-color:#32cd32;color:#32cd32}.gpb.here{border-color:#32cd32;color:#e8eaed}
+.gsh{margin:12px 0 0;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#32cd32;scroll-margin-top:96px}
+.gstep{background:#0b0f13;border:1px solid #1b2128;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;scroll-margin-top:96px}.gstep.cur{border-color:#32cd32;box-shadow:0 0 0 1px #32cd32}.gck{display:none;color:#32cd32;font-size:12px;font-weight:800}.gstep.done .gck{display:inline}.gstep .ghd b{font-size:15px}
 .gmap{display:flex;flex-direction:column;gap:5px}.gph{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.gpl{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d;width:70px;flex:none}
 .gpb{border:1px solid #2a313a;background:#12171e;color:#aab0b9;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.gpb.here{border-color:#32cd32;color:#e8eaed}.gpb.on{background:#e8eaed;border-color:#e8eaed;color:#07090c}.gpb.done:not(.on)::after{content:' \\2713';color:#32cd32}
 .gobjs{flex-wrap:nowrap!important;overflow-x:auto;white-space:nowrap;padding-bottom:4px}.gobjs button{flex:none}
@@ -3026,17 +3030,29 @@ function gAnalyze(who,text){
   m=t.match(/(sides? (and|&) (the )?(back|rear)|whole car|all (the )?windows|windshield|front (two |2 )?windows|just the front)/);if(m)F.windows=m[1].replace(/\\band\\b/,'&');
   m=t.match(/\\b(asap|right away|today|tomorrow|this week|next week|this weekend|the weekend|couple (of )?weeks?|few days)\\b/);if(m)F.time=m[1];
   m=t.match(/\\b(black|white|silver|gr[ae]y|red|blue|green|gold|orange|yellow|brown|maroon|burgundy|beige|tan|charcoal|pearl)\\b/);if(m)F.color=m[1];
-  gSoon()}
+  const sig=JSON.stringify(F);if(sig!==gSig){gSig=sig;gSoon()}gMark(false)}
+let gSig='';
 const gScript=()=>{const l=Q[ix],s=l&&gsvc(l);return s&&GS[s]?GS[s]:null};
-let gT=0;function gSoon(){clearTimeout(gT);gT=setTimeout(()=>{const a=document.activeElement;if(a&&a.classList&&a.classList.contains('phin'))return;if(!el('script').hidden)drawScript()},250)}
+let gT=0,gUserAt=0;function gSoon(){clearTimeout(gT);gT=setTimeout(()=>{const a=document.activeElement;if(a&&a.classList&&a.classList.contains('phin'))return;if(!el('script').hidden)gFull()},250)}
+function gFull(){const r=el('rcol'),top=r?r.scrollTop:0,wy=window.scrollY;drawScript();if(r)r.scrollTop=top;window.scrollTo(0,wy)}
+['wheel','touchmove'].forEach(ev=>document.addEventListener(ev,()=>{gUserAt=Date.now()},{passive:true}));
+// light update: current step, covered ticks, pulsing pushback chip. Scrolls to the current step unless you scrolled yourself in the last few seconds
+function gScrollTo(e){if(!e)return;const r=el('rcol'),bar=document.querySelector('#script .gbar'),bh=(bar?bar.offsetHeight:0)+6,t=e.getBoundingClientRect();
+  if(r&&getComputedStyle(r).overflowY==='auto'&&r.scrollHeight>r.clientHeight+2)r.scrollTo({top:r.scrollTop+t.top-r.getBoundingClientRect().top-bh,behavior:'smooth'});
+  else window.scrollTo({top:window.scrollY+t.top-bh,behavior:'smooth'})}
+function gMark(scroll){const sc=gScript();if(!sc||el('script').hidden)return;gCov();
+  sc.steps.forEach((s,i)=>{const e=document.getElementById('gs-'+s.id);if(!e)return;e.classList.toggle('cur',i===gi);e.classList.toggle('done',!!COV[s.id])});
+  document.querySelectorAll('#script .gobjs button').forEach(b=>b.classList.toggle('hot',b.dataset.p===gHot&&Date.now()-gHotAt<45000));
+  const ph=sc.steps[gi]&&sc.steps[gi].phase;document.querySelectorAll('#script .gline [data-a]').forEach(b=>b.classList.toggle('here',b.dataset.a==='gp-'+ph));
+  if(scroll&&Date.now()-gUserAt>5000){const e=sc.steps[gi]&&document.getElementById('gs-'+sc.steps[gi].id);if(e)gScrollTo(e)}}
 // objections the lead just raised light up their playbook
 const OBJRX=[['p-expensive',/(too (much|expensive)|expensive|that.?s a lot|can.?t afford|too pricey)/],['p-wife',/(my wife|my husband|my girlfriend|talk to my)/],['p-think',/(think about it|let me think|need to think)/],['p-text',/(text (it|me)|send (it|me)|email (it|me))/],['p-calendar',/(my (calendar|schedule)|check my|i.?m driving)/],['p-shop',/(shopping around|other (quotes|shops)|more quotes|compar)/],['p-catch',/(what.?s the catch|too good|why so cheap)/],['a-price',/(how much|what.?s the price|price)/],['a-location',/(where are you|too far|how far|located)/],['a-booked',/(already (booked|got|did|have)|someone else)/],['a-scratch',/(scratch proof|stop scratch|rock chip)/],['a-wax',/(i wax|waxing|i just wax)/]];
-function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||'').toLowerCase();for(const [id,rx] of OBJRX){if(rx.test(t)&&sc.plays.some(p=>p.id===id||(id==='p-expensive'&&p.id==='p-shop'))){gHot=sc.plays.some(p=>p.id===id)?id:'p-shop';gHotAt=Date.now();gSoon();return}}}
+function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||'').toLowerCase();for(const [id,rx] of OBJRX){if(rx.test(t)&&sc.plays.some(p=>p.id===id||(id==='p-expensive'&&p.id==='p-shop'))){gHot=sc.plays.some(p=>p.id===id)?id:'p-shop';gHotAt=Date.now();gMark(false);return}}}
 // follow the rep: when what they just said matches the next step, move to it
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
-function gFollow(text){const sc=gScript();if(!sc||gPlay)return;const w=words(text);if(w.length<4)return;let best=-1,bs=0;
+function gFollow(text){const sc=gScript();if(!sc)return;const w=words(text);if(w.length<4)return;let best=-1,bs=0;
   sc.steps.forEach((s,i)=>{const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps[0]&&s.main[0].ps[0].t;if(!p||!s.n)return;const set=new Set(words(p)),hit=w.filter(x=>set.has(x)).length,r=hit/Math.min(w.length,14);if(hit>=4&&r>=0.5&&r>bs){bs=r;best=i}});
-  if(best>=0){COV[sc.steps[best].id]=1;if(best!==gi){gi=best;gOpenPh=''}gSoon()}}
+  if(best>=0){COV[sc.steps[best].id]=1;if(best!==gi)gi=best;gMark(true)}}
 const TOPIC={tint:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle',s07:'Windows',s08:'Current tint',s09:'Main goal',s10:'Darkness',s11:'Other shops',s12:'Recap',s13:'Process',s14:'Questions',s15:'Why us',s16:'Questions',s17:'Timing',s18:'Price',s19:'Book the day',s20:'Contact info',s21:'Deposit',s22:'Referral',s23:'Wrap up'},
  coating:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle & color',s07:'Paint condition',s08:'What they know',s09:'Storage & washing',s10:'How long keeping',s11:'Past coatings',s12:'Recap',s13:'The prep',s14:'Questions',s15:'The coating',s16:'Questions',s17:'Free add ons',s18:'Timing',s19:'Price',s20:'Book the day',s21:'Contact info',s22:'Deposit',s23:'Wrap up'}};
 let COV={},gOpenPh='';
@@ -3073,25 +3089,27 @@ function gStepHtml(s,l,svc){let m=s.main;
   // the lead form already gave us the vehicle, so confirm it instead of asking
   if(s.id==='s06'&&vehOf(l)){m=JSON.parse(JSON.stringify(s.main));const p=m[0]&&m[0].ps&&m[0].ps[0];if(p){p.t=svc==='coating'?'Fantastic, just to confirm, I have you down for a [[YEAR MAKE MODEL]], is that right? ... & what color is the paint?':'Fantastic, just to confirm, I have you down for a [[YEAR MAKE MODEL]], is that right?'}}
   return m.map(x=>gnode(x,l,svc)).join('')+gSide(s.side,l,svc)+(s.examples&&s.examples.length?'<details class="gside gex"><summary>Examples of how it sounds (do not read)</summary>'+s.examples.map(x=>gnode(x,l,svc)).join('')+'</details>':'')}
-function gRender(){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc=gsvc(l);
-  const objs=sc.plays;
-  gCov();let h='<div class="gs">'+gMap(sc,svc)
-   +'<div class="gobjs"><span class="gol">Pushback</span>'+objs.map(p=>'<button type="button" data-p="'+$(p.id)+'" class="'+(gPlay===p.id?'on ':'')+(gHot===p.id&&Date.now()-gHotAt<45000?'hot':'')+'">'+$(SHORT[p.id]||p.title.replace(/[“”"]/g,''))+'</button>').join('')+'</div>';
-  if(gPlay){const p=sc.plays.find(x=>x.id===gPlay);
-    h+='<div class="gcard"><div class="ghd"><b>'+$(p?p.title:'')+'</b><button type="button" class="gback" data-back="1">Back to step '+$((sc.steps[gi]&&sc.steps[gi].n)||'')+'</button></div>'+(p?p.nodes.map(x=>gnode(x,l,svc)).join(''):'')+'</div>'}
-  else{const s=sc.steps[gi];if(s){h+='<div class="gcard"><div class="ghd"><b>'+(s.n?$(s.n)+' &middot; '+$(topicOf(svc,s)):'Coach')+'</b><span class="note">'+(COV[s.id]?'covered':'')+'</span></div>'+gStepHtml(s,l,svc)+'</div>'}
-    h+='<div class="gnav"><button type="button" class="btn sm" data-g="-1"'+(gi<=0?' disabled':'')+'>&larr; Back</button><span class="note">'+(gi+1)+' of '+sc.steps.length+'</span><button type="button" class="btn g sm" data-g="1"'+(gi>=sc.steps.length-1?' disabled':'')+'>Next &rarr;</button></div>'}
+function gRender(){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc=gsvc(l);gCov();
+  const pushes=sc.plays.filter(p=>p.id!=='followup');
+  let h='<div class="gs"><div class="gbar"><div class="gline">'+sc.phases.map(p=>'<button type="button" data-a="gp-'+$(p.id)+'" class="gpb">'+$(p.name)+'</button>').join('')+'<button type="button" data-a="gp-push" class="gpb red">Pushback</button><button type="button" data-a="gp-follow" class="gpb">Follow up</button><button type="button" data-a="now" class="gpb now">&#9679; Now</button></div>'
+   +'<div class="gobjs">'+pushes.map(p=>'<button type="button" data-p="'+$(p.id)+'" class="'+(gHot===p.id&&Date.now()-gHotAt<45000?'hot':'')+'">'+$(SHORT[p.id]||p.title.replace(/[“”"]/g,''))+'</button>').join('')+'</div></div>';
+  let lastPh='';
+  sc.steps.forEach((st,i)=>{if(st.phase&&st.phase!==lastPh){lastPh=st.phase;const ph=sc.phases.find(x=>x.id===st.phase);h+='<h4 class="gsh" id="gp-'+$(st.phase)+'">'+$(ph?ph.name:'')+'</h4>'}
+    h+='<section class="gstep'+(i===gi?' cur':'')+(COV[st.id]?' done':'')+'" id="gs-'+$(st.id)+'" data-i="'+i+'"><div class="ghd"><b>'+(st.n?$(st.n)+' &middot; '+$(topicOf(svc,st)):'Coach')+'</b><span class="gck">&#10003; covered</span></div>'+gStepHtml(st,l,svc)+'</section>'});
+  let grp='',first=true;
+  sc.plays.forEach(p=>{if(p.group!==grp){grp=p.group;const id=p.id==='followup'?'gp-follow':(first?'gp-push':'');if(p.id!=='followup')first=false;h+='<h4 class="gsh"'+(id?' id="'+id+'"':'')+'>'+$(p.id==='followup'?'Follow up':'Pushback &middot; '+p.group)+'</h4>'}
+    h+='<section class="gstep gplay" id="gx-'+$(p.id)+'"><div class="ghd"><b>'+$(p.title)+'</b><button type="button" class="gback" data-a="now">Back to step</button></div>'+p.nodes.map(x=>gnode(x,l,svc)).join('')+'</section>'});
   el('script').innerHTML=h+'</div>';return true}
-function gJump(to){const sc=gScript();if(!sc)return;const p=sc.plays.find(x=>x.id===to);if(p){gPlay=to;gHot='';drawScript();return}const i=sc.steps.findIndex(x=>x.id===to);if(i>=0){gi=i;gPlay=null;drawScript()}}
+const gGo=id=>{const e=document.getElementById(id);if(e){gUserAt=Date.now();gScrollTo(e)}};
+function gJump(to){const sc=gScript();if(!sc)return;if(sc.plays.some(x=>x.id===to)){gGo('gx-'+to);return}const i=sc.steps.findIndex(x=>x.id===to);if(i>=0){gi=i;gMark(false);gGo('gs-'+to)}}
 // script panel click handling
-el('script').addEventListener('click',e=>{const t=e.target.closest('button,.ph');if(!t)return;const sc=gScript();
-  if(t.classList.contains('ph')&&t.dataset.e){const k=t.dataset.e,cur=t.classList.contains('ok')?t.textContent:'';const inp=document.createElement('input');inp.className='phin';inp.value=cur;inp.placeholder=t.textContent;t.replaceWith(inp);inp.focus();inp.select();const done=()=>{const v=inp.value.trim();if(v)OVR[k]=v;else delete OVR[k];drawScript()};inp.onkeydown=ev=>{if(ev.key==='Enter')done();if(ev.key==='Escape'){inp.value=cur;done()}};inp.onblur=done;return}
+el('script').addEventListener('click',e=>{const t=e.target.closest('button,.ph');const sc=gScript();
+  if(!t){const st=e.target.closest('.gstep:not(.gplay)');if(st&&sc&&!e.target.closest('summary')){gi=Number(st.dataset.i);gMark(false)}return}
+  if(t.classList.contains('ph')&&t.dataset.e){const k=t.dataset.e,cur=t.classList.contains('ok')?t.textContent:'';const inp=document.createElement('input');inp.className='phin';inp.value=cur;inp.placeholder=t.textContent;t.replaceWith(inp);inp.focus();inp.select();const done=()=>{const v=inp.value.trim();if(v)OVR[k]=v;else delete OVR[k];gFull()};inp.onkeydown=ev=>{if(ev.key==='Enter')done();if(ev.key==='Escape'){inp.value=cur;done()}};inp.onblur=done;return}
   if(!sc)return;
-  if(t.dataset.g){gi=Math.max(0,Math.min(sc.steps.length-1,gi+Number(t.dataset.g)));gPlay=null;gOpenPh='';drawScript();return}
-  if(t.dataset.s){gi=Number(t.dataset.s);gPlay=null;gOpenPh='';drawScript();return}
-  if(t.dataset.ph){gOpenPh=t.dataset.ph;drawScript();return}
-  if(t.dataset.p){gPlay=gPlay===t.dataset.p?null:t.dataset.p;gHot='';drawScript();return}
-  if(t.dataset.back){gPlay=null;drawScript();return}
+  if(t.dataset.a==='now'){const c=sc.steps[gi];if(c)gGo('gs-'+c.id);return}
+  if(t.dataset.a){gGo(t.dataset.a);return}
+  if(t.dataset.p){gHot='';gMark(false);gGo('gx-'+t.dataset.p);return}
   if(t.dataset.j){gJump(t.dataset.j)}});
 function briefLines(l){const svc=gsvc(l),sc=svc&&GS[svc];if(!sc)return null;
   const say=s=>{const p=s&&s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);return p?gplain(p.t,l,svc):''};
