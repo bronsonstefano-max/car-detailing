@@ -381,13 +381,26 @@ def cmd_mine(a):
 
 
 # ------------------------------------------------------------------ report
+def fingerprint(c):
+    ts = c.get("turns") or []
+    head = " ".join(t.get("text", "") for t in ts[:6]).lower()
+    head = re.sub(r"[^a-z0-9]+", " ", head).strip()[:160]
+    return (head, int((g(c, "stats", "duration_sec", default=0) or 0) / 4))
+
+
 def load_mined(out):
-    calls = []
+    """All analyzed calls, with duplicate recordings (the same call saved twice) counted once."""
+    calls, seen = [], set()
     for f in sorted(glob.glob(os.path.join(out, "mined", "*.json"))):
         try:
-            calls.append(json.load(open(f)))
+            c = json.load(open(f))
         except Exception:
-            pass
+            continue
+        fp = fingerprint(c)
+        if fp[0] and fp in seen:
+            continue
+        seen.add(fp)
+        calls.append(c)
     return calls
 
 
@@ -413,6 +426,15 @@ def won(c):
 def agent_key(c):
     n = str(g(c, "meta", "agent_name", default="") or "").strip().split(" ")[0].lower()
     return n.capitalize() if n and n not in ("none", "null", "unknown") else "Unknown"
+
+
+SHOP_FACTS = re.compile(r"jack.?s auto customs|jax auto customs|jacksonville|georgia|amco|walgreens|o.?reilly|hitek|hypex|xpel|llumar|ethos|square|halloween|\\$\\s?\\d[\\d,\\.]*|\\b\\d{3,4}\\s?(?:dollars|bucks)\\b", re.I)
+
+
+def mask(text):
+    t = re.sub(r"jack.?s auto customs|jax auto customs", "{shop}", text, flags=re.I)
+    t = re.sub(r"\\$\\s?\\d[\\d,\\.]*", "{amount}", t)
+    return t
 
 
 def build_library(c):
@@ -442,6 +464,7 @@ def build_library(c):
                     "result": g(c, "outcome", "result"), "won": won(c), "t": t.get("t"), "kind": t.get("kind"), "topic": t.get("topic"), "phase": t.get("phase"), "script_step": t.get("script_step"),
                     "lead_said": t.get("text"), "context_before": [{"role": x["role"], "text": x["text"]} for x in turns[max(0, k - 3):k]],
                     "rep_response": " ".join(r["text"] for r in reps), "rep_response_turns": [r["i"] for r in reps], "response_t": reps[0].get("t"),
+                    "has_shop_facts": bool(SHOP_FACTS.search(" ".join(r["text"] for r in reps) + " " + str(better or ""))),
                     "quality": round(sum(q) / len(q), 1) if q else None, "better_answer": better})
     return out
 
@@ -481,11 +504,28 @@ def cmd_report(a):
     write_csv(os.path.join(a.out, "knowledge.csv"), kn, ["call", "agent", "service", "topic", "claim", "said_by", "vs_script", "note"])
     json.dump(mom, open(os.path.join(a.out, "moments.json"), "w"), ensure_ascii=False, indent=1)
     write_csv(os.path.join(a.out, "turns_all.csv"), trows, ["call", "agent", "client", "service", "result", "i", "t", "end", "role", "spk", "kind", "topic", "phase", "script_step", "needs_response", "answers_turn", "answered_by", "quality", "text"])
+    lib_all = lib
+    # the working library: real exchanges only (not "ok / awesome" back and forth), no repeats of the same reply, rated 3 or better
+    best = {}
+    for r in lib_all:
+        if len(str(r["lead_said"]).split()) < 4 or len(str(r["rep_response"]).split()) < 6 or (r.get("quality") or 0) < 3:
+            continue
+        if (r.get("topic") or "other") == "other" and r.get("kind") not in ("question", "objection", "buying_signal"):
+            continue
+        k = re.sub(r"[^a-z0-9]+", " ", str(r["rep_response"]).lower())[:120]
+        if k not in best or (r["quality"] or 0) > (best[k]["quality"] or 0):
+            best[k] = r
+    lib = sorted(best.values(), key=lambda r: (str(r.get("topic")), -(r["quality"] or 0)))
+    for r in lib:
+        r["rep_response_masked"] = mask(r["rep_response"])
     with open(os.path.join(a.out, "response_library.jsonl"), "w") as fh:
         for r in lib:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    with open(os.path.join(a.out, "response_library_all.jsonl"), "w") as fh:
+        for r in lib_all:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
     write_csv(os.path.join(a.out, "response_library.csv"), [dict(r, context_before=" | ".join("%s: %s" % (x["role"], x["text"]) for x in r["context_before"])) for r in lib],
-              ["id", "call", "agent", "client", "service", "result", "won", "t", "kind", "topic", "phase", "script_step", "lead_said", "context_before", "rep_response", "response_t", "quality", "better_answer"])
+              ["id", "call", "agent", "client", "service", "result", "won", "t", "kind", "topic", "phase", "script_step", "lead_said", "context_before", "rep_response", "rep_response_masked", "has_shop_facts", "response_t", "quality", "better_answer"])
     # a readable playbook: the best real answers to each topic, from calls that booked first
     by_topic = collections.defaultdict(list)
     for r in lib:
@@ -539,7 +579,8 @@ def cmd_report(a):
     tc = collections.Counter(m.get("topic") for m in mom)
     print("Questions and pushback by topic: " + ", ".join("%s %d" % (t, n) for t, n in tc.most_common(8)))
     print("Off-script moments: %d (%d marked worth keeping). Pivotal moments: %d. Product claims to verify: %d" % (len(dev), len([d for d in dev if d.get("keep_this")]), len(piv), len([k for k in kn if k.get("vs_script") != "matches"])))
-    print("Full logs: %d turns across %d calls; %d lead statements linked to the rep's answer (response_library)." % (len(trows), len(calls), len(lib)))
+    print("Full logs: %d turns across %d unique calls; %d lead statements linked to the rep's answer, %d kept in the working library (substantive, rated 3+, no repeats)." % (len(trows), len(calls), len(lib_all), len(lib)))
+    print("  %d of those mention shop-specific facts (names, prices, brands, places). Do not let the coach learn those facts from other shops' calls." % len([r for r in lib if r.get("has_shop_facts")]))
     print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv turns_all.csv response_library.csv response_playbook.md services.csv" % a.out)
 
 
