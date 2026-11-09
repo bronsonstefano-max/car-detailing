@@ -2597,6 +2597,40 @@ async function dialerLead(env, id) {
   };
   return json({ success: true, lead: { ...lead, created_at: isoUtc(lead.created_at) }, facts, calls, texts: msgs.reverse().map(m => ({ ...m, at: isoUtc(m.at) })), notes, activity });
 }
+const SCRIPT_SVCS = ["tint", "coating"];
+// the guided call scripts are private: owner only, stored in the database, never part of the website or this code
+async function dialerScriptGet(env, svc) {
+  await ensureTable(env.DB);
+  if (!SCRIPT_SVCS.includes(svc)) return json({ success: false }, 400);
+  const r = await env.DB.prepare("SELECT v FROM dial_settings WHERE k = ?").bind("script_" + svc).first();
+  let script = null; try { script = r && r.v ? JSON.parse(r.v) : null; } catch (_) {}
+  return json({ success: true, script });
+}
+async function dialerScriptSave(env, b) {
+  await ensureTable(env.DB);
+  if (!SCRIPT_SVCS.includes(b.svc)) return json({ success: false, message: "Unknown script." }, 400);
+  const s = b.script, txt = JSON.stringify(s || null);
+  if (!s || typeof s !== "object" || s.v !== 1 || !Array.isArray(s.steps) || !s.steps.length || s.steps.length > 120 || !Array.isArray(s.plays) || !Array.isArray(s.phases) || txt.length > 400000) return json({ success: false, message: "That is not a script file this dialer understands." }, 400);
+  await env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind("script_" + b.svc, txt).run();
+  return json({ success: true });
+}
+const OFFER_KEYS = ["rep", "shop", "address", "area", "special", "specialEnd", "tintPrice", "tintDeposit", "tintFloor", "coatPrice", "coatReg", "coatDeposit", "coatYears"];
+async function dialerOfferGet(env) {
+  await ensureTable(env.DB);
+  const r = await env.DB.prepare("SELECT v FROM dial_settings WHERE k = 'offer'").first();
+  let offer = {}; try { offer = r && r.v ? JSON.parse(r.v) : {}; } catch (_) {}
+  return json({ success: true, offer });
+}
+async function dialerOfferSave(env, b) {
+  await ensureTable(env.DB);
+  const o = b.offer && typeof b.offer === "object" ? b.offer : null;
+  if (!o) return json({ success: false }, 400);
+  const out = {};
+  for (const k of OFFER_KEYS) out[k] = String(o[k] == null ? "" : o[k]).trim().slice(0, 200);
+  out.swaps = (Array.isArray(o.swaps) ? o.swaps : []).slice(0, 40).map(x => ({ f: String((x && x.f) || "").slice(0, 200), t: String((x && x.t) || "").slice(0, 400) })).filter(x => x.f);
+  await env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES ('offer', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(JSON.stringify(out)).run();
+  return json({ success: true });
+}
 async function dialerNote(env, b, user) {
   await ensureTable(env.DB);
   const text = String(b.text || "").trim().slice(0, 1000);
@@ -2708,7 +2742,21 @@ main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex
 #trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
 .ic{display:inline-block;width:18px;height:18px;vertical-align:-4px;margin-right:6px}.ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.rec{display:none}.brk{display:none}.brief,.nl{display:none}
+.rec{display:none}.brk{display:none}.brief,.nl{display:none}#stabs{display:none!important}
+.gs{display:flex;flex-direction:column;gap:10px}.gphases,.gobjs{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.gphases button,.gobjs button{border:1px solid #2a313a;background:#12171e;color:#aab0b9;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.gphases button.on{background:#32cd32;border-color:#32cd32;color:#04120a}
+.gobjs button{background:#2b1b1c;border-color:#6a3633;color:#f2918a}.gobjs button.on{background:#f2918a;color:#2b1b1c}.gobjs button.hot{animation:pls 1s ease-in-out infinite;box-shadow:0 0 0 3px rgba(242,145,138,.35)}.gol{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d}
+.gcard{background:#0b0f13;border:1px solid #1b2128;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}.ghd{display:flex;gap:10px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}.ghd b{font-size:15px}.gback{border:1px solid #2a313a;background:#12171e;color:#e8eaed;border-radius:999px;padding:4px 12px;font:inherit;font-size:12.5px;cursor:pointer}
+.gn{border-radius:12px;padding:10px 13px;border:1px solid #1b2128;background:#10161b}.gn p{margin:0;font-size:16px;line-height:1.5}.gn p+p{margin-top:8px}.gt{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d;margin-bottom:4px}
+.gn.obj{background:#2b1b1c;border-color:#6a3633}.gn.obj p{font-weight:700}.gn.obj .gt{color:#f2918a}.gn.resp{background:#122925;border-color:#2a5f57}.gn.resp .gt{color:#6fd2c3}.gn.probe{border:2px solid #3d5680}.gn.probe .gt{color:#8fb1ea}.gn.coach{background:#282114;border:1px dashed #6b5527}.gn.coach .gt,.gnote{color:#e7bd66}.gn.ex{background:transparent;border:1px dashed #344252;color:#94a1b0}.gn.router .glinks{flex-direction:column;align-items:stretch}
+.gnote{font-size:14px!important;border-top:1px dashed #6b5527;padding-top:7px}.gnote b{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;margin-right:6px}.gsub{display:block;font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d;margin-bottom:2px}
+.glist{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:8px}.glist li{font-size:15.5px}.glist b{display:block;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d}
+.gchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.gchips span{border:1px solid #344252;border-radius:999px;padding:2px 10px;font-size:13px;color:#aab0b9}.gaddr{font-weight:700}
+.glinks{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.gjump{border:1px solid #2a5f57;background:#0b1a16;color:#6fd2c3;border-radius:999px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer}.gjump.ob{border-color:#6a3633;color:#f2918a;background:#2b1b1c}.gjump.fu{border-color:#3d5680;color:#8fb1ea;background:#0f1b2c}.gn.router .gjump{border-radius:10px;text-align:left;font-weight:700}
+.gcond{align-self:flex-start;font-size:12.5px;color:#94a1b0;background:#12171e;border:1px solid #2a313a;border-radius:8px;padding:3px 10px}.gcond b{color:#e8eaed}.gout{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.gopt{display:flex;flex-direction:column;gap:8px;min-width:0}
+.gside{border:1px solid #1b2128;border-radius:12px;padding:8px 12px}.gside summary{cursor:pointer;font-size:13.5px;color:#f2918a;font-weight:700}.gside>.gn,.gside>.gcond,.gside>.gjump,.gside>.gout{margin-top:8px}.gex summary{color:#94a1b0}
+.gnav{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ph{background:#1e2c42;color:#b5c9ee;border-radius:5px;padding:0 6px;font-weight:700;cursor:pointer}.ph.ok{background:#122925;color:#6fd2c3}.ph.un{background:#282114;color:#e7bd66;border:1px dashed #6b5527}.phin{background:#12171e;border:1px solid #32cd32;color:#fff;border-radius:6px;padding:2px 8px;font:inherit;width:11em}
+.gform{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
 .inf{display:flex;flex-direction:column;gap:12px;font-size:14.5px}.inf[hidden]{display:none!important}.itabs{display:flex;gap:6px;flex-wrap:wrap}.itabs button{border:1px solid #2a313a;background:#12171e;color:#aab0b9;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.itabs button.on{background:#e8eaed;border-color:#e8eaed;color:#07090c}.itabs small{opacity:.7;margin-left:4px}
 .fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}.fg div{background:#0b0f13;border:1px solid #1b2128;border-radius:12px;padding:9px 12px;min-width:0}.fg small{display:block;font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#7c838d}.fg b{display:block;font-size:15px;overflow-wrap:anywhere}
 .warnb{background:#2a1414;border:1px solid #5a2323;color:#ffb3b3;border-radius:12px;padding:9px 12px;font-size:13.5px}
@@ -2765,7 +2813,7 @@ ${BNAV_CSS}
 ${bnav("dialer", tc, true)}
 <main id="mainv" class="m-idle">
 <div id="setup" class="ban" hidden></div>
-<div class="bar" id="topbar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span id="nextline" class="nl"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
+<div class="bar" id="topbar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span id="nextline" class="nl"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="gcb" type="button">Guided scripts</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
 <div id="newb" class="newb" hidden></div>
 <div class="center">
 <section id="brief" class="brief"></section>
@@ -2784,7 +2832,7 @@ ${bnav("dialer", tc, true)}
 <div class="rcol" id="rcol"><div class="panel"><div class="bar"><div class="tabs" id="mtabs"><button type="button" data-m="script" class="on">Script</button><button type="button" data-m="info">Lead info</button></div><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div><div id="info" class="inf" hidden></div></div></div>
 <aside class="rail panel q"><h3 style="margin:0">Up next</h3><div class="rs" id="rs"></div><div id="q"></div></aside>
 </main>
-<dialog id="vdlg"></dialog><dialog id="sdlg"></dialog>
+<dialog id="vdlg"></dialog><dialog id="sdlg"></dialog><dialog id="gdlg"></dialog>
 <script src="/assets/twilio-voice.min.js"></script>
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2799,14 +2847,14 @@ function fillT(t,l){const veh=[l.year,l.make,l.model].filter(Boolean).join(' '),
   const v={first:first&&!/^\\+?[\\d\\s()-]+$/.test(first)?first:'there',vehicle:veh?'your '+veh:'your car',service:String(l.service||'').toLowerCase()||'detailing',service_name:sv==='coating'?'ceramic coating':'ceramic tint',price:l.value?'$'+Math.round(l.value):(sv==='coating'?'$599':'$349'),shop:'Divine Detailers',address:'5181 NW 74th Ave, Miami, FL 33166'};
   return String(t||'').replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]===undefined?m:v[k])}
 function ago(iso){const s=Math.max(0,(Date.now()-new Date(iso))/1000);if(s<60)return 'just now';if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' hr ago';return Math.floor(s/86400)+' days ago'}
-const svcLab=l=>svcOf(l)==='coating'?'Ceramic':'Tint';
+const svcLab=l=>{const g=gsvc(l);return g==='coating'?'Ceramic':g==='tint'?'Tint':String(l.service||'Lead').split(/\\s+/).slice(0,2).join(' ')};
 const shortN=n=>{const w=String(n||'').trim().split(/\\s+/).filter(Boolean);return w.length>1&&/^[A-Za-z]/.test(w[1])?w[0]+' '+w[1][0].toUpperCase()+'.':(w[0]||'')};
 function secs(t){const o=[];String(t||'').split('\\n').forEach(line=>{line=line.replace(/\\s+$/,'');if(/^# /.test(line))o.push({h:line.slice(2),l:[]});else if(line&&o.length)o[o.length-1].l.push(line.replace(/^- /,''))});return o}
 function setMode(){const m=el('mainv');if(!m)return;m.className=(state==='connecting'||state==='live')?'m-call':(state==='ended'?'m-ended':'m-idle');if(state==='idle')el('coach').hidden=true}
 function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
   const car=[l.year,l.make,l.model].filter(Boolean).join(' '),first=String(l.name||'').trim().split(/\\s+/)[0],fn=first&&!/^\\+?[\\d\\s()-]+$/.test(first)?first:pretty(l.phone);
   const lines=String(l.message||'').split('\\n').map(x=>x.trim()).filter(x=>x&&!/^(form name|ad name|adset name|platform):/i.test(x)).slice(0,6);
-  const S=secs(fillT(ST[sk],l)),open=S[0]&&S[0].l[0],ask=S[1]&&S[1].l[0],off=S.find(x=>/price|offer|quote/i.test(x.h)),offer=off&&off.l[0];
+  let open='',ask='',offer='';{const bl=briefLines(l);if(bl){open=bl.open;ask=bl.ask;offer=bl.offer}else if(gsvc(l)){const S=secs(fillT(ST[gsvc(l)],l)),off=S.find(x=>/price|offer|quote/i.test(x.h));open=S[0]&&S[0].l[0];ask=S[1]&&S[1].l[0];offer=off&&off.l[0]}}
   const hist=(l.texts||[]).map(t=>(t.direction==='in'?'They texted: ':'You texted: ')+t.body).concat((l.history||[]).slice(0,3).map(h=>h.reason));
   b.innerHTML='<div class="tabs" id="btabs"><button type="button" data-b="brief" class="'+(bt==='brief'?'on':'')+'">Brief</button><button type="button" data-b="info" class="'+(bt==='info'?'on':'')+'">Lead info</button></div><div id="bbody" class="bbody"'+(bt==='brief'?'':' hidden')+'><div class="bh"><span class="av">'+$(initials(l.name))+'</span><div style="min-width:0;flex:1"><h2>'+$(l.name||pretty(l.phone))+'</h2><div class="ph">'+$(pretty(l.phone))+'</div></div>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div>'
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
@@ -2852,7 +2900,11 @@ function setSt(t,c){const s=el('st');s.textContent=t;s.className='pill'+(c?' '+c
 let made=0;const initials=n=>(String(n||'').trim().split(/\\s+/).filter(w=>/^[A-Za-z]/.test(w)).slice(0,2).map(w=>w[0].toUpperCase()).join(''))||'#';
 const mq=window.matchMedia('(min-width:1100px)');function place(){const r=el('rcol'),lead=el('lead');if(mq.matches)r.insertBefore(lead,r.firstChild);else el('callrow').insertBefore(lead,el('callrow').firstChild)}
 function scriptHtml(t){return String(t||'').split('\\n').map(line=>{line=line.replace(/\\s+$/,'');if(!line)return '';if(/^# /.test(line))return '<h4>'+$(line.slice(2))+'</h4>';if(/^- /.test(line))return '<li>'+$(line.slice(2))+'</li>';return '<p>'+$(line)+'</p>'}).join('').replace(/(<li>.*?<\\/li>)+/g,m=>'<ul>'+m+'</ul>')}
-function drawScript(){const l=Q[ix]||{};document.querySelectorAll('#stabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===sk));el('script').innerHTML=scriptHtml(fillT(ST[sk],l))}
+function drawScript(){const l=Q[ix]||{};const svc=gsvc(l);
+  if(svc&&GS[svc]&&gRender())return;
+  if(svc&&GS[svc]===undefined){el('script').innerHTML='<p class="note">Loading script...</p>';gLoad(svc).then(drawScript);return}
+  if(!svc){el('script').innerHTML='<p class="note">There is no script for '+$(l.service||'this service')+' yet. Use the Lead info tab and the coach cards.</p>';return}
+  el('script').innerHTML='<p class="note">Showing the basic script. Import yours under Guided scripts to get the step by step flow.</p>'+scriptHtml(fillT(ST[svc],l))}
 function drawLead(){const l=Q[ix];const box=el('lead');
   if(!l){box.innerHTML='<h2>'+(Q.length?'Queue finished':'No leads to call')+'</h2><p class="note">'+(Q.length?'Nice work. Reload to check for new leads.':'New and not-contacted leads from the last 14 days, and callbacks that are due, show up here.')+'</p>';el('ctl').innerHTML='';el('brief').innerHTML='';el('after').hidden=true;return}
   const car=[l.year,l.make,l.model].filter(Boolean).join(' ');
@@ -2863,7 +2915,9 @@ function drawLead(){const l=Q[ix];const box=el('lead');
    +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
    +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
    +'<div class="bar"><a class="btn sm" href="/admin/pipeline#id='+l.id+'" style="text-decoration:none;display:inline-flex;align-items:center">Open lead / book</a></div>';
-  sk=svcOf(l);drawScript();drawBrief(l);drawCtl()}
+  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]}}
+  sk=svcOf(l);{const sv=gsvc(l);if(sv&&GS[sv]===undefined)gLoad(sv).then(()=>{if(Q[ix]===l){drawScript();drawBrief(l)}})}
+  drawScript();drawBrief(l);drawCtl()}
 function drawCtl(){setMode();drawQ();syncCb();const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
   const noDev=!dev;
   if(state==='idle'||state==='ended'){c.innerHTML='<button class="btn g call" id="cb" type="button"'+(noDev||!inHours()?' disabled':'')+'><i class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></i>'+(state==='ended'?'Call again':'Call '+$(pretty(l.phone)))+'</button>';kp.hidden=true;el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
@@ -2889,7 +2943,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
@@ -2914,7 +2968,140 @@ function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',end
   el('q').innerHTML=Q.map((l,i)=>i<ix?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Done</small></span></div>':'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+ago(l.created_at)+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd">Waiting</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
 el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
 el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
+// ---- guided scripts: private, owner-only, loaded from the database (never part of the page source) ----
+let GS={},OF={},OVR={},FACTS={goals:[]},gi=0,gPlay=null,gLead=0,gHot='',gHotAt=0;
+const OFD={shop:'Divine Detailers',address:'5181 NW 74th Ave, Miami, FL 33166',area:'Miami',rep:'Bronson'};
+const LBL={dep:'deposit',price:'price',reg:'normal price',yrs:'warranty years',special:'special name',days:'days left',otd:'out the door',floor:'lowest price',pkg:'windows'};
+const SHORT={'p-expensive':'Too expensive','p-wife':'Wife','p-think':'Think about it','p-text':'Text me','p-schedule':'Schedule','p-calendar':'Calendar','p-shop':'Shopping around','p-catch':'The catch','a-price':'How much?','a-location':'Location','a-booked':'Booked elsewhere','a-scratch':'Scratches','a-wax':'I wax it','followup':'Follow up'};
+function gsvc(l){const s=String(l&&l.service||'');if(/tint/i.test(s))return 'tint';if(/coat|ceramic|correct|polish|detail/i.test(s))return 'coating';return ''}
+async function gLoad(svc){if(!svc||GS[svc]!==undefined)return;GS[svc]=null;try{const j=await (await fetch('/admin/dialer/script?svc='+svc)).json();GS[svc]=j&&j.script?j.script:false}catch(_){GS[svc]=false}}
+async function loadOffer(){try{const j=await (await fetch('/admin/dialer/offer')).json();if(j&&j.success)OF=j.offer||{}}catch(_){}}
+const mny=n=>'$'+Number(n).toLocaleString('en-US');
+const numOf=s=>Number(String(s).replace(/[^0-9.]/g,''))||0;
+const firstOf=l=>{const f=String(l&&l.name||'').trim().split(/\\s+/)[0];return f&&!/^\\+?[\\d\\s()-]+$/.test(f)?f:''};
+const vehOf=l=>[l&&l.year,l&&l.make,l&&l.model].filter(Boolean).join(' ');
+function ofv(k){return OF[k]!==undefined&&OF[k]!==''?OF[k]:OFD[k]}
+function vv(name,l,svc){
+  switch(name){
+    case 'rep':return ofv('rep')||'';case 'shop':return ofv('shop')||'';case 'address':return ofv('address')||'';case 'area':return ofv('area')||'';
+    case 'special':return OF.special||'';
+    case 'price':{const v=l&&l.value>0?l.value:numOf(svc==='coating'?OF.coatPrice:OF.tintPrice);return v>0?mny(Math.round(v)):''}
+    case 'reg':return numOf(OF.coatReg)>0?mny(numOf(OF.coatReg)):'';
+    case 'dep':{const d=numOf(svc==='coating'?OF.coatDeposit:OF.tintDeposit);return d>0?mny(d):''}
+    case 'otd':{const p=vv('price',l,svc),d=vv('dep',l,svc);return p&&d?mny(Math.max(0,numOf(p)-numOf(d))):''}
+    case 'yrs':return numOf(OF.coatYears)>0?String(numOf(OF.coatYears)):'';
+    case 'floor':return numOf(OF.tintFloor)>0?mny(numOf(OF.tintFloor)):'';
+    case 'days':{if(!OF.specialEnd)return '';const e=new Date(OF.specialEnd+'T00:00:00'),t=new Date();t.setHours(0,0,0,0);const d=Math.round((e-t)/864e5);return d>=0?String(d):''}
+  }return ''}
+// what the coach has picked up from the conversation, in the rep's own words from the script examples
+const GOALT={heat:['keeping the car cool','block out the majority of the heat & keep your car cool'],look:['the privacy & the look','give you the privacy & the look you are going for'],uv:['protecting your skin & interior from the sun','block the UV to protect your skin & your interior'],
+  restore:['it has swirls in the paint & you want it looking new again','take those swirls out & give it a deep glossy finish, then the coating locks that in & makes washing super easy'],
+  protect:['you want to keep it looking new & protected','keep that paint looking new & protected from the sun, & dirt & water slide right off so washing takes no time'],
+  wash:['you want washing to be easier','make washing super easy, because dirt & water slide right off']};
+const joinAnd=a=>a.length<2?(a[0]||''):a.slice(0,-1).join(', ')+' & '+a[a.length-1];
+function sv(slot,l,svc){
+  if(OVR[slot])return OVR[slot];
+  const g=FACTS.goals||[];
+  switch(slot){
+    case 'NAME':return firstOf(l);
+    case 'YEAR MAKE MODEL':case 'YEAR MAKE & MODEL':return vehOf(l);
+    case 'AREA':return ofv('area')||'';
+    case 'WINDOWS':return FACTS.windows||'';case 'SHADE':return FACTS.shade||'';case 'TIMEFRAME':return FACTS.time||'';case 'COLOR':return FACTS.color||'';
+    case 'GOAL':case 'PROBLEM':return g.length?joinAnd(g.map(x=>GOALT[x][0])):'';
+    case 'SOLVE THEIR PROBLEM':{const u=g.filter(x=>!(x==='wash'&&g.indexOf('restore')>=0));return u.length?joinAnd(u.map(x=>GOALT[x][1])):''}
+  }return ''}
+function gAnalyze(who,text){
+  if(who!=='lead')return;const t=String(text||'').toLowerCase(),F=FACTS,sv0=gsvc(Q[ix]),ok=g=>sv0==='coating'?/restore|protect|wash/.test(g):/heat|look|uv/.test(g),add=g=>{if(ok(g)&&F.goals.indexOf(g)<0&&F.goals.length<2)F.goals.push(g)};
+  if(/\\b(hot|heat|cool|sweat|a\\/?c|air condition|burn|baking|boiling)\\b/.test(t))add('heat');
+  if(/\\b(privacy|private|look|sleek|slick|style|stylish|dark(er)?)\\b/.test(t))add('look');
+  if(/\\b(uv|sunburn|skin|fad(e|ing)|cracking)\\b/.test(t))add('uv');
+  if(/(swirl|scratch|dull|oxidi|restore|new again|shine|shiny|gloss|polish|buff)/.test(t))add('restore');
+  if(/(protect|brand new|new car|just bought|just got|keep it new|bird|sap|rain)/.test(t))add('protect');
+  if(/(easier to wash|easy to wash|wash it|washing|maintenance|clean it)/.test(t))add('wash');
+  let m=t.match(/(\\d{1,2})\\s?(%|percent)/);if(m)F.shade=m[1]+'%';
+  m=t.match(/(sides? (and|&) (the )?(back|rear)|whole car|all (the )?windows|windshield|front (two |2 )?windows|just the front)/);if(m)F.windows=m[1].replace(/\\band\\b/,'&');
+  m=t.match(/\\b(asap|right away|today|tomorrow|this week|next week|this weekend|the weekend|couple (of )?weeks?|few days)\\b/);if(m)F.time=m[1];
+  m=t.match(/\\b(black|white|silver|gr[ae]y|red|blue|green|gold|orange|yellow|brown|maroon|burgundy|beige|tan|charcoal|pearl)\\b/);if(m)F.color=m[1];
+  gSoon()}
+const gScript=()=>{const l=Q[ix],s=l&&gsvc(l);return s&&GS[s]?GS[s]:null};
+let gT=0;function gSoon(){clearTimeout(gT);gT=setTimeout(()=>{const a=document.activeElement;if(a&&a.classList&&a.classList.contains('phin'))return;if(!el('script').hidden)drawScript()},250)}
+// objections the lead just raised light up their playbook
+const OBJRX=[['p-expensive',/(too (much|expensive)|expensive|that.?s a lot|can.?t afford|too pricey)/],['p-wife',/(my wife|my husband|my girlfriend|talk to my)/],['p-think',/(think about it|let me think|need to think)/],['p-text',/(text (it|me)|send (it|me)|email (it|me))/],['p-calendar',/(my (calendar|schedule)|check my|i.?m driving)/],['p-shop',/(shopping around|other (quotes|shops)|more quotes|compar)/],['p-catch',/(what.?s the catch|too good|why so cheap)/],['a-price',/(how much|what.?s the price|price)/],['a-location',/(where are you|too far|how far|located)/],['a-booked',/(already (booked|got|did|have)|someone else)/],['a-scratch',/(scratch proof|stop scratch|rock chip)/],['a-wax',/(i wax|waxing|i just wax)/]];
+function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||'').toLowerCase();for(const [id,rx] of OBJRX){if(rx.test(t)&&sc.plays.some(p=>p.id===id||(id==='p-expensive'&&p.id==='p-shop'))){gHot=sc.plays.some(p=>p.id===id)?id:'p-shop';gHotAt=Date.now();gSoon();return}}}
+// follow the rep: when what they just said matches the next step, move to it
+const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
+function gFollow(text){const sc=gScript();if(!sc||gPlay)return;const w=words(text);if(w.length<4)return;
+  for(let k=1;k<=3;k++){const s=sc.steps[gi+k];if(!s)break;const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps[0]&&s.main[0].ps[0].t;if(!p)continue;const set=new Set(words(p)),hit=w.filter(x=>set.has(x)).length;
+    if(hit>=4&&hit/Math.min(w.length,14)>=0.5){gi+=k;gSoon();return}}}
+const swp=t=>{let s=String(t||'');(OF.swaps||[]).forEach(p=>{if(p&&p.f)s=s.split(p.f).join(p.t||'')});return s};
+function gfmt(t,l,svc){let h=$(swp(t));
+  h=h.replace(/\\{(\\w+)\\}/g,(m,n)=>{const k='{'+n+'}',v=OVR[k]||vv(n,l,svc);return v?'<span class="ph ok" data-e="'+k+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+k+'">'+$('['+(LBL[n]||n)+']')+'</span>'});
+  h=h.replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n0)=>{const n=n0.replace(/&amp;/g,'&'),v=sv(n,l,svc);return v?'<span class="ph ok" data-e="'+$(n)+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+$(n)+'">'+$(n.toLowerCase())+'</span>'});
+  return h}
+function gplain(t,l,svc){return swp(t).replace(/\\{(\\w+)\\}/g,(m,n)=>OVR['{'+n+'}']||vv(n,l,svc)||'...').replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n)=>sv(n,l,svc)||'...')}
+function gnode(n,l,svc){const f=t=>gfmt(t,l,svc);
+  if(n.k==='pill')return '';
+  if(n.k==='cond')return '<div class="gcond"><b>If</b> '+f(n.t)+'</div>';
+  if(n.k==='ret')return '<button class="gjump" data-j="'+$(n.to)+'" type="button">'+$(n.t)+'</button>';
+  if(n.k==='outcomes')return '<div class="gout">'+n.opts.map(o=>'<div class="gopt">'+(o.cond?'<div class="gcond"><b>If</b> '+f(o.cond)+'</div>':'')+o.nodes.map(x=>gnode(x,l,svc)).join('')+'</div>').join('')+'</div>';
+  let h='<div class="gn '+$(n.k||'say')+'">'+(n.tag?'<div class="gt">'+$(n.tag)+'</div>':'');
+  (n.ps||[]).forEach(p=>{h+=p.note?'<p class="gnote"><b>Coach</b> '+f(p.note)+'</p>':'<p>'+(p.sub?'<span class="gsub">'+$(p.sub)+'</span>':'')+f(p.t)+'</p>'});
+  if(n.list)h+='<ol class="glist">'+n.list.map(i=>'<li><b>'+$(i.h)+'</b> '+f(i.t)+'</li>').join('')+'</ol>';
+  if(n.chips)h+='<div class="gchips">'+n.chips.map(c=>'<span>'+$(c)+'</span>').join('')+'</div>';
+  if(n.addr)h+='<p class="gaddr">'+$(vv('address',l,svc))+'</p>';
+  if(n.links)h+='<div class="glinks">'+n.links.map(k=>'<button class="gjump '+$(k.c||'')+'" data-j="'+$(k.to)+'" type="button">'+$(k.t)+'</button>').join('')+'</div>';
+  return h+'</div>'}
+function gSide(side,l,svc){if(!side||!side.length)return '';const first=side.find(x=>x.k==='obj'),lab=first&&first.ps&&first.ps[0]?first.ps[0].t:'';
+  return '<details class="gside"><summary>If they say'+(lab?': '+$(lab):'...')+'</summary>'+side.map(x=>gnode(x,l,svc)).join('')+'</details>'}
+function gStepHtml(s,l,svc){let m=s.main;
+  // the lead form already gave us the vehicle, so confirm it instead of asking
+  if(s.id==='s06'&&vehOf(l)){m=JSON.parse(JSON.stringify(s.main));const p=m[0]&&m[0].ps&&m[0].ps[0];if(p){p.t=svc==='coating'?'Fantastic, just to confirm, I have you down for a [[YEAR MAKE MODEL]], is that right? ... & what color is the paint?':'Fantastic, just to confirm, I have you down for a [[YEAR MAKE MODEL]], is that right?'}}
+  return m.map(x=>gnode(x,l,svc)).join('')+gSide(s.side,l,svc)+(s.examples&&s.examples.length?'<details class="gside gex"><summary>Examples of how it sounds (do not read)</summary>'+s.examples.map(x=>gnode(x,l,svc)).join('')+'</details>':'')}
+function gRender(){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc=gsvc(l);
+  const objs=sc.plays;
+  let h='<div class="gs"><div class="gphases">'+sc.phases.map(p=>{const cur=!gPlay&&sc.steps[gi]&&sc.steps[gi].phase===p.id;return '<button type="button" data-ph="'+$(p.id)+'" class="'+(cur?'on':'')+'">'+$(p.name)+'</button>'}).join('')+'</div>'
+   +'<div class="gobjs"><span class="gol">Pushback</span>'+objs.map(p=>'<button type="button" data-p="'+$(p.id)+'" class="'+(gPlay===p.id?'on ':'')+(gHot===p.id&&Date.now()-gHotAt<45000?'hot':'')+'">'+$(SHORT[p.id]||p.title.replace(/[“”"]/g,''))+'</button>').join('')+'</div>';
+  if(gPlay){const p=sc.plays.find(x=>x.id===gPlay);
+    h+='<div class="gcard"><div class="ghd"><b>'+$(p?p.title:'')+'</b><button type="button" class="gback" data-back="1">Back to step '+$((sc.steps[gi]&&sc.steps[gi].n)||'')+'</button></div>'+(p?p.nodes.map(x=>gnode(x,l,svc)).join(''):'')+'</div>'}
+  else{const s=sc.steps[gi];if(s){h+='<div class="gcard"><div class="ghd"><b>'+(s.n?'Step '+$(s.n):'Coach')+'</b><span class="note">'+$(s.tag||'')+'</span></div>'+gStepHtml(s,l,svc)+'</div>'}
+    h+='<div class="gnav"><button type="button" class="btn sm" data-g="-1"'+(gi<=0?' disabled':'')+'>&larr; Back</button><span class="note">'+(gi+1)+' of '+sc.steps.length+'</span><button type="button" class="btn g sm" data-g="1"'+(gi>=sc.steps.length-1?' disabled':'')+'>Next &rarr;</button></div>'}
+  el('script').innerHTML=h+'</div>';return true}
+function gJump(to){const sc=gScript();if(!sc)return;const p=sc.plays.find(x=>x.id===to);if(p){gPlay=to;gHot='';drawScript();return}const i=sc.steps.findIndex(x=>x.id===to);if(i>=0){gi=i;gPlay=null;drawScript()}}
+// script panel click handling
+el('script').addEventListener('click',e=>{const t=e.target.closest('button,.ph');if(!t)return;const sc=gScript();
+  if(t.classList.contains('ph')&&t.dataset.e){const k=t.dataset.e,cur=t.classList.contains('ok')?t.textContent:'';const inp=document.createElement('input');inp.className='phin';inp.value=cur;inp.placeholder=t.textContent;t.replaceWith(inp);inp.focus();inp.select();const done=()=>{const v=inp.value.trim();if(v)OVR[k]=v;else delete OVR[k];drawScript()};inp.onkeydown=ev=>{if(ev.key==='Enter')done();if(ev.key==='Escape'){inp.value=cur;done()}};inp.onblur=done;return}
+  if(!sc)return;
+  if(t.dataset.g){gi=Math.max(0,Math.min(sc.steps.length-1,gi+Number(t.dataset.g)));gPlay=null;drawScript();return}
+  if(t.dataset.ph){const i=sc.steps.findIndex(s=>s.phase===t.dataset.ph);if(i>=0){gi=i;gPlay=null;drawScript()}return}
+  if(t.dataset.p){gPlay=gPlay===t.dataset.p?null:t.dataset.p;gHot='';drawScript();return}
+  if(t.dataset.back){gPlay=null;drawScript();return}
+  if(t.dataset.j){gJump(t.dataset.j)}});
+function briefLines(l){const svc=gsvc(l),sc=svc&&GS[svc];if(!sc)return null;
+  const say=s=>{const p=s&&s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);return p?gplain(p.t,l,svc):''};
+  const byId=id=>sc.steps.find(s=>s.id===id),price=sc.steps.find(s=>/price/i.test(s.tag||''));
+  return{open:say(byId('s02')),ask:say(byId(vehOf(l)?'s07':'s06')),offer:say(price)}}
+// owner-only setup: import the scripts, set the offer numbers, swap words
+async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'Imported ('+GS[k].steps.length+' steps)':'Not imported yet';
+  await Promise.all([gLoad('tint'),gLoad('coating')]);
+  const fld=(id,lab,val,type,ph)=>'<div><label>'+lab+'</label><input id="'+id+'" type="'+(type||'text')+'" value="'+$(val==null?'':val)+'" placeholder="'+$(ph||'')+'" style="width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:9px 11px;font:inherit;font-size:15px;color-scheme:dark"></div>';
+  d.innerHTML='<div class="rb"><h3>Guided scripts and offer</h3><p class="note" style="margin:0">Only you can see these. They live in your private database, not on the website.</p>'
+   +['tint','coating'].map(k=>'<div class="vm"><b>'+(k==='tint'?'Ceramic tint script':'Ceramic coating script')+'</b><span class="note" id="gst-'+k+'">'+st(k)+'</span><input type="file" accept=".json,application/json" data-imp="'+k+'" class="note"></div>').join('')
+   +'<h3 style="margin-top:6px">Your shop</h3><div class="gform">'+fld('o-rep','Your name',o.rep,'text',OFD.rep)+fld('o-shop','Shop name',o.shop,'text',OFD.shop)+fld('o-addr','Address',o.address,'text',OFD.address)+fld('o-area','Area',o.area,'text',OFD.area)+'</div>'
+   +'<h3 style="margin-top:6px">Offer numbers</h3><p class="note" style="margin:0">Anything left empty shows up in the script as an amber [blank] you can fill in during the call. A lead\\'s job value is used as the price when it has one.</p><div class="gform">'
+   +fld('o-sp','Special name',o.special,'text','e.g. Spring')+fld('o-end','Special ends',o.specialEnd,'date')+fld('o-tp','Tint price (if the lead has none)',o.tintPrice,'number')+fld('o-td','Tint deposit',o.tintDeposit,'number')+fld('o-tf','Tint lowest price',o.tintFloor,'number')
+   +fld('o-cp','Coating special price',o.coatPrice,'number')+fld('o-cr','Coating normal price',o.coatReg,'number')+fld('o-cd','Coating deposit',o.coatDeposit,'number')+fld('o-cy','Coating warranty (years)',o.coatYears,'number')+'</div>'
+   +'<div><label>Word swaps (one per line: find => replace). Use this to change brand names, warranty wording or anything else in the script.</label><textarea id="o-sw" rows="5" placeholder="old word => new word">'+$((o.swaps||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div>'
+   +'<div class="err" id="ge"></div><div class="bar" style="justify-content:flex-end"><button class="btn" id="gx" type="button">Close</button><button class="btn g" id="gs" type="button">Save</button></div></div>';
+  d.showModal();el('gx').onclick=()=>d.close();
+  d.querySelectorAll('[data-imp]').forEach(inp=>inp.onchange=async()=>{const f=inp.files&&inp.files[0];if(!f)return;let j;try{j=JSON.parse(await f.text())}catch(_){el('ge').textContent='That file is not valid JSON.';return}
+    const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:inp.dataset.imp,script:j})});const jj=await r.json().catch(()=>({}));
+    if(!jj.success){el('ge').textContent=jj.message||'Could not import.';return}GS[inp.dataset.imp]=j;el('gst-'+inp.dataset.imp).textContent=st(inp.dataset.imp);el('ge').textContent='';gi=0;drawScript();drawBrief(Q[ix])});
+  el('gs').onclick=async()=>{const sw=el('o-sw').value.split('\\n').map(x=>{const i=x.indexOf('=>');return i<0?null:{f:x.slice(0,i).trim(),t:x.slice(i+2).trim()}}).filter(x=>x&&x.f);
+    const v=id=>el(id).value.trim(),off={rep:v('o-rep'),shop:v('o-shop'),address:v('o-addr'),area:v('o-area'),special:v('o-sp'),specialEnd:v('o-end'),tintPrice:v('o-tp'),tintDeposit:v('o-td'),tintFloor:v('o-tf'),coatPrice:v('o-cp'),coatReg:v('o-cr'),coatDeposit:v('o-cd'),coatYears:v('o-cy'),swaps:sw};
+    const r=await fetch('/admin/dialer/offer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({offer:off})});const j=await r.json().catch(()=>({}));if(!j.success){el('ge').textContent=j.message||'Could not save.';return}OF=off;d.close();drawScript();drawBrief(Q[ix])}}
+
 // scripts and the missed-you text
+el('gcb').onclick=gSetup;
 el('scb').onclick=()=>{const d=el('sdlg');d.innerHTML='<div class="rb"><h3>Scripts and text</h3><p class="note" style="margin:0">Use {first} {vehicle} {service} {service_name} {price} {address}. Lines starting with # are headings and lines starting with - are bullets.</p><div><label>Tint script</label><textarea id="s1" rows="10"></textarea></div><div><label>Ceramic coating script</label><textarea id="s2" rows="10"></textarea></div><div><label>Text: I missed you</label><textarea id="s3" rows="4"></textarea></div><div class="err" id="se"></div><div class="bar" style="justify-content:flex-end"><button class="btn" id="sx" type="button">Cancel</button><button class="btn g" id="ss" type="button">Save</button></div></div>';
   el('s1').value=ST.tint;el('s2').value=ST.coating;el('s3').value=ST.missed;d.showModal();el('sx').onclick=()=>d.close();
   el('ss').onclick=async()=>{const r=await fetch('/admin/dialer/settings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tint:el('s1').value,coating:el('s2').value,missed:el('s3').value})});const j=await r.json().catch(()=>({}));if(!j.success){el('se').textContent=j.message||'Could not save.';return}ST.tint=el('s1').value;ST.coating=el('s2').value;ST.missed=el('s3').value;d.close();drawScript()}};
@@ -2972,7 +3159,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead')objCheck(m.text);return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
-function addLine(who,text,final){if(final){const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else gFollow(text);const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc,d=document.createElement('div');d.className='card2';
   d.innerHTML='<div class="bar"><span class="pill warn">'+$(o.label)+'</span></div><div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(c[0])+'</p></div><div><span>COMMENT</span><p>'+$(c[1])+'</p></div><div><span>ASK</span><p class="ask">'+$(c[2])+'</p></div></div>';
@@ -2993,7 +3180,7 @@ function bannerDraw(){const b=el('newb');if(!nb){b.hidden=true;return}const busy
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)document.title=defTitle});
 async function init(){
   try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
-  await loadAudio();await coachStatus();
+  await loadAudio();await coachStatus();await loadOffer();
   try{const q=await (await fetch('/admin/dialer/queue')).json();Q=q.leads||[]}catch(_){}
   ix=0;Q.forEach(l=>known.add(l.id));drawLead();drawQ();drawScript();setInterval(poll,10000);el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
   await initDev()}
@@ -3308,7 +3495,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -3988,6 +4175,10 @@ async function adminRoute(p, request, env) {
     }
     if (p === "/admin/dialer/queue" && request.method === "GET") return dialerQueue(env);
     if (p === "/admin/dialer/lead" && request.method === "GET") return dialerLead(env, Number(new URL(request.url).searchParams.get("id")));
+    if (p === "/admin/dialer/script" && request.method === "GET") return dialerScriptGet(env, new URL(request.url).searchParams.get("svc") || "");
+    if (p === "/admin/dialer/script" && request.method === "POST") return dialerScriptSave(env, await request.json().catch(() => ({})));
+    if (p === "/admin/dialer/offer" && request.method === "GET") return dialerOfferGet(env);
+    if (p === "/admin/dialer/offer" && request.method === "POST") return dialerOfferSave(env, await request.json().catch(() => ({})));
     if (p === "/admin/dialer/note" && request.method === "POST") return dialerNote(env, await request.json().catch(() => ({})), a);
     if (p === "/admin/dialer/log" && request.method === "POST") return dialerLog(env, await request.json().catch(() => ({})), a);
     if (p === "/admin/dialer/vmdrop" && request.method === "POST") return dialerVoicemailDrop(env, await request.json().catch(() => ({})), a);
