@@ -176,8 +176,9 @@ def quote_form_short(fid=None, select_default=None):
   <label>Email*<input name="email" type="email" placeholder="jane@example.com" required autocomplete="email"></label>
   <label>Phone*<input name="phone" type="tel" placeholder="(305) 555-0100" autocomplete="tel" inputmode="tel" pattern="[0-9\\s\\(\\)\\+\\.\\-]{{7,}}" title="Enter a valid phone number" required></label>
   <label>Service interested in*<select name="service" required><option value="">Select…</option>{opts}</select></label>
-  <label class="consent sms"><input type="checkbox" name="sms_consent" value="yes"><span>I agree to receive text messages from {SITE['name']} about my quote request, including replies, appointment scheduling, confirmations and reminders. Message frequency varies. Msg &amp; data rates may apply. Reply <b>HELP</b> for help or <b>STOP</b> to opt out. Consent is not a condition of purchase. See our <a href="privacy-policy.html">Privacy Policy</a> and <a href="terms.html">Terms</a>.</span></label>
-  <p class="consent">By submitting, you agree that {SITE['name']} may contact you by phone about your request, and you agree to our <a href="privacy-policy.html">Privacy Policy</a> and <a href="terms.html">Terms</a>. Calls may be recorded for quality.</p>
+  <label class="consent sms"><input type="checkbox" name="sms_consent" value="yes"><span><b>Text messages about my quote.</b> I agree to receive text messages from {SITE['name']} about my quote request: replies, appointment scheduling, confirmations and reminders. Frequency varies with my request (typically 2&ndash;8 msgs). Msg &amp; data rates may apply. Reply <b>HELP</b> for help or <b>STOP</b> to opt out.</span></label>
+  <label class="consent sms"><input type="checkbox" name="terms_ok" value="yes" required><span>I have read and agree to the <a href="terms.html">Terms of Service</a> and <a href="privacy-policy.html">Privacy Policy</a>.</span></label>
+  <p class="consent">Text message consent is optional and is not a condition of purchase. Reply <b>STOP</b> to opt out of texts or <b>HELP</b> for help, or email <a href="mailto:{SITE['email']}">{SITE['email']}</a>. See our <a href="terms.html">Terms of Service</a> and <a href="privacy-policy.html">Privacy Policy</a>. Calls may be recorded for quality.</p>
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
 
@@ -204,8 +205,9 @@ def quote_form(fid=None, select_default=None, extra="", status=True, call_line=F
   <label>Vehicle year*<select name="year" required><option value="">Select year…</option>{years}</select></label>
   <label class="vm">Vehicle model*<input name="model" data-model placeholder="e.g. M3, Model Y" autocomplete="off" required></label>
   {extra}
-  <label class="consent sms"><input type="checkbox" name="sms_consent" value="yes"><span>I agree to receive text messages from {SITE['name']} about my quote request, including replies, appointment scheduling, confirmations and reminders. Message frequency varies. Msg &amp; data rates may apply. Reply <b>HELP</b> for help or <b>STOP</b> to opt out. Consent is not a condition of purchase. See our <a href="privacy-policy.html">Privacy Policy</a> and <a href="terms.html">Terms</a>.</span></label>
-  <p class="consent">By submitting, you agree that {SITE['name']} may contact you by phone about your request, and you agree to our <a href="privacy-policy.html">Privacy Policy</a> and <a href="terms.html">Terms</a>. Calls may be recorded for quality.</p>
+  <label class="consent sms"><input type="checkbox" name="sms_consent" value="yes"><span><b>Text messages about my quote.</b> I agree to receive text messages from {SITE['name']} about my quote request: replies, appointment scheduling, confirmations and reminders. Frequency varies with my request (typically 2&ndash;8 msgs). Msg &amp; data rates may apply. Reply <b>HELP</b> for help or <b>STOP</b> to opt out.</span></label>
+  <label class="consent sms"><input type="checkbox" name="terms_ok" value="yes" required><span>I have read and agree to the <a href="terms.html">Terms of Service</a> and <a href="privacy-policy.html">Privacy Policy</a>.</span></label>
+  <p class="consent">Text message consent is optional and is not a condition of purchase. Reply <b>STOP</b> to opt out of texts or <b>HELP</b> for help, or email <a href="mailto:{SITE['email']}">{SITE['email']}</a>. See our <a href="terms.html">Terms of Service</a> and <a href="privacy-policy.html">Privacy Policy</a>. Calls may be recorded for quality.</p>
   <button class="submit" type="submit">Request Quote</button>
 </form>'''
 
