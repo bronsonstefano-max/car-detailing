@@ -11,8 +11,9 @@ What you get in the "out" folder:
   response_playbook.md           the best real answers to each topic, calls that booked first. Readable.
   turns_all.csv                  the full log: every sentence of every call with time, who said it (rep or lead), the exact words, and tags (what it was, topic, script step, which lead turn it answers, quality)
   lessons.md                     what winning calls have in common, best answers by topic, script gaps, rules for the AI coach
+  services.csv                  how many tint, coating and other calls, with booking rate and average score for each
   calls.csv                      one row per call: agent, client, service, vehicle, result, price, scores, talk share, time to price
-  agents.csv                     each agent's booking rate and average scores
+  agents.csv                     each rep's wins (deposit and a date), win rate adjusted for small samples, the weight the coach gives that rep, callbacks, and average scores
   deviations.csv                 every place a rep went off script, with whether it helped or hurt
   pivotal.csv                    the turning points in each call
   moments.csv                    the key questions and pushback with better answers
@@ -20,8 +21,11 @@ What you get in the "out" folder:
   mined/                         the full deep record for each call, including every turn
   transcripts/                   the raw transcripts
 
+Wins/losses: win = deposit taken and a date set. Callbacks are a soft loss. Each library row has agent_weight and priority; sort by priority to see the best answers from the best closers.
+Setup: roster.txt (rep names) and glossary.txt (business words) improve names and accuracy. Run  python3 call_miner.py plan audio  to see size and cost first.
+
 Cost: about a nickel or two per call with the default model. Add  --model claude-haiku-5-5  for a cheaper, shallower pass.
-To process more later:  python3 call_miner.py run audio --limit 500   (it skips calls it already finished)
+To process more later:  python3 call_miner.py run audio --limit 700 --jobs 3   (it skips calls it already finished)
 To redo the analysis after an update (keeps the transcripts, so no new transcription cost): delete the "mined" folder inside "out", then run it again.
 
 Keys: Deepgram = console.deepgram.com > API Keys. Anthropic = console.anthropic.com > API Keys.

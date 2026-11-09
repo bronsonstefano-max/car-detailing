@@ -33,7 +33,9 @@ What one call record contains (out/mined/<call>.json):
   turns        the full call, turn by turn: time, who (rep or lead), exact words, and tags (what it was, which topic,
                which script step, who it answers, how good the answer was)
 """
-import argparse, collections, csv, glob, json, os, re, subprocess, sys, time
+import argparse, collections, csv, difflib, glob, hashlib, json, os, re, subprocess, sys, threading, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote
 
 AUDIO_EXT = (".wav", ".wave", ".mp3", ".m4a", ".mp4", ".ogg", ".opus", ".flac", ".aac", ".webm")
 DG_BASE = os.environ.get("DEEPGRAM_BASE", "https://api.deepgram.com")
@@ -45,7 +47,7 @@ TOPICS = "what_is_it, price, scratches_swirls, paint_condition_or_repaint, how_l
 SCHEMA = """{
  "meta": {"agent_name": "first name of the sales rep as said on the call, or null", "agent_confidence": "high|medium|low", "client_name": "the lead's name as said on the call, or null", "service": "tint|coating|correction|ppf|wrap|detail|multiple|other", "vehicle": {"year": null, "make": null, "model": null, "color": null, "condition_notes": null}, "call_type": "outbound_followup|inbound|callback|voicemail|wrong_number|other", "language": "en|es|mixed", "transcript_quality": "good|fair|poor"},
  "rep_speaker": "S0",
- "outcome": {"result": "booked|deposit_taken|callback_set|not_interested|no_decision|lost_to_competitor|no_answer_or_voicemail|unclear", "evidence": "what in the call shows this", "price_quoted": null, "deposit_asked": null, "appointment": null, "next_step": null},
+ "outcome": {"result": "booked|deposit_taken|callback_set|not_interested|no_decision|lost_to_competitor|no_answer_or_voicemail|unclear", "win": false, "evidence": "what in the call shows this", "price_quoted": null, "deposit_asked": null, "appointment": null, "next_step": null},
  "summary": "two sentences: who the lead is, what they wanted, how it ended",
  "timeline": [{"t": "m:ss", "phase": "opener|rapport|discovery|recap|pitch|price|objection|close|deposit|wrap_up|other", "script_step": "step id like s06 or null", "what_happened": "one sentence"}],
  "script": {"compared_against": "tint|coating|none", "steps_covered": ["s02"], "steps_skipped": ["s09"], "order_notes": "how the call's order differed from the script, and whether that mattered",
@@ -83,24 +85,84 @@ Rules:
 - "pivotal": 2 to 6 turning points. Say what changed because of it.
 - "knowledge": factual claims about the products, process, pricing, durations, warranty, paint or tint science (for example whether a sun-damaged clear coat needs correction or repainting). Mark vs_script as contradicts or not_in_script when the script does not cover it, so a human can verify it. Do not treat opinions or small talk as knowledge.
 - "turn_tags": the transcript is given with numbered turns (#12). Tag EVERY substantive turn of both speakers, in order. For a lead turn that needs a reply (a question, objection, buying signal, or a statement the rep should respond to) set needs_response true, list the rep turn numbers that answered it in answered_by, topic, and rate the answer in quality (1-5). For a rep turn that answers a lead turn, set answers_turn to that lead turn number and rate it. Skip one-word backchannels (yeah, ok, mm-hmm) and filler. Use the exact turn numbers from the transcript. script_step is the script step the turn corresponds to, when there is one.
+- WIN: a win is a deposit taken (or a payment link sent and paid) AND a specific appointment date set, on this call. Set outcome.win true only then. A date without a deposit is "booked" but not a win. A callback, or "I'll call you back", is a soft loss (result callback_set, win false). Use the transcript's own words as evidence.
+- Spoken numbers are often garbled in the transcript ("$2.69" is probably $269, "one seventy nine" is $179, "$4.99" may be $499). Interpret prices using the prices in the script and put the likely price in outcome.price_quoted; add "(unclear)" when you are not sure. Do not build a scoring judgment on a garbled number.
 - If the call is a voicemail, wrong number, or too short to evaluate, still return the full shape with empty lists, outcome.result "no_answer_or_voicemail" or "unclear", and scores of 1 with a justification saying it was not a real conversation.
 - Topics for moments: """ + TOPICS + "."
 
 
 # ------------------------------------------------------------------ helpers
+LOCK = threading.Lock()
+ROSTER = {}      # lower-case name or alias -> real name
+GLOSSARY = []    # business words the audio should get right
+
+
+def say(msg):
+    with LOCK:
+        print(msg, flush=True)
+
+
+def log_err(out, f, e):
+    with LOCK:
+        with open(os.path.join(out, "errors.log"), "a") as fh:
+            fh.write("%s\t%s\n" % (f, e))
+
+
+def load_roster(path):
+    """roster.txt: one rep per line, optional aliases for how the audio mishears the name:  Sylvia=Silvia,Sylvie"""
+    ROSTER.clear()
+    if not path or not os.path.exists(path):
+        return
+    for line in open(path):
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        name, _, al = line.partition("=")
+        name = name.strip()
+        for x in [name] + [y.strip() for y in al.split(",") if y.strip()]:
+            ROSTER[x.lower()] = name
+
+
+def load_glossary(path):
+    GLOSSARY[:] = []
+    if path and os.path.exists(path):
+        GLOSSARY.extend(l.split("#")[0].strip() for l in open(path) if l.split("#")[0].strip())
+
+
+def canon_agent(raw):
+    n = str(raw or "").strip().split(" ")[0].lower()
+    if not n or n in ("none", "null", "unknown"):
+        return "Unknown"
+    if n in ROSTER:
+        return ROSTER[n]
+    m = difflib.get_close_matches(n, list(ROSTER.keys()), n=1, cutoff=0.78)
+    return ROSTER[m[0]] if m else n.capitalize()
+
+
+def quick_hash(path):
+    size = os.path.getsize(path)
+    h = hashlib.sha1(str(size).encode())
+    with open(path, "rb") as f:
+        h.update(f.read(524288))
+        if size > 1048576:
+            f.seek(-524288, 2)
+            h.update(f.read())
+    return h.hexdigest()
+
+
 def sh(args, stdin=None):
     p = subprocess.run(args, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return p.returncode, p.stdout, p.stderr
 
 
-def retry(fn, tries=4):
+def retry(fn, tries=6):
     last = None
     for i in range(tries):
         try:
             return fn()
         except Exception as e:  # noqa
             last = e
-            time.sleep(2 * (2 ** i))
+            time.sleep(3 * (2 ** i))   # waits 3, 6, 12, 24, 48 seconds: enough for a rate limit to clear
     raise last
 
 
@@ -126,15 +188,19 @@ def secs(label):
 
 
 # ------------------------------------------------------------------ transcribe
-def transcribe_one(path, lang, key):
+def transcribe_one(path, lang, key, smart=False):
     ch = wav_channels(path) if path.lower().endswith((".wav", ".wave")) else 1
-    q = "model=nova-3&smart_format=true&punctuate=true&utterances=true&language=%s" % lang
+    # smart_format turns "two sixty nine" into "$2.69", which loses the price; plain words are safer, the analysis reads them with the price list
+    q = "model=nova-3&punctuate=true&utterances=true&language=%s" % lang
+    if smart:
+        q += "&smart_format=true"
     q += "&multichannel=true" if ch == 2 else "&diarize=true"
+    qk = q + "".join("&keyterm=" + quote(t) for t in GLOSSARY[:80])
     ext = path.rsplit(".", 1)[-1].lower()
     ctype = {"wav": "audio/wav", "wave": "audio/wav", "mp3": "audio/mpeg", "m4a": "audio/mp4", "mp4": "audio/mp4", "ogg": "audio/ogg", "opus": "audio/ogg", "flac": "audio/flac", "aac": "audio/aac", "webm": "audio/webm"}.get(ext, "application/octet-stream")
 
-    def go():
-        code, out, err = sh(["curl", "-sS", "--max-time", "900", "-X", "POST", "%s/v1/listen?%s" % (DG_BASE, q),
+    def go(query):
+        code, out, err = sh(["curl", "-sS", "--max-time", "900", "-X", "POST", "%s/v1/listen?%s" % (DG_BASE, query),
                              "-H", "Authorization: Token " + key, "-H", "Content-Type: " + ctype, "--data-binary", "@" + path])
         if code != 0:
             raise RuntimeError("curl failed: " + err.decode("utf-8", "ignore")[:200])
@@ -142,7 +208,15 @@ def transcribe_one(path, lang, key):
         if j.get("err_code") or j.get("error"):
             raise RuntimeError(str(j.get("err_msg") or j.get("error"))[:200])
         return j
-    j = retry(go)
+
+    def attempt():
+        try:
+            return go(qk)
+        except RuntimeError as e:
+            if GLOSSARY and "keyterm" in str(e).lower():
+                return go(q)       # this language does not take key terms: transcribe without them
+            raise
+    j = retry(attempt)
     label = "C" if ch == 2 else "S"
     lines, utts = [], []
     for u in (j.get("results", {}).get("utterances") or []):
@@ -167,27 +241,47 @@ def cmd_transcribe(a):
         sys.exit("No audio files found.\n  Looked in: %s\n  Files there: %d (types: %s)\n  Put the recordings in that folder (unzip any .zip first), then run it again.\n  Not sure where they are? Run:  cd %s && pwd && ls audio | head"
                  % (os.path.abspath(a.audio), len(allf), ", ".join(types) or "none", os.getcwd()))
     os.makedirs(os.path.join(a.out, "transcripts"), exist_ok=True)
-    done = fail = skipped = 0
-    for i, f in enumerate(files, 1):
+    hp = os.path.join(a.out, "hashes.json")
+    try:
+        hashes = json.load(open(hp)) if os.path.exists(hp) else {}
+    except Exception:
+        hashes = {}
+    todo, skipped, dups = [], 0, 0
+    for f in files:
         base = os.path.splitext(os.path.basename(f))[0]
         tp = os.path.join(a.out, "transcripts", base + ".txt")
         if os.path.exists(tp) and os.path.getsize(tp) > 0:
             skipped += 1
             continue
+        h = quick_hash(f)
+        if h in hashes and hashes[h] != base:
+            dups += 1
+            say("Skipping %s: the same recording as %s" % (os.path.basename(f), hashes[h]))
+            continue
+        hashes[h] = base
+        todo.append((f, base, tp))
+    json.dump(hashes, open(hp, "w"))
+    counts = {"done": 0, "fail": 0}
+
+    def work(n, item):
+        f, base, tp = item
         try:
-            j, text, utts = transcribe_one(f, a.lang, key)
+            j, text, utts = transcribe_one(f, a.lang, key, a.smart)
             with open(os.path.join(a.out, "transcripts", base + ".json"), "w") as fh:
                 json.dump({"file": os.path.basename(f), "duration": j.get("metadata", {}).get("duration"), "utterances": utts}, fh)
             with open(tp, "w") as fh:
                 fh.write(text or "(no speech found)")
-            done += 1
-            print("[%d/%d] transcribed %s (%d lines)" % (i, len(files), os.path.basename(f), text.count("\n") + 1))
+            with LOCK:
+                counts["done"] += 1
+            say("[%d/%d] transcribed %s (%d lines)" % (n, len(todo), os.path.basename(f), text.count("\n") + 1))
         except Exception as e:
-            fail += 1
-            print("[%d/%d] FAILED %s: %s" % (i, len(files), os.path.basename(f), e))
-            with open(os.path.join(a.out, "errors.log"), "a") as fh:
-                fh.write("%s\t%s\n" % (f, e))
-    print("Transcription: %d new, %d already done, %d failed" % (done, skipped, fail))
+            with LOCK:
+                counts["fail"] += 1
+            say("[%d/%d] FAILED %s: %s" % (n, len(todo), os.path.basename(f), e))
+            log_err(a.out, f, e)
+    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
+        list(ex.map(lambda t: work(t[0], t[1]), list(enumerate(todo, 1))))
+    print("Transcription: %d new, %d already done, %d duplicate recordings skipped, %d failed" % (counts["done"], skipped, dups, counts["fail"]))
 
 
 # ------------------------------------------------------------------ turns
@@ -338,24 +432,33 @@ def cmd_mine(a):
         print("Comparing every call against your scripts (%d characters)." % len(scripts))
     else:
         print("No scripts found in '%s'. Calls will be evaluated without a script comparison. (Put bundle.json or tint.json and coating.json there to compare.)" % a.scripts)
-    system = [{"type": "text", "text": MINE_RULES + ("\n\nSCRIPTS:\n" + scripts if scripts else "\n\nNo scripts were provided."), "cache_control": {"type": "ephemeral"}}]
+    extra = ""
+    if ROSTER:
+        extra += "\n\nThe sales reps who make these calls (the transcript may mishear the name; pick the closest): " + ", ".join(sorted(set(ROSTER.values()))) + "."
+    if GLOSSARY:
+        extra += "\nBusiness terms that may be misheard in the transcript: " + ", ".join(GLOSSARY[:80]) + "."
+    system = [{"type": "text", "text": MINE_RULES + extra + ("\n\nSCRIPTS:\n" + scripts if scripts else "\n\nNo scripts were provided."), "cache_control": {"type": "ephemeral"}}]
     files = sorted(glob.glob(os.path.join(a.out, "transcripts", "*.txt")))
     if a.limit:
         files = files[:a.limit]
     os.makedirs(os.path.join(a.out, "mined"), exist_ok=True)
-    done = fail = skipped = 0
-    for i, f in enumerate(files, 1):
+    todo, skipped = [], 0
+    for f in files:
         base = os.path.splitext(os.path.basename(f))[0]
-        mp = os.path.join(a.out, "mined", base + ".json")
-        if os.path.exists(mp):
+        if os.path.exists(os.path.join(a.out, "mined", base + ".json")):
             skipped += 1
-            continue
+        else:
+            todo.append((f, base))
+    counts = {"done": 0, "fail": 0}
+
+    def work(n, item):
+        f, base = item
+        mp = os.path.join(a.out, "mined", base + ".json")
         text = open(f).read()
         turns = parse_turns(text, os.path.join(a.out, "transcripts", base + ".json"))
         if len(text.split()) < 40 or not turns:
             json.dump({"call": base, "meta": {"service": "other", "call_type": "voicemail"}, "outcome": {"result": "no_answer_or_voicemail"}, "scores": {"overall": 1}, "moments": [], "turns": merge_turns(turns, None, []), "summary": "too short to evaluate"}, open(mp, "w"))
-            skipped += 1
-            continue
+            return
         try:
             user = "Transcript of one call (numbered turns):\n" + numbered(turns)[:90000] + "\n\nReturn the JSON."
             reply, stop = claude(a.model, a.effort, system, user, key, max_tokens=14000)
@@ -367,17 +470,20 @@ def cmd_mine(a):
             data["stats"] = call_stats(turns, rep_spk)
             data["turns"] = merge_turns(turns, rep_spk, data.pop("turn_tags", []))
             json.dump(data, open(mp, "w"), ensure_ascii=False, indent=1)
-            done += 1
+            with LOCK:
+                counts["done"] += 1
             m = data.get("meta") or {}
-            print("[%d/%d] %s: agent %s, client %s, %s, %s, overall %s, %d moments, %d deviations" % (
-                i, len(files), base[:24], m.get("agent_name"), m.get("client_name"), m.get("service"), (data.get("outcome") or {}).get("result"),
+            say("[%d/%d] %s: agent %s, client %s, %s, %s, overall %s, %d moments, %d deviations" % (
+                n, len(todo), base[:24], canon_agent(m.get("agent_name")), m.get("client_name"), m.get("service"), (data.get("outcome") or {}).get("result"),
                 (data.get("scores") or {}).get("overall"), len(data.get("moments") or []), len((data.get("script") or {}).get("deviations") or [])))
         except Exception as e:
-            fail += 1
-            print("[%d/%d] FAILED %s: %s" % (i, len(files), base[:30], e))
-            with open(os.path.join(a.out, "errors.log"), "a") as fh:
-                fh.write("%s\t%s\n" % (f, e))
-    print("Analysis: %d new, %d already done, %d failed" % (done, skipped, fail))
+            with LOCK:
+                counts["fail"] += 1
+            say("[%d/%d] FAILED %s: %s" % (n, len(todo), base[:30], e))
+            log_err(a.out, f, e)
+    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
+        list(ex.map(lambda t: work(t[0], t[1]), list(enumerate(todo, 1))))
+    print("Analysis: %d new, %d already done, %d failed" % (counts["done"], skipped, counts["fail"]))
 
 
 # ------------------------------------------------------------------ report
@@ -419,13 +525,46 @@ def write_csv(path, rows, fields):
         w.writerows(rows)
 
 
+def outcome_class(c):
+    """win = deposit taken AND a date set. Booked without a deposit and callbacks are not wins."""
+    r, w = g(c, "outcome", "result"), g(c, "outcome", "win")
+    if g(c, "meta", "call_type") in ("voicemail", "wrong_number") or r == "no_answer_or_voicemail":
+        return "no_conversation"
+    if w is True or r == "deposit_taken":
+        return "win"
+    if r == "booked":
+        return "booked_no_deposit"
+    if r == "callback_set":
+        return "callback"
+    if r in ("not_interested", "lost_to_competitor", "no_decision"):
+        return "loss"
+    return "unclear"
+
+
 def won(c):
-    return g(c, "outcome", "result") in ("booked", "deposit_taken")
+    return outcome_class(c) == "win"
 
 
 def agent_key(c):
-    n = str(g(c, "meta", "agent_name", default="") or "").strip().split(" ")[0].lower()
-    return n.capitalize() if n and n not in ("none", "null", "unknown") else "Unknown"
+    return canon_agent(g(c, "meta", "agent_name", default=""))
+
+
+def agent_weights(calls):
+    """How much to trust each rep's answers: their win rate, pulled toward the team average when they have few calls."""
+    real = [c for c in calls if outcome_class(c) != "no_conversation"]
+    if not real:
+        return {}
+    overall = len([c for c in real if won(c)]) / float(len(real))
+    by = collections.defaultdict(list)
+    for c in real:
+        by[agent_key(c)].append(c)
+    out = {}
+    for name, cs in by.items():
+        wins, n, k = len([c for c in cs if won(c)]), len(cs), 8.0
+        sm = (wins + k * overall) / (n + k)
+        rel = sm / overall if overall > 0 else 1.0
+        out[name] = {"n": n, "wins": wins, "win_pct": round(100.0 * wins / n), "smoothed_pct": round(100 * sm), "weight": 1.0 if name == "Unknown" else round(max(0.6, min(1.8, rel)), 2)}
+    return out
 
 
 SHOP_FACTS = re.compile(r"jack.?s auto customs|jax auto customs|jacksonville|georgia|amco|walgreens|o.?reilly|hitek|hypex|xpel|llumar|ethos|square|halloween|\\$\\s?\\d[\\d,\\.]*|\\b\\d{3,4}\\s?(?:dollars|bucks)\\b", re.I)
@@ -437,7 +576,7 @@ def mask(text):
     return t
 
 
-def build_library(c):
+def build_library(c, W):
     """Every thing a lead said that needed an answer, with the context before it and how the rep answered. This is what the live coach looks things up in."""
     turns = c.get("turns") or []
     byi = {t["i"]: t for t in turns}
@@ -466,6 +605,9 @@ def build_library(c):
                     "rep_response": " ".join(r["text"] for r in reps), "rep_response_turns": [r["i"] for r in reps], "response_t": reps[0].get("t"),
                     "has_shop_facts": bool(SHOP_FACTS.search(" ".join(r["text"] for r in reps) + " " + str(better or ""))),
                     "quality": round(sum(q) / len(q), 1) if q else None, "better_answer": better})
+        wgt = (W.get(agent_key(c)) or {}).get("weight", 1.0)
+        out[-1]["agent_weight"] = wgt
+        out[-1]["priority"] = round((out[-1]["quality"] or 0) * wgt * (1.25 if won(c) else 1.0), 2)
     return out
 
 
@@ -474,11 +616,12 @@ def cmd_report(a):
     if not calls:
         sys.exit("Nothing to report yet. Run the mine step first.")
     rows, dev, piv, mom, kn, trows, lib = [], [], [], [], [], [], []
+    W = agent_weights(calls)
     for c in calls:
         sc = c.get("scores") or {}
         rows.append({"call": c.get("call"), "agent": agent_key(c), "client": g(c, "meta", "client_name"), "service": g(c, "meta", "service"),
                      "vehicle": " ".join(str(g(c, "meta", "vehicle", k) or "") for k in ("year", "make", "model")).strip(), "call_type": g(c, "meta", "call_type"),
-                     "result": g(c, "outcome", "result"), "price_quoted": g(c, "outcome", "price_quoted"), "evidence": g(c, "outcome", "evidence"),
+                     "result": g(c, "outcome", "result"), "outcome_class": outcome_class(c), "price_quoted": g(c, "outcome", "price_quoted"), "evidence": g(c, "outcome", "evidence"),
                      "overall": sc.get("overall"), "rapport": sc.get("rapport"), "discovery": sc.get("discovery"), "aca": sc.get("aca_framework"), "pitch": sc.get("pitch"),
                      "objections": sc.get("objection_handling"), "close": sc.get("close"), "control": sc.get("control"),
                      "minutes": round((g(c, "stats", "duration_sec", default=0) or 0) / 60, 1), "rep_talk_pct": g(c, "stats", "rep_word_share_pct"), "first_price_sec": g(c, "stats", "first_price_mention_sec"),
@@ -495,9 +638,9 @@ def cmd_report(a):
             kn.append(dict(base, **{x: k.get(x) for x in ("topic", "claim", "said_by", "vs_script", "note")}))
         for t in c.get("turns") or []:
             trows.append(dict(base, client=g(c, "meta", "client_name"), **{x: t.get(x) for x in ("i", "t", "end", "role", "spk", "kind", "topic", "phase", "script_step", "needs_response", "answers_turn", "answered_by", "quality", "text")}))
-        lib.extend(build_library(c))
+        lib.extend(build_library(c, W))
     mom.sort(key=lambda r: (str(r.get("topic")), -(r.get("quality") or 0)))
-    write_csv(os.path.join(a.out, "calls.csv"), rows, ["call", "agent", "client", "service", "vehicle", "call_type", "result", "price_quoted", "evidence", "overall", "rapport", "discovery", "aca", "pitch", "objections", "close", "control", "minutes", "rep_talk_pct", "first_price_sec", "steps_skipped", "deviations", "summary", "lesson"])
+    write_csv(os.path.join(a.out, "calls.csv"), rows, ["call", "agent", "client", "service", "vehicle", "call_type", "result", "outcome_class", "price_quoted", "evidence", "overall", "rapport", "discovery", "aca", "pitch", "objections", "close", "control", "minutes", "rep_talk_pct", "first_price_sec", "steps_skipped", "deviations", "summary", "lesson"])
     write_csv(os.path.join(a.out, "deviations.csv"), dev, ["call", "agent", "service", "result", "t", "script_step", "type", "script_said", "rep_said", "impact", "keep_this"])
     write_csv(os.path.join(a.out, "pivotal.csv"), piv, ["call", "agent", "service", "result", "t", "kind", "description", "effect", "repeat_or_avoid"])
     write_csv(os.path.join(a.out, "moments.csv"), mom, ["call", "agent", "service", "result", "t", "kind", "topic", "quality", "lead_said", "rep_said", "why", "better_answer"])
@@ -513,9 +656,9 @@ def cmd_report(a):
         if (r.get("topic") or "other") == "other" and r.get("kind") not in ("question", "objection", "buying_signal"):
             continue
         k = re.sub(r"[^a-z0-9]+", " ", str(r["rep_response"]).lower())[:120]
-        if k not in best or (r["quality"] or 0) > (best[k]["quality"] or 0):
+        if k not in best or (r["priority"] or 0) > (best[k]["priority"] or 0):
             best[k] = r
-    lib = sorted(best.values(), key=lambda r: (str(r.get("topic")), -(r["quality"] or 0)))
+    lib = sorted(best.values(), key=lambda r: (str(r.get("topic")), -(r["priority"] or 0)))
     for r in lib:
         r["rep_response_masked"] = mask(r["rep_response"])
     with open(os.path.join(a.out, "response_library.jsonl"), "w") as fh:
@@ -525,15 +668,15 @@ def cmd_report(a):
         for r in lib_all:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
     write_csv(os.path.join(a.out, "response_library.csv"), [dict(r, context_before=" | ".join("%s: %s" % (x["role"], x["text"]) for x in r["context_before"])) for r in lib],
-              ["id", "call", "agent", "client", "service", "result", "won", "t", "kind", "topic", "phase", "script_step", "lead_said", "context_before", "rep_response", "rep_response_masked", "has_shop_facts", "response_t", "quality", "better_answer"])
+              ["id", "call", "agent", "client", "service", "result", "won", "t", "kind", "topic", "phase", "script_step", "lead_said", "context_before", "rep_response", "rep_response_masked", "has_shop_facts", "response_t", "quality", "agent_weight", "priority", "better_answer"])
     # a readable playbook: the best real answers to each topic, from calls that booked first
     by_topic = collections.defaultdict(list)
     for r in lib:
         by_topic[r.get("topic") or "other"].append(r)
     with open(os.path.join(a.out, "response_playbook.md"), "w") as fh:
-        fh.write("# Best real answers by topic\n\nSorted by rating, calls that booked first. Each entry shows what the lead said and what the rep said next.\n")
+        fh.write("# Best real answers by topic\n\nSorted by priority: the rating, raised for reps who close well and for calls that won. Each entry shows what the lead said and what the rep said next.\n")
         for topic, rs in sorted(by_topic.items(), key=lambda kv: -len(kv[1])):
-            rs.sort(key=lambda r: (not r["won"], -(r["quality"] or 0)))
+            rs.sort(key=lambda r: -(r["priority"] or 0))
             fh.write("\n## %s (%d times it came up)\n" % (topic, len(rs)))
             for r in rs[:6]:
                 fh.write("\n- **Lead** (%s, %s, %s, rated %s): %s\n  **Rep (%s):** %s\n" % (r["service"], r["agent"], "booked" if r["won"] else str(r["result"]), r["quality"], r["lead_said"], r["t"], r["rep_response"]))
@@ -542,17 +685,18 @@ def cmd_report(a):
     # per-agent table
     ag = collections.defaultdict(list)
     for c in calls:
-        if g(c, "meta", "call_type") in ("voicemail", "wrong_number") or g(c, "outcome", "result") == "no_answer_or_voicemail":
-            continue
-        ag[agent_key(c)].append(c)
+        if outcome_class(c) != "no_conversation":
+            ag[agent_key(c)].append(c)
     arows = []
     for name, cs in sorted(ag.items(), key=lambda kv: -len(kv[1])):
         def avg(k):
             v = [g(c, "scores", k) for c in cs if isinstance(g(c, "scores", k), (int, float))]
             return round(sum(v) / len(v), 2) if v else None
-        arows.append({"agent": name, "calls": len(cs), "booked_pct": round(100 * len([c for c in cs if won(c)]) / len(cs)), "overall": avg("overall"), "discovery": avg("discovery"), "aca": avg("aca_framework"), "pitch": avg("pitch"),
+        w = W.get(name) or {}
+        arows.append({"agent": name, "calls": len(cs), "wins": w.get("wins"), "win_pct": w.get("win_pct"), "smoothed_win_pct": w.get("smoothed_pct"), "weight": w.get("weight"),
+                      "callbacks": len([c for c in cs if outcome_class(c) == "callback"]), "overall": avg("overall"), "discovery": avg("discovery"), "aca": avg("aca_framework"), "pitch": avg("pitch"),
                       "objections": avg("objection_handling"), "close": avg("close"), "control": avg("control")})
-    write_csv(os.path.join(a.out, "agents.csv"), arows, ["agent", "calls", "booked_pct", "overall", "discovery", "aca", "pitch", "objections", "close", "control"])
+    write_csv(os.path.join(a.out, "agents.csv"), arows, ["agent", "calls", "wins", "win_pct", "smoothed_win_pct", "weight", "callbacks", "overall", "discovery", "aca", "pitch", "objections", "close", "control"])
     real = [c for c in calls if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number")]
     # how many calls of each service, and how each one does
     sv = collections.defaultdict(list)
@@ -564,18 +708,21 @@ def cmd_report(a):
         def avg2(vals):
             vals = [v for v in vals if isinstance(v, (int, float))]
             return round(sum(vals) / len(vals), 1) if vals else None
-        srows.append({"service": name, "calls": len(cs), "real_conversations": len(rc), "booked_or_deposit": len([c for c in rc if won(c)]),
-                      "booked_pct_of_real": round(100 * len([c for c in rc if won(c)]) / len(rc)) if rc else None,
+        srows.append({"service": name, "calls": len(cs), "real_conversations": len(rc), "wins": len([c for c in rc if won(c)]),
+                      "win_pct_of_real": round(100 * len([c for c in rc if won(c)]) / len(rc)) if rc else None,
                       "callbacks_set": len([c for c in rc if g(c, "outcome", "result") == "callback_set"]),
                       "avg_overall_score": avg2([g(c, "scores", "overall") for c in rc]), "avg_minutes": avg2([(g(c, "stats", "duration_sec", default=0) or 0) / 60 for c in rc]),
                       "avg_rep_talk_pct": avg2([g(c, "stats", "rep_word_share_pct") for c in rc]), "avg_secs_to_price": avg2([g(c, "stats", "first_price_mention_sec") for c in rc])})
-    write_csv(os.path.join(a.out, "services.csv"), srows, ["service", "calls", "real_conversations", "booked_or_deposit", "booked_pct_of_real", "callbacks_set", "avg_overall_score", "avg_minutes", "avg_rep_talk_pct", "avg_secs_to_price"])
+    write_csv(os.path.join(a.out, "services.csv"), srows, ["service", "calls", "real_conversations", "wins", "win_pct_of_real", "callbacks_set", "avg_overall_score", "avg_minutes", "avg_rep_talk_pct", "avg_secs_to_price"])
     print("\nCalls by service:")
     for r in srows:
-        print("  %-12s %3d calls, %3d real conversations, %3d booked (%s%%), avg score %s" % (r["service"], r["calls"], r["real_conversations"], r["booked_or_deposit"], r["booked_pct_of_real"], r["avg_overall_score"]))
-    print("\nCalls analyzed: %d (%d real conversations). Booked or deposit: %d" % (len(calls), len(real), len([c for c in real if won(c)])))
+        print("  %-12s %3d calls, %3d real conversations, %3d wins (%s%%), avg score %s" % (r["service"], r["calls"], r["real_conversations"], r["wins"], r["win_pct_of_real"], r["avg_overall_score"]))
+    oc = collections.Counter(outcome_class(c) for c in calls)
+    print("\nCalls analyzed: %d unique (%d real conversations). Wins (deposit and a date): %d. Booked without deposit: %d. Callbacks: %d. Lost: %d. Unclear: %d" % (
+        len(calls), len(real), oc["win"], oc["booked_no_deposit"], oc["callback"], oc["loss"], oc["unclear"]))
+    print("Agent win rates (adjusted pulls small samples toward the team average; weight is how much the coach trusts that rep's answers):")
     for r in arows:
-        print("  %-12s %3d calls, %3d%% booked, overall %s" % (r["agent"], r["calls"], r["booked_pct"], r["overall"]))
+        print("  %-12s %3d calls, %s wins (%s%%, adjusted %s%%), weight %s, overall score %s" % (r["agent"], r["calls"], r["wins"], r["win_pct"], r["smoothed_win_pct"], r["weight"], r["overall"]))
     tc = collections.Counter(m.get("topic") for m in mom)
     print("Questions and pushback by topic: " + ", ".join("%s %d" % (t, n) for t, n in tc.most_common(8)))
     print("Off-script moments: %d (%d marked worth keeping). Pivotal moments: %d. Product claims to verify: %d" % (len(dev), len([d for d in dev if d.get("keep_this")]), len(piv), len([k for k in kn if k.get("vs_script") != "matches"])))
@@ -636,14 +783,56 @@ def cmd_learn(a):
 
 
 # ------------------------------------------------------------------ main
+def list_audio(folder):
+    return sorted(f for f in glob.glob(os.path.join(folder, "**", "*"), recursive=True) if f.lower().endswith(AUDIO_EXT))
+
+
+def cmd_plan(a):
+    files = list_audio(a.audio)
+    if a.limit:
+        files = files[:a.limit]
+    seen, dups, secs_total, unknown = {}, 0, 0.0, 0
+    for f in files:
+        h = quick_hash(f)
+        if h in seen:
+            dups += 1
+            continue
+        seen[h] = f
+        d = None
+        if f.lower().endswith((".wav", ".wave")):
+            try:
+                import wave
+                with wave.open(f) as w:
+                    d = w.getnframes() / float(w.getframerate())
+            except Exception:
+                d = None
+        if d is None:
+            unknown += 1
+            d = os.path.getsize(f) / 16000.0   # rough: ~128 kbps
+        secs_total += d
+    n = len(seen)
+    mins = secs_total / 60.0
+    print("Found %d recordings: %d unique, %d exact duplicates." % (len(files), n, dups))
+    print("About %.0f hours of audio (%.0f minutes, average %.1f minutes a call)%s." % (mins / 60.0, mins, mins / max(1, n), "; sizes of %d non-WAV files estimated" % unknown if unknown else ""))
+    print("Deepgram transcription: about $%.0f." % (mins * 0.0043))
+    print("Claude analysis: about $%.0f with Sonnet, about $%.0f with Haiku (rough, depends on call length)." % (n * 0.20, n * 0.06))
+    print("Time with --jobs 3: about %.0f minutes." % max(1, n * 1.0 / 3))
+    print("\nRun it with:  python3 call_miner.py run %s --limit %d --jobs 3" % (a.audio, max(n, 1)))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("transcribe", "run", "mine", "report", "learn"):
+    for name in ("transcribe", "run", "mine", "report", "learn", "plan"):
         s = sub.add_parser(name)
-        if name in ("transcribe", "run"):
+        if name in ("transcribe", "run", "plan"):
             s.add_argument("audio", help="folder with the recordings")
             s.add_argument("--lang", default="en", help="en, es, or multi")
+            s.add_argument("--smart", action="store_true", help="let Deepgram reformat numbers (off by default: it garbles prices)")
+        if name != "plan":
+            s.add_argument("--jobs", type=int, default=3, help="calls processed at the same time (default 3; lower it if you see rate-limit errors)")
+            s.add_argument("--roster", default="roster.txt", help="rep names, one per line (optional)")
+            s.add_argument("--glossary", default="glossary.txt", help="business words to get right (optional)")
         s.add_argument("--out", default="out")
         s.add_argument("--limit", type=int, default=0, help="only the first N files (use 30 for a pilot)")
         if name in ("run", "mine", "learn"):
@@ -654,7 +843,14 @@ def main():
         if name == "run":
             s.add_argument("--no-learn", action="store_true", help="skip the cross-call learning step")
     a = p.parse_args()
-    if a.cmd == "transcribe":
+    if a.cmd != "plan":
+        load_roster(a.roster)
+        load_glossary(a.glossary)
+        if ROSTER or GLOSSARY:
+            print("Using %d rep names and %d key words" % (len(set(ROSTER.values())), len(GLOSSARY)))
+    if a.cmd == "plan":
+        cmd_plan(a)
+    elif a.cmd == "transcribe":
         cmd_transcribe(a)
     elif a.cmd == "mine":
         cmd_mine(a)
