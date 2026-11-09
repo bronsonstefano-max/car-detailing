@@ -125,7 +125,13 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS messages_lead ON messages (lead_id, id)"),
     db.prepare("CREATE INDEX IF NOT EXISTS messages_sid ON messages (sid)"),
     db.prepare("CREATE TABLE IF NOT EXISTS sms_optout (phone TEXT PRIMARY KEY, at TEXT NOT NULL DEFAULT (datetime('now')))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS automations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'sequence', active INTEGER NOT NULL DEFAULT 0, rules TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS automation_steps (id INTEGER PRIMARY KEY AUTOINCREMENT, automation_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, after_min INTEGER NOT NULL DEFAULT 0, gap_min INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL DEFAULT '')"),
+    db.prepare("CREATE TABLE IF NOT EXISTS automation_runs (automation_id INTEGER NOT NULL, lead_id INTEGER NOT NULL, step_id INTEGER NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')), status TEXT, body TEXT, PRIMARY KEY (automation_id, lead_id, step_id))"),
+    db.prepare("CREATE INDEX IF NOT EXISTS automation_steps_a ON automation_steps (automation_id, pos)"),
   ]);
+  const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
+  if (flagAuto.meta && flagAuto.meta.changes) await seedAutomations(db);
   await db.batch([
     db.prepare("CREATE TABLE IF NOT EXISTS queue_run (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, active INTEGER NOT NULL DEFAULT 1, started_at TEXT NOT NULL DEFAULT (datetime('now')), next_at TEXT, ended_at TEXT, note TEXT, misses INTEGER NOT NULL DEFAULT 0)"),
     db.prepare("CREATE TABLE IF NOT EXISTS queue_items (run_id INTEGER, lead_id INTEGER, pos INTEGER, status TEXT NOT NULL DEFAULT 'waiting', call_id TEXT, PRIMARY KEY (run_id, lead_id))"),
@@ -1347,7 +1353,7 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
@@ -1361,12 +1367,14 @@ function bnav(on, n = 0, owner = false) {
     missed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M7 7c-1 3 0 6 3 9s6 4 9 3"/></svg>',
     insights: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 15l4-5 3 3 5-7"/></svg>',
     out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg>',
+    bolt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>',
   };
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
-  const moreKeys = ["speed", "rate", "missed", "insights"];
+  const moreKeys = ["speed", "rate", "missed", "insights", "calendar", "automations"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -2015,6 +2023,361 @@ const hm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hm)open(+hm[1]);
 setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur)open(cur.id,true)},6000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
+
+// ---- Automations: editable text sequences and campaigns. Each automation has rules (who, when, what stage) and ordered steps (timing + message).
+// Texting only ever goes to leads who agreed (sms_consent), never in quiet hours (before 8 AM or after 9 PM Eastern), and stops for a number that replied STOP.
+const AUTO_KINDS = ["sequence", "stage", "appointment"];
+const autoMode = env => env.TEXT_AUTO === "1" && twilioOn(env);
+function quietHoursOk(d = new Date()) {
+  const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" }).format(d));
+  return h >= 8 && h < 21;
+}
+const AUTO_FIELDS = ["first", "service", "service_name", "vehicle", "pitch", "shop", "address", "appointment", "review"];
+function renderAuto(body, l, env) {
+  const veh = [l.year, l.make, l.model].filter(Boolean).join(" ") || "vehicle", first = String(l.name || "").trim().split(/\s+/)[0], sv = String(l.service || "").toLowerCase();
+  const coat = /coat/.test(sv), tint = /tint/.test(sv);
+  const v = {
+    first: first && !/^\+?[\d\s()-]+$/.test(first) ? first : "there", service: sv || "our services",
+    service_name: coat ? "ceramic coating" : tint ? "ceramic tint" : sv || "our services", vehicle: /^your /.test(veh) ? veh : "your " + veh,
+    pitch: coat ? "Our ceramic coating adds a deep, glossy finish, protects your paint and makes every wash easier." : tint ? "Our tint keeps your ride cooler, protected and more private, with a clean, factory look." : "",
+    shop: SHOP.name, address: SHOP.address, appointment: fmtAppt(l.appt_at) || "your appointment time", review: reviewLink(env),
+  };
+  return String(body || "").replace(/\{(\w+)\}/g, (m, k) => (v[k] === undefined ? m : v[k])).replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+const FIRST_TEXT_TAIL = "Msg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.";
+async function autoSend(env, a, step, lead) {
+  const raw = String(step.body || "");
+  if (/\{review\}/.test(raw) && !reviewLink(env)) return 0; // needs GOOGLE_REVIEW_URL: nothing is claimed, so it sends once that is set
+  let body = renderAuto(raw, lead, env);
+  if (/\{\w+\}/.test(body)) return 0;
+  const claim = await env.DB.prepare("INSERT OR IGNORE INTO automation_runs (automation_id, lead_id, step_id, status) VALUES (?,?,?, 'sending')").bind(a.id, lead.id, step.id).run();
+  if (!claim.meta || !claim.meta.changes) return 0;
+  // the very first text a lead gets always carries the required disclosures
+  const prior = (await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE lead_id = ? AND direction = 'out'").bind(lead.id).first()) || {};
+  if (!prior.n && !/stop/i.test(body)) body += "\n\n" + FIRST_TEXT_TAIL;
+  const res = await sendLeadText(env, lead, body, { auto: true, label: `${a.name} #${step.pos + 1}` }).catch(e => ({ ok: false, message: String((e && e.message) || e) }));
+  await env.DB.prepare("UPDATE automation_runs SET status = ?, body = ? WHERE automation_id = ? AND lead_id = ? AND step_id = ?").bind(res.ok ? "sent" : "failed: " + String(res.message || "").slice(0, 100), body.slice(0, 1000), a.id, lead.id, step.id).run().catch(() => {});
+  return 1;
+}
+async function runAutomations(env) {
+  if (!env.DB || !autoMode(env) || !quietHoursOk()) return;
+  await ensureTable(env.DB);
+  const autos = (await env.DB.prepare("SELECT * FROM automations WHERE active = 1 ORDER BY id").all()).results || [];
+  if (!autos.length) return;
+  const allSteps = (await env.DB.prepare("SELECT * FROM automation_steps ORDER BY automation_id, pos").all()).results || [];
+  const ms = x => Date.parse(String(x).replace(" ", "T") + "Z");
+  const now = Date.now();
+  let sent = 0;
+  for (const a of autos) {
+    if (sent >= 5) break; // a few a minute, so a busy morning does not go out all at once
+    const steps = allSteps.filter(s => s.automation_id === a.id);
+    if (!steps.length) continue;
+    let rules = {}; try { rules = JSON.parse(a.rules || "{}"); } catch (e) { /* defaults */ }
+    if (rules.business_hours && env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) continue;
+    const runs = (await env.DB.prepare("SELECT lead_id, step_id, at FROM automation_runs WHERE automation_id = ?").bind(a.id).all()).results || [];
+    if (a.kind === "appointment") {
+      const rows = (await env.DB.prepare("SELECT id, name, phone, service, year, make, model, appt_at FROM leads WHERE stage = 'booked' AND appt_at IS NOT NULL AND sms_consent = 1 AND COALESCE(phone,'') != '' AND COALESCE(ip,'') != 'demo' AND appt_at >= date('now','-1 day') LIMIT 200").all()).results || [];
+      for (const l of rows) {
+        const at = etLocalToUtc(l.appt_at); if (!at) continue;
+        for (const st of steps) {
+          const due = at.getTime() - st.after_min * 60000;
+          if (now < due || now >= due + 30 * 60000 || now >= at.getTime()) continue;
+          if (runs.some(r => r.lead_id === l.id && r.step_id === st.id)) continue;
+          sent += await autoSend(env, a, st, l);
+          if (sent >= 5) break;
+        }
+        if (sent >= 5) break;
+      }
+      continue;
+    }
+    const stages = (Array.isArray(rules.stages) ? rules.stages : []).filter(x => STAGE_KEYS.includes(x));
+    const useStages = stages.length ? stages : ["new", "nocontact"];
+    const anchor = a.kind === "stage" ? "COALESCE(l.stage_changed_at, l.created_at)" : "l.created_at";
+    const days = Math.max(1, Math.min(365, Number(rules.max_days) || 8));
+    const svc = (Array.isArray(rules.services) ? rules.services : []).map(x => String(x).toLowerCase().replace(/[%_]/g, "")).filter(Boolean).slice(0, 5);
+    const svcSql = svc.length ? " AND (" + svc.map(() => "LOWER(l.service) LIKE ?").join(" OR ") + ")" : "";
+    const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.year, l.make, l.model, l.appt_at, ${anchor} AS anchor,
+        (SELECT COUNT(*) FROM messages m WHERE m.lead_id = l.id AND m.direction = 'in' AND m.at >= ${anchor}) AS replies
+      FROM leads l WHERE l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != '' AND l.sms_consent = 1
+        AND l.stage IN (${useStages.map(() => "?").join(",")}) AND ${anchor} >= datetime('now', ?)${svcSql} ORDER BY ${anchor} LIMIT 300`)
+      .bind(...useStages, `-${days} days`, ...svc.map(x => "%" + x + "%")).all()).results || [];
+    for (const l of rows) {
+      if (rules.stop_on_reply !== false && l.replies) continue; // they answered: a person takes over
+      const mine = runs.filter(r => r.lead_id === l.id);
+      const next = steps.find(s => !mine.some(r => r.step_id === s.id));
+      if (!next) continue;
+      const last = mine.length ? Math.max(...mine.map(r => ms(r.at))) : 0;
+      if (now < ms(l.anchor) + next.after_min * 60000 || (last && now < last + (next.gap_min || 0) * 60000)) continue;
+      sent += await autoSend(env, a, next, l);
+      if (sent >= 5) break;
+    }
+  }
+}
+// ---- the Automations page and its API (owner login only)
+const DEFAULT_AUTOMATIONS = [
+  { name: "New lead follow-up", kind: "sequence", active: 1, rules: { anchor: "created", stages: ["new", "nocontact"], services: [], business_hours: true, stop_on_reply: true, max_days: 8 }, steps: [
+    { after_min: 0, gap_min: 0, body: "Hey {first}, this is {shop}. Thanks for requesting a quote for {service_name} for {vehicle}.\n\n{pitch} When would you like to get it done?\n\nMsg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out." },
+    { after_min: 120, gap_min: 120, body: "Hey {first}, it's {shop} following up about {service} for {vehicle}. Are you still interested? I can get you on the schedule this week." },
+    { after_min: 1440, gap_min: 720, body: "Hi {first}, just checking in on your {service}. We have openings coming up. What day works best for you?" },
+    { after_min: 4320, gap_min: 720, body: "Hey {first}, I haven't heard back so I wanted to make sure you got my messages. Happy to answer any questions about the {service} for {vehicle}." },
+    { after_min: 7200, gap_min: 720, body: "Hi {first}, last follow-up from {shop}. If you're still thinking about {service}, just reply here and we'll take care of you. Otherwise no worries!" },
+  ] },
+  { name: "Appointment reminders", kind: "appointment", active: 1, rules: { stages: ["booked"], business_hours: false, stop_on_reply: false }, steps: [
+    { after_min: 1440, gap_min: 0, body: "Hi {first}, a quick reminder from {shop} about your {service} appointment for {vehicle} on {appointment}. We are at {address}. See you then!" },
+    { after_min: 120, gap_min: 0, body: "Hi {first}, see you in about 2 hours for your {service} appointment at {shop}, {address}. Reply here if anything changes." },
+  ] },
+  { name: "Review request", kind: "stage", active: 0, rules: { anchor: "stage", stages: ["done"], services: [], business_hours: true, stop_on_reply: false, max_days: 14 }, steps: [
+    { after_min: 1440, gap_min: 0, body: "Hi {first}, thank you for trusting {shop} with {vehicle}! If you are happy with the work, a quick Google review helps a lot: {review}" },
+  ] },
+];
+async function seedAutomations(db) {
+  for (const d of DEFAULT_AUTOMATIONS) {
+    const r = await db.prepare("INSERT INTO automations (name, kind, active, rules) VALUES (?,?,?,?)").bind(d.name, d.kind, d.active, JSON.stringify(d.rules)).run();
+    const id = r.meta && r.meta.last_row_id;
+    if (!id) continue;
+    await db.batch(d.steps.map((s, i) => db.prepare("INSERT INTO automation_steps (automation_id, pos, after_min, gap_min, body) VALUES (?,?,?,?,?)").bind(id, i, s.after_min, s.gap_min, s.body)));
+  }
+}
+async function automationsData(env) {
+  await ensureTable(env.DB);
+  const autos = (await env.DB.prepare("SELECT id, name, kind, active, rules FROM automations ORDER BY id").all()).results || [];
+  const steps = (await env.DB.prepare("SELECT id, automation_id, pos, after_min, gap_min, body FROM automation_steps ORDER BY automation_id, pos").all()).results || [];
+  const log = (await env.DB.prepare(`SELECT r.at, r.status, r.body, r.lead_id, l.name lead, a.name automation, s.pos
+      FROM automation_runs r LEFT JOIN leads l ON l.id = r.lead_id LEFT JOIN automations a ON a.id = r.automation_id LEFT JOIN automation_steps s ON s.id = r.step_id ORDER BY r.rowid DESC LIMIT 40`).all()).results || [];
+  return json({
+    success: true, twilio: twilioOn(env), auto: env.TEXT_AUTO === "1", review: !!reviewLink(env), stages: STAGES,
+    automations: autos.map(a => { let rules = {}; try { rules = JSON.parse(a.rules || "{}"); } catch (e) { /* */ } return { ...a, rules, steps: steps.filter(s => s.automation_id === a.id) }; }),
+    log: log.map(x => ({ ...x, at: isoUtc(x.at) })),
+  });
+}
+async function saveAutomation(env, b) {
+  await ensureTable(env.DB);
+  const name = clean(b.name, 80);
+  if (!name) return json({ success: false, message: "Give it a name." }, 400);
+  const kind = AUTO_KINDS.includes(b.kind) ? b.kind : "sequence";
+  const r = b.rules || {};
+  const rules = {
+    anchor: kind === "stage" ? "stage" : "created",
+    stages: (Array.isArray(r.stages) ? r.stages : []).filter(x => STAGE_KEYS.includes(x)),
+    services: (Array.isArray(r.services) ? r.services : []).map(x => clean(x, 40)).filter(Boolean).slice(0, 5),
+    business_hours: !!r.business_hours, stop_on_reply: r.stop_on_reply !== false, max_days: Math.max(1, Math.min(365, Math.floor(Number(r.max_days)) || 8)),
+  };
+  if (kind === "appointment") rules.stages = ["booked"];
+  else if (!rules.stages.length) return json({ success: false, message: "Pick at least one stage." }, 400);
+  const steps = (Array.isArray(b.steps) ? b.steps : []).slice(0, 10);
+  if (!steps.length) return json({ success: false, message: "Add at least one text." }, 400);
+  for (const s of steps) {
+    if (!String(s.body || "").trim()) return json({ success: false, message: "Every text needs a message." }, 400);
+    if (String(s.body).length > 600) return json({ success: false, message: "Keep each text under 600 characters." }, 400);
+    const bad = (String(s.body).match(/\{(\w+)\}/g) || []).map(x => x.slice(1, -1)).find(k => !AUTO_FIELDS.includes(k));
+    if (bad) return json({ success: false, message: `{${bad}} is not a merge field. Use: ${AUTO_FIELDS.map(x => "{" + x + "}").join(" ")}` }, 400);
+  }
+  let id = Number.isInteger(b.id) ? b.id : null;
+  if (id && !(await env.DB.prepare("SELECT 1 FROM automations WHERE id = ?").bind(id).first())) id = null;
+  if (id) await env.DB.prepare("UPDATE automations SET name = ?, kind = ?, rules = ?, active = ?, updated_at = datetime('now') WHERE id = ?").bind(name, kind, JSON.stringify(rules), b.active ? 1 : 0, id).run();
+  else { const ins = await env.DB.prepare("INSERT INTO automations (name, kind, rules, active) VALUES (?,?,?,?)").bind(name, kind, JSON.stringify(rules), b.active ? 1 : 0).run(); id = ins.meta && ins.meta.last_row_id; }
+  // steps keep their id when edited, so a lead's progress through the sequence is not lost
+  const have = ((await env.DB.prepare("SELECT id FROM automation_steps WHERE automation_id = ?").bind(id).all()).results || []).map(x => x.id);
+  const keep = steps.filter(s => Number.isInteger(s.id) && have.includes(s.id)).map(s => s.id);
+  const stmts = have.filter(x => !keep.includes(x)).map(x => env.DB.prepare("DELETE FROM automation_steps WHERE id = ?").bind(x));
+  const mins = v => Math.max(0, Math.min(60 * 24 * 90, Math.floor(Number(v)) || 0));
+  steps.forEach((s, i) => {
+    const vals = [i, mins(s.after_min), mins(s.gap_min), String(s.body).trim()];
+    stmts.push(keep.includes(s.id) ? env.DB.prepare("UPDATE automation_steps SET pos = ?, after_min = ?, gap_min = ?, body = ? WHERE id = ?").bind(...vals, s.id) : env.DB.prepare("INSERT INTO automation_steps (pos, after_min, gap_min, body, automation_id) VALUES (?,?,?,?,?)").bind(...vals, id));
+  });
+  await env.DB.batch(stmts);
+  return json({ success: true, id });
+}
+async function automationsPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Automations | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:900px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:16px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:8px 0 0}.note{color:#7c838d;font-size:13px}
+.ban{border-radius:12px;padding:12px 14px;font-size:14px;border:1px solid #2a313a;background:#10151b}.ban.ok{border-color:#1f5a2a;color:#9fe29f}.ban.warn{border-color:#4d3a1d;color:#ffb86b}
+.top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer;min-height:44px}.btn.g{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.r{color:#ff8a8a}
+.card{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;justify-content:space-between}.card .t{min-width:0;flex:1}.card b{display:block}.card small{color:#8a9099}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:2px 9px;background:#1a2027;color:#aab0b9;margin-right:6px}
+.sw{position:relative;width:48px;height:28px;flex:0 0 auto}.sw input{opacity:0;width:100%;height:100%;position:absolute;inset:0;margin:0;cursor:pointer;z-index:2}.sw i{position:absolute;inset:0;border-radius:999px;background:#2a313a;transition:.15s}.sw i::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.15s}.sw input:checked+i{background:#32cd32}.sw input:checked+i::after{left:23px}
+.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:9px 12px;border-bottom:1px solid #1b1f25;vertical-align:top;font-size:13.5px}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+dialog#adlg{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(640px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog#adlg::backdrop{background:rgba(0,0,0,.7)}
+#adlg .rb{padding:16px;display:flex;flex-direction:column;gap:12px}#adlg h3{margin:0;font-size:18px}#adlg label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+#adlg input[type=text],#adlg input[type=number],#adlg select,#adlg textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;min-height:44px;color-scheme:dark}#adlg textarea{resize:vertical;min-height:96px}
+#adlg .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#adlg .row>*{min-width:0}#adlg .num{width:84px!important}#adlg .un{width:120px!important}
+#adlg input[type=checkbox]{accent-color:#32cd32}#adlg .chk{display:flex;gap:8px;align-items:center;font-size:14.5px;color:#e8eaed;text-transform:none;letter-spacing:0;margin:0}.chk input{width:20px;height:20px}
+.stp{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}.stp .sh{display:flex;justify-content:space-between;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips button{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer}.cnt{color:#7c838d;font-size:12px}
+.prev{background:#0b1a10;border-left:3px solid #32cd32;border-radius:0 10px 10px 0;padding:10px 12px;white-space:pre-line;font-size:14px;color:#d6d9de}.err{color:#ff8a8a;font-size:14px;min-height:18px}
+.acts{position:sticky;bottom:0;background:#0f1319;padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid #1d2229;display:flex;gap:8px;justify-content:flex-end}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:10px 14px 24px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>automations</b></h1>${nav("automations", tc, true)}</header>
+${bnav("automations", tc, true)}
+<main>
+<div id="ban" class="ban">Loading...</div>
+<div class="top"><h2 style="margin:0">Text automations</h2><button class="btn g" id="newb" type="button">+ New campaign</button></div>
+<p class="note">Each automation texts leads who ticked the text-message box, in order, on the timing you set. It never texts before 8 AM or after 9 PM Eastern, skips anyone who replied STOP, and can stop when the lead replies. Keep messages to your registered use: replies, quotes, scheduling, reminders, follow-ups and review requests. No promotions or blasts.</p>
+<div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
+<h2>Recent sends</h2>
+<div class="tbw"><table class="tb" id="log"></table></div>
+</main>
+<dialog id="adlg"></dialog>
+<script>
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dlg=document.getElementById('adlg');let D=null;
+const FIELDS=['first','service','service_name','vehicle','pitch','shop','address','appointment','review'];
+const KIND={sequence:'Follow-up sequence',stage:'Stage campaign',appointment:'Appointment reminders'};
+const ANCH={sequence:'after the lead arrives',stage:'after the lead enters the stage',appointment:'before the appointment'};
+function spl(m){m=+m||0;if(m&&m%1440===0)return[m/1440,1440];if(m&&m%60===0)return[m/60,60];return[m,1]}
+function dur(m){const s=spl(m);const u=s[1]===1440?'day':s[1]===60?'hour':'minute';return s[0]+' '+u+(s[0]===1?'':'s')}
+async function load(){try{const r=await fetch('/admin/automations/data');D=await r.json();draw()}catch(_){document.getElementById('ban').textContent='Could not load. Pull down to refresh.'}}
+function draw(){const b=document.getElementById('ban');
+  if(!D.twilio){b.className='ban warn';b.innerHTML='Texting is not connected yet. Add the Twilio keys in Cloudflare. Nothing below sends until then.'}
+  else if(!D.auto){b.className='ban warn';b.innerHTML='Automatic sending is <b>OFF</b>. Add <b>TEXT_AUTO = 1</b> in Cloudflare to start. Nothing below sends until then.'}
+  else{b.className='ban ok';b.innerHTML='Automatic sending is <b>ON</b>. Active automations are sending now.'}
+  document.getElementById('list').innerHTML=D.automations.map(a=>'<div class="card" data-id="'+a.id+'"><div class="t"><b>'+$(a.name)+'</b><small><span class="pill">'+$(KIND[a.kind]||a.kind)+'</span>'+a.steps.length+' text'+(a.steps.length===1?'':'s')+(a.kind==='appointment'?'':' &middot; stops after '+(a.rules.max_days||8)+' days')+'</small></div><button class="btn" data-edit="'+a.id+'" type="button">Edit</button><label class="sw" title="On or off"><input type="checkbox" data-tg="'+a.id+'"'+(a.active?' checked':'')+'><i></i></label></div>').join('')||'<p class="note">No automations yet.</p>';
+  const L=D.log||[];document.getElementById('log').innerHTML=L.length?'<tr><th>When</th><th>Automation</th><th>Lead</th><th>Result</th><th>Message</th></tr>'+L.map(x=>'<tr><td>'+new Date(x.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</td><td>'+$(x.automation||'')+' #'+((x.pos||0)+1)+'</td><td><a href="/admin/pipeline#id='+x.lead_id+'" style="color:#7fb7ff">'+$(x.lead||'Lead')+'</a></td><td>'+$(x.status)+'</td><td>'+$(String(x.body||'').slice(0,90))+'</td></tr>').join(''):'<tr><td class="note">Nothing has been sent yet.</td></tr>'}
+document.getElementById('list').addEventListener('click',e=>{const b=e.target.closest('[data-edit]');if(b)edit(D.automations.find(a=>a.id==b.dataset.edit))});
+document.getElementById('list').addEventListener('change',async e=>{const t=e.target.closest('[data-tg]');if(!t)return;const a=D.automations.find(x=>x.id==t.dataset.tg);const r=await fetch('/admin/automation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:a.id,name:a.name,kind:a.kind,rules:a.rules,active:t.checked,steps:a.steps})});if(!r.ok){t.checked=!t.checked}else a.active=t.checked?1:0});
+document.getElementById('newb').onclick=()=>edit({id:null,name:'',kind:'sequence',active:0,rules:{stages:['new','nocontact'],services:[],business_hours:true,stop_on_reply:true,max_days:8},steps:[{id:null,after_min:0,gap_min:0,body:'Hi {first}, this is {shop}. '}]});
+function stepHtml(s,i,kind){const a=spl(s.after_min),g=spl(s.gap_min);const un=(v)=>[['minutes',1],['hours',60],['days',1440]].map(u=>'<option value="'+u[1]+'"'+(u[1]===v?' selected':'')+'>'+u[0]+'</option>').join('');
+  return '<div class="stp" data-sid="'+(s.id||'')+'"><div class="sh"><b>Text #'+(i+1)+'</b><button type="button" class="btn r rm">Remove</button></div>'
+   +'<div class="row">Send <input class="num v1" type="number" min="0" value="'+a[0]+'"><select class="un u1">'+un(a[1])+'</select> '+ANCH[kind]+'</div>'
+   +(kind!=='appointment'&&i>0?'<div class="row">and at least <input class="num v2" type="number" min="0" value="'+g[0]+'"><select class="un u2">'+un(g[1])+'</select> after the previous text</div>':'')
+   +'<textarea class="bd" rows="4" maxlength="600">'+$(s.body)+'</textarea><div class="chips">'+FIELDS.map(f=>'<button type="button" data-f="'+f+'">{'+f+'}</button>').join('')+'</div><div class="cnt"></div></div>'}
+function sample(b){const v={first:'Alex',service:'window tint',service_name:'ceramic tint',vehicle:'your 2023 Tesla Model Y',pitch:'Our tint keeps your ride cooler, protected and more private, with a clean, factory look.',shop:'Divine Detailers',address:'5181 NW 74th Ave, Miami, FL 33166',appointment:'Tuesday, Nov 10 at 10:30 AM',review:'https://divinedetailers.com/review'};return String(b).replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]===undefined?m:v[k]).replace(/[ \\t]+/g,' ').trim()}
+let EA=null,lastTa=null;
+function edit(a){EA=JSON.parse(JSON.stringify(a));const r=EA.rules||{};
+  dlg.innerHTML='<div class="rb"><h3>'+(EA.id?'Edit automation':'New campaign')+'</h3>'
+  +'<div><label>Name</label><input type="text" id="en" maxlength="80" value="'+$(EA.name)+'"></div>'
+  +'<div><label>Type</label><select id="ek"'+(EA.id?' disabled':'')+'>'+Object.keys(KIND).map(k=>'<option value="'+k+'"'+(k===EA.kind?' selected':'')+'>'+KIND[k]+(k==='sequence'?' (starts when a lead arrives)':k==='stage'?' (starts when a lead enters a stage)':' (before a booked appointment)')+'</option>').join('')+'</select></div>'
+  +'<div id="aud"></div>'
+  +'<div><label>Rules</label><label class="chk"><input type="checkbox" id="ebh"'+(r.business_hours?' checked':'')+'> Only send Monday to Saturday, 9 AM to 6 PM</label><label class="chk" id="esrw"><input type="checkbox" id="esr"'+(r.stop_on_reply!==false?' checked':'')+'> Stop when the lead replies</label><p class="note" style="margin:6px 0 0">Always on: only leads who agreed to texts, nothing before 8 AM or after 9 PM, and STOP is respected.</p></div>'
+  +'<div><label>Texts, in order</label><div id="steps" style="display:flex;flex-direction:column;gap:10px"></div><button type="button" class="btn" id="adds" style="margin-top:8px">+ Add a text</button></div>'
+  +'<div><label>Preview of text #1</label><div class="prev" id="pv"></div></div>'
+  +'<div class="err" id="er"></div><div class="acts">'+(EA.id?'<button type="button" class="btn r" id="del" style="margin-right:auto">Delete</button>':'')+'<button type="button" class="btn" id="cx">Cancel</button><button type="button" class="btn g" id="sv">Save</button></div></div>';
+  audience();drawSteps();dlg.showModal();wire()}
+function audience(){const k=document.getElementById('ek').value;EA.kind=k;const r=EA.rules||{};const aud=document.getElementById('aud');
+  if(k==='appointment'){aud.innerHTML='<label>Who</label><p class="note" style="margin:0">Leads in <b>Booked</b> with an appointment time. Times below are before the appointment.</p>';document.getElementById('esrw').style.display='none';return}
+  document.getElementById('esrw').style.display='';
+  const sv=(r.services&&r.services[0])||'';
+  aud.innerHTML='<label>'+(k==='stage'?'Starts when a lead enters':'Leads in these stages')+'</label><div class="row">'+D.stages.map(s=>'<label class="chk"><input type="checkbox" class="stg" value="'+s[0]+'"'+((r.stages||[]).includes(s[0])?' checked':'')+'> '+$(s[1])+'</label>').join('')+'</div>'
+   +'<div class="row" style="margin-top:8px"><div style="flex:1;min-width:150px"><label>Service</label><select id="esv"><option value="">Any service</option><option value="tint"'+(sv==='tint'?' selected':'')+'>Tint only</option><option value="coat"'+(sv==='coat'?' selected':'')+'>Ceramic coating only</option></select></div><div style="flex:1;min-width:150px"><label>Stop after (days)</label><input type="number" id="emd" min="1" max="365" value="'+(r.max_days||8)+'"></div></div>'}
+function drawSteps(){const c=document.getElementById('steps');const k=EA.kind;c.innerHTML=EA.steps.map((s,i)=>stepHtml(s,i,k)).join('');upd()}
+function readSteps(){return [].map.call(document.querySelectorAll('#steps .stp'),(el,i)=>{const v1=+el.querySelector('.v1').value||0,u1=+el.querySelector('.u1').value;const v2=el.querySelector('.v2'),u2=el.querySelector('.u2');return{id:el.dataset.sid?+el.dataset.sid:null,after_min:v1*u1,gap_min:v2?(+v2.value||0)*(+u2.value):0,body:el.querySelector('.bd').value}})}
+function upd(){document.querySelectorAll('#steps .stp').forEach(el=>{const t=el.querySelector('.bd').value,n=t.length;el.querySelector('.cnt').textContent=n+' characters'+(n>160?' (about '+Math.ceil(n/153)+' text segments)':'')});const f=document.querySelector('#steps .bd');document.getElementById('pv').textContent=f?sample(f.value):''}
+function wire(){document.getElementById('ek').onchange=()=>{audience();EA.steps=readSteps();drawSteps()};
+  document.getElementById('cx').onclick=()=>dlg.close();
+  document.getElementById('adds').onclick=()=>{EA.steps=readSteps();if(EA.steps.length>=10)return;EA.steps.push({id:null,after_min:1440,gap_min:720,body:'Hi {first}, '});drawSteps()};
+  dlg.addEventListener('click',e=>{const rm=e.target.closest('.rm');if(rm){EA.steps=readSteps();const i=[].indexOf.call(document.querySelectorAll('#steps .stp'),rm.closest('.stp'));EA.steps.splice(i,1);if(!EA.steps.length)EA.steps.push({id:null,after_min:0,gap_min:0,body:''});drawSteps();return}
+    const ch=e.target.closest('[data-f]');if(ch){const ta=lastTa||document.querySelector('#steps .bd');if(!ta)return;const t='{'+ch.dataset.f+'}',s=ta.selectionStart==null?ta.value.length:ta.selectionStart;ta.value=ta.value.slice(0,s)+t+ta.value.slice(ta.selectionEnd==null?s:ta.selectionEnd);ta.focus();ta.selectionStart=ta.selectionEnd=s+t.length;upd()}});
+  dlg.addEventListener('input',e=>{if(e.target.classList.contains('bd'))upd()});dlg.addEventListener('focusin',e=>{if(e.target.classList&&e.target.classList.contains('bd'))lastTa=e.target});
+  const del=document.getElementById('del');if(del)del.onclick=async()=>{if(!confirm('Delete this automation? Its history of sent texts stays in each lead.'))return;await fetch('/admin/automation/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:EA.id})});dlg.close();load()};
+  document.getElementById('sv').onclick=async()=>{const er=document.getElementById('er');er.textContent='';const k=document.getElementById('ek').value;
+    const rules={business_hours:document.getElementById('ebh').checked,stop_on_reply:k==='appointment'?false:document.getElementById('esr').checked};
+    if(k!=='appointment'){rules.stages=[].map.call(document.querySelectorAll('.stg:checked'),x=>x.value);const sv=document.getElementById('esv').value;rules.services=sv?[sv]:[];rules.max_days=+document.getElementById('emd').value||8}
+    const body={id:EA.id,name:document.getElementById('en').value,kind:k,active:!!EA.active,rules:rules,steps:readSteps()};
+    const r=await fetch('/admin/automation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.success){er.textContent=j.message||'Could not save.';return}dlg.close();load()}}
+load();
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Urable bookings on the calendar: jobs and calendar events straight from Urable, including ones made there and not in the CRM
+let urableCal = { at: 0, items: [] };
+const etLocal = ms => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+};
+async function urableCalendar(env) {
+  if (!env.URABLE_API_KEY) return { urable: false, items: [] };
+  if (Date.now() - urableCal.at < 180000) return { urable: true, items: urableCal.items };
+  const since = Date.now() - 62 * 864e5;
+  const all = async path => {
+    const out = []; let after = "";
+    for (let i = 0; i < 3; i++) {
+      const page = (await urableCall(env, "GET", `${path}?limit=100&orderBy=start${after ? "&startAfter=" + encodeURIComponent(after) : ""}`).catch(() => [])) || [];
+      out.push(...page);
+      if (page.length < 100 || (page[page.length - 1].start || 0) < since) break;
+      after = page[page.length - 1].id;
+    }
+    return out;
+  };
+  const [jobs, events] = await Promise.all([all("/v1/jobs"), all("/v1/events")]);
+  const keepJob = j => j.start && j.start >= since && !["canceled", "archived", "quote"].includes(String(j.status || "").toLowerCase());
+  const live = jobs.filter(keepJob);
+  const ids = [...new Set([...live.map(j => j.customerRef), ...events.filter(e => e.start >= since).map(e => e.customerRef)].filter(Boolean).map(r => String(r).split("/").pop()))].slice(0, 25);
+  const names = {};
+  await Promise.all(ids.map(id => urableCall(env, "GET", "/v1/customers/" + id).then(c => { if (c) names[id] = c.name || [c.firstName, c.lastName].filter(Boolean).join(" "); }).catch(() => {})));
+  const who = r => names[String(r || "").split("/").pop()] || "";
+  const items = [
+    ...live.map(j => ({ uid: "job:" + j.id, ref: j.id, kind: "Job" + (j.num ? " #" + j.num : ""), name: who(j.customerRef) || j.name || "Urable job", service: who(j.customerRef) ? j.name || "" : "", appt_at: etLocal(j.start), end_at: j.end ? etLocal(j.end) : "", status: j.status || "scheduled" })),
+    ...events.filter(e => e.start >= since && !e.private).map(e => ({ uid: "event:" + e.id, ref: e.id, kind: "Event", name: e.name || "Calendar event", service: who(e.customerRef), appt_at: etLocal(e.start), end_at: e.end ? etLocal(e.end) : "", status: e.type || "event" })),
+  ];
+  urableCal = { at: Date.now(), items };
+  return { urable: true, items };
+}
+
+// ---- Calendar: every lead with an appointment, by day (owner login)
+async function calendarPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  const rows = (await env.DB.prepare("SELECT id, name, phone, service, year, make, model, appt_at, stage, value, urable_ref FROM leads WHERE appt_at IS NOT NULL AND appt_at != '' AND stage != 'lost' AND appt_at >= date('now','-70 days') AND COALESCE(ip,'') != 'demo' ORDER BY appt_at LIMIT 800").all()).results || [];
+  const payload = JSON.stringify({ appts: rows, today: todayStr(), stages: STAGES }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Calendar | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;align-items:start}
+.mh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.mh h2{margin:0;font-size:18px}.nv{display:flex;gap:6px}.nv button{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer;min-height:40px}
+.dow,.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.dow span{color:#7c838d;font-size:11.5px;text-align:center;text-transform:uppercase;letter-spacing:.6px;padding:4px 0}
+.d{aspect-ratio:1/1;min-height:44px;background:#0d1116;border:1px solid #1d2229;border-radius:10px;color:#e8eaed;font:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:2px}
+.d.out{opacity:.35}.d.td{border-color:#32cd32}.d.sel{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:800}.d .c{font-size:11px;font-weight:800;background:#1f5a2a;color:#9fe29f;border-radius:999px;padding:0 7px;min-width:18px}.d.sel .c{background:#04120a;color:#32cd32}
+.side{display:flex;flex-direction:column;gap:12px}.side h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:0}
+.ap{display:flex;gap:12px;align-items:flex-start;background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px;text-decoration:none;color:inherit}.ap .tm{font-weight:800;min-width:64px;font-variant-numeric:tabular-nums;color:#32cd32}.ap .i{min-width:0;flex:1}.ap .i b{display:block;overflow-wrap:anywhere}.ap .i small{color:#8a9099;display:block}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:1px 8px;background:#1a2027;color:#aab0b9;margin-top:4px}.pill.booked{background:#10301a;color:#7fe07f}.pill.working{background:#2a2410;color:#ffd166}.pill.done{background:#1a2027;color:#aab0b9}.pill.u{background:#14233d;color:#7fb7ff}
+.empty{color:#7c838d;padding:10px 2px}
+${BNAV_CSS}
+@media(max-width:800px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>calendar</b></h1>${nav("calendar", tc, true)}</header>
+${bnav("calendar", tc, true)}
+<main>
+<section><div class="mh"><h2 id="mt"></h2><div class="nv"><button id="pv" type="button" aria-label="Previous month">&lsaquo;</button><button id="tdy" type="button">Today</button><button id="nx" type="button" aria-label="Next month">&rsaquo;</button></div></div>
+<div class="dow"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div><div class="grid" id="g"></div></section>
+<section class="side"><div><h2 id="dh"></h2><div id="dl" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div></div><div><h2>Coming up (next 14 days)</h2><div id="up" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div></div></section>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const D=JSON.parse(document.getElementById('data').textContent),SN=Object.fromEntries(D.stages),MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const by={};D.appts.forEach(a=>{const d=String(a.appt_at).slice(0,10);(by[d]=by[d]||[]).push(a)});
+const t0=D.today.split('-').map(Number);let Y=t0[0],M=t0[1]-1,sel=D.today;
+const pad=n=>String(n).padStart(2,'0'),key=(y,m,d)=>y+'-'+pad(m+1)+'-'+pad(d);
+function tm(a){const m=/T(\\d\\d):(\\d\\d)/.exec(a.appt_at||'');if(!m)return '';let h=+m[1];const ap=h>=12?'PM':'AM';h=h%12||12;return h+':'+m[2]+' '+ap}
+function card(a){if(a.src==='urable')return '<div class="ap"><div class="tm">'+tm(a)+'</div><div class="i"><b>'+$(a.name)+'</b><small>'+$(a.service||'')+'</small><span class="pill u">Urable &middot; '+$(a.status)+'</span> <small style="display:inline">'+$(a.kind)+'</small></div></div>';const car=[a.year,a.make,a.model].filter(Boolean).join(' ');return '<a class="ap" href="/admin/pipeline#id='+a.id+'"><div class="tm">'+tm(a)+'</div><div class="i"><b>'+$(a.name||a.phone||'Lead')+'</b><small>'+$([a.service,car].filter(Boolean).join(' \\u00b7 '))+'</small><span class="pill '+$(a.stage)+'">'+$(SN[a.stage]||a.stage)+'</span>'+(a.value?' <small style="display:inline">$'+Math.round(a.value)+'</small>':'')+'</div></a>'}
+function day(k){const l=(by[k]||[]).slice().sort((a,b)=>String(a.appt_at).localeCompare(String(b.appt_at)));return l.length?l.map(card).join(''):'<div class="empty">Nothing scheduled.</div>'}
+function draw(){document.getElementById('mt').textContent=MON[M]+' '+Y;const first=new Date(Y,M,1).getDay(),dim=new Date(Y,M+1,0).getDate(),prev=new Date(Y,M,0).getDate();let h='';
+  for(let i=0;i<first;i++){h+='<div class="d out"><span>'+(prev-first+1+i)+'</span></div>'}
+  for(let d=1;d<=dim;d++){const k=key(Y,M,d),n=(by[k]||[]).length;h+='<button type="button" class="d'+(k===D.today?' td':'')+(k===sel?' sel':'')+'" data-k="'+k+'"><span>'+d+'</span>'+(n?'<span class="c">'+n+'</span>':'')+'</button>'}
+  const rest=(7-((first+dim)%7))%7;for(let i=1;i<=rest;i++)h+='<div class="d out"><span>'+i+'</span></div>';document.getElementById('g').innerHTML=h;
+  const sp=sel.split('-').map(Number);document.getElementById('dh').textContent=(sel===D.today?'Today, ':'')+new Date(sp[0],sp[1]-1,sp[2]).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});document.getElementById('dl').innerHTML=day(sel);
+  const up=[];for(let i=0;i<14;i++){const dt=new Date(t0[0],t0[1]-1,t0[2]+i),k=key(dt.getFullYear(),dt.getMonth(),dt.getDate());(by[k]||[]).forEach(a=>up.push([k,a]))}
+  document.getElementById('up').innerHTML=up.length?up.map(x=>{const p=x[0].split('-').map(Number);return '<div><small style="color:#7c838d">'+new Date(p[0],p[1]-1,p[2]).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+'</small>'+card(x[1])+'</div>'}).join(''):'<div class="empty">No appointments in the next 14 days.</div>'}
+document.getElementById('g').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sel=b.dataset.k;draw()}});
+document.getElementById('pv').onclick=()=>{M--;if(M<0){M=11;Y--}draw()};document.getElementById('nx').onclick=()=>{M++;if(M>11){M=0;Y++}draw()};
+document.getElementById('tdy').onclick=()=>{Y=t0[0];M=t0[1]-1;sel=D.today;draw()};draw();
+(async()=>{try{const r=await fetch('/admin/calendar/urable');if(!r.ok)return;const j=await r.json();if(!j.urable)return;const mine=new Set(D.appts.map(a=>a.urable_ref).filter(Boolean));
+  (j.items||[]).forEach(u=>{if(mine.has(u.ref))return;const a=Object.assign({src:'urable',id:null},u);const k=String(a.appt_at).slice(0,10);(by[k]=by[k]||[]).push(a)});draw()}catch(_){}})();
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
 // ---- Dial sessions: at set times (DIAL_SESSIONS, default 09:30, 13:00, 17:00 Eastern, Monday to Saturday) a push says how many leads are waiting and opens Start calling
 const SESSION_NAMES = ["Morning", "Afternoon", "End of day"];
 async function dialSessionReminder(env) {
@@ -2053,6 +2416,7 @@ async function ageLeads(env) {
 async function remindAppointments(env) {
   if (!env.DB) return;
   await ensureTable(env.DB);
+  if (autoMode(env) && await env.DB.prepare("SELECT 1 FROM automations WHERE kind = 'appointment' AND active = 1").first()) return;
   const rows = (await env.DB.prepare("SELECT id, name, phone, appt_at FROM leads WHERE appt_reminded = 0 AND appt_remind_at IS NOT NULL AND appt_remind_at <= datetime('now') AND appt_remind_at >= datetime('now','-1 day') AND stage = 'booked' LIMIT 10").all()).results || [];
   for (const r of rows) {
     const claim = await env.DB.prepare("UPDATE leads SET appt_reminded = 1 WHERE id = ? AND appt_reminded = 0").bind(r.id).run();
@@ -2100,7 +2464,7 @@ export default {
     ctx.waitUntil(pullRecordings(env).catch(e => console.error("recording error", e && e.message)));
     ctx.waitUntil(pollDials(env).catch(e => console.error("poll error", e && e.message)));
     ctx.waitUntil(runQueue(env).catch(e => console.error("queue error", e && e.message)));
-    ctx.waitUntil(remindTexts(env).catch(e => console.error("text reminder error", e && e.message)));
+    ctx.waitUntil((autoMode(env) ? runAutomations(env) : remindTexts(env)).catch(e => console.error("text automation error", e && e.message)));
     ctx.waitUntil(dialSessionReminder(env).catch(e => console.error("dial session error", e && e.message)));
     ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
@@ -2131,6 +2495,8 @@ export default {
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
+      if (p === "/calendar" || p === "/admin/calendar") return adminRoute("/admin/calendar", request, env);
+      if (p === "/automations" || p === "/admin/automations") return adminRoute("/admin/automations", request, env);
       if (p === "/ads" || p === "/admin/ads") return adminRoute("/admin/ads", request, env);
       if (p === "/ads.csv" || p === "/admin/ads.csv") return adminRoute("/admin/ads.csv", request, env);
       if (p === "/insights" || p === "/admin/insights") return adminRoute("/admin/insights", request, env);
@@ -2139,7 +2505,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/automations/data" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -2785,6 +3151,18 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/add" && request.method === "POST") return addLead(request, env);
   if (p === "/admin/today") return todayPage(env, a);
   if (p === "/admin/messages") return messagesPage(env, a);
+  if (p === "/admin/calendar") return a === OWNER ? calendarPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/automations") return a === OWNER ? automationsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
+  if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
+  if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
+  if (p === "/admin/automation/delete" && request.method === "POST") {
+    if (a !== OWNER) return json({ success: false }, 403);
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    await env.DB.batch([env.DB.prepare("DELETE FROM automation_steps WHERE automation_id = ?").bind(b.id), env.DB.prepare("DELETE FROM automation_runs WHERE automation_id = ?").bind(b.id), env.DB.prepare("DELETE FROM automations WHERE id = ?").bind(b.id)]);
+    return json({ success: true });
+  }
   if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE direction = 'in' AND is_read = 0").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
   if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
@@ -2925,6 +3303,7 @@ async function adminRoute(p, request, env) {
       env.DB.prepare("UPDATE leads SET name = ?, phone = ?, email = ?, service = ?, year = ?, make = ?, model = ?, value = ?, appt_at = ?, appt_remind_at = ?, appt_reminded = 0, stage = ?, contacted = 1, follow_up = ''" + (to !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(lead.name, lead.phone, lead.email, lead.service, lead.year, lead.make, lead.model, lead.value, String(b.appt).slice(0, 16), rem ? sqlUtc(rem) : null, to, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, to, reason, user),
     ]);
+    await env.DB.prepare("DELETE FROM automation_runs WHERE lead_id = ? AND automation_id IN (SELECT id FROM automations WHERE kind = 'appointment')").bind(b.id).run().catch(() => {});
     await afterBooked(env, b.id, cur.stage === "booked" ? "rescheduled" : "booked", { productId: clean(b.product_id, 80) });
     const abs = when(sqlUtc(new Date())).abs;
     return json({ success: true, stage: to, followup: "", follow_up_date: cur.follow_up_date || "", lead: { ...lead, appt_at: String(b.appt).slice(0, 16), follow_up: "" }, log: [{ from_stage: cur.stage, to_stage: to, reason, at: abs }] });
@@ -2949,6 +3328,7 @@ async function adminRoute(p, request, env) {
       env.DB.prepare("UPDATE leads SET appt_at = ?, appt_remind_at = ?, appt_reminded = 0, stage = ?, contacted = 1" + (to !== cur.stage ? ", stage_changed_at = datetime('now')" : "") + " WHERE id = ?").bind(String(b.appt).slice(0, 16), rem ? sqlUtc(rem) : null, to, b.id),
       env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, to, reason, user),
     ]);
+    await env.DB.prepare("DELETE FROM automation_runs WHERE lead_id = ? AND automation_id IN (SELECT id FROM automations WHERE kind = 'appointment')").bind(b.id).run().catch(() => {});
     await afterBooked(env, b.id, cur.stage === "booked" ? "rescheduled" : to === "booked" ? "booked" : "rescheduled");
     return done(to, reason);
   }
