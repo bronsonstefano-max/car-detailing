@@ -2746,6 +2746,8 @@ main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex
 #script,.gs,.rcol,.center,.panel{min-width:0;max-width:100%}.gs{overflow-x:clip}
 .gbar{position:sticky;top:0;z-index:4;background:#0d1116;padding:6px 0 8px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #1b2128}.gline{display:flex;gap:6px;overflow-x:auto;white-space:nowrap}.gline .gpb{flex:none}.gpb.red{background:#2b1b1c;border-color:#6a3633;color:#f2918a}.gpb.now{margin-left:auto;border-color:#32cd32;color:#32cd32}.gpb.here{border-color:#32cd32;color:#e8eaed}
 .gsh{margin:12px 0 0;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#32cd32;scroll-margin-top:96px}
+.card2.ans{gap:10px}.card2.ans .say{margin:0;font-size:19px;font-weight:700;line-height:1.35;color:#fff}.alines{display:flex;flex-direction:column;gap:6px}.alines div{font-size:14.5px;color:#cfd3d9}.alines b{display:block;color:#7c838d;font-size:11px;letter-spacing:.7px;text-transform:uppercase}.ansq{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gnx{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#0b1a10;border:1px solid #1f5a2a;border-radius:12px;padding:8px 12px}.gnx .gl{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d}.gnx .gq{flex:1 1 220px;min-width:0;color:#cfd3d9;font-size:14px}
 .gstep{background:#0b0f13;border:1px solid #1b2128;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;scroll-margin-top:96px}.gstep.cur{border-color:#32cd32;box-shadow:0 0 0 1px #32cd32}.gck{display:none;color:#32cd32;font-size:12px;font-weight:800}.gstep.done .gck{display:inline}.gstep .ghd b{font-size:15px}
 .gmap{display:flex;flex-direction:column;gap:5px}.gph{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.gpl{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#7c838d;width:70px;flex:none}
 .gpb{border:1px solid #2a313a;background:#12171e;color:#aab0b9;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.gpb.here{border-color:#32cd32;color:#e8eaed}.gpb.on{background:#e8eaed;border-color:#e8eaed;color:#07090c}.gpb.done:not(.on)::after{content:' \\2713';color:#32cd32}
@@ -2827,7 +2829,7 @@ ${bnav("dialer", tc, true)}
 <section id="brief" class="brief"></section>
 <div class="callrow" id="callrow"><div id="lead" class="lead"></div>
 <div class="callbar" id="callbar"><div class="cwho" id="cwho"></div><div class="cctl"><div id="ctl" class="ctl"></div><div id="kp" class="kp" hidden></div></div></div></div>
-<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div class="cw"><div id="cards"></div><div id="trn" class="tr"></div></div></div>
+<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span id="aip" class="pill ok" hidden>AI on</span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div id="gnx" class="gnx" hidden></div><div class="cw"><div id="cards"></div><div id="trn" class="tr"></div></div></div>
 <div id="after" class="panel" hidden>
 <h3>How did it go?</h3>
 <div class="outs" id="outs"></div>
@@ -3040,7 +3042,7 @@ function gFull(){const r=el('rcol'),top=r?r.scrollTop:0,wy=window.scrollY;drawSc
 function gScrollTo(e){if(!e)return;const r=el('rcol'),bar=document.querySelector('#script .gbar'),bh=(bar?bar.offsetHeight:0)+6,t=e.getBoundingClientRect();
   if(r&&getComputedStyle(r).overflowY==='auto'&&r.scrollHeight>r.clientHeight+2)r.scrollTo({top:r.scrollTop+t.top-r.getBoundingClientRect().top-bh,behavior:'smooth'});
   else window.scrollTo({top:window.scrollY+t.top-bh,behavior:'smooth'})}
-function gMark(scroll){const sc=gScript();if(!sc||el('script').hidden)return;gCov();
+function gMark(scroll){gNext();const sc=gScript();if(!sc||el('script').hidden)return;gCov();
   sc.steps.forEach((s,i)=>{const e=document.getElementById('gs-'+s.id);if(!e)return;e.classList.toggle('cur',i===gi);e.classList.toggle('done',!!COV[s.id])});
   document.querySelectorAll('#script .gobjs button').forEach(b=>b.classList.toggle('hot',b.dataset.p===gHot&&Date.now()-gHotAt<45000));
   const ph=sc.steps[gi]&&sc.steps[gi].phase;document.querySelectorAll('#script .gline [data-a]').forEach(b=>b.classList.toggle('here',b.dataset.a==='gp-'+ph));
@@ -3099,7 +3101,7 @@ function gRender(){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc=
   let grp='',first=true;
   sc.plays.forEach(p=>{if(p.group!==grp){grp=p.group;const id=p.id==='followup'?'gp-follow':(first?'gp-push':'');if(p.id!=='followup')first=false;h+='<h4 class="gsh"'+(id?' id="'+id+'"':'')+'>'+$(p.id==='followup'?'Follow up':'Pushback &middot; '+p.group)+'</h4>'}
     h+='<section class="gstep gplay" id="gx-'+$(p.id)+'"><div class="ghd"><b>'+$(p.title)+'</b><button type="button" class="gback" data-a="now">Back to step</button></div>'+p.nodes.map(x=>gnode(x,l,svc)).join('')+'</section>'});
-  el('script').innerHTML=h+'</div>';return true}
+  el('script').innerHTML=h+'</div>';gNext();return true}
 const gGo=id=>{const e=document.getElementById(id);if(e){gUserAt=Date.now();gScrollTo(e)}};
 function gJump(to){const sc=gScript();if(!sc)return;if(sc.plays.some(x=>x.id===to)){gGo('gx-'+to);return}const i=sc.steps.findIndex(x=>x.id===to);if(i>=0){gi=i;gMark(false);gGo('gs-'+to)}}
 // script panel click handling
@@ -3189,15 +3191,69 @@ const OBJ=[
 let cws=null,coachOn=false,lastCard={},wR=0,wL=0;
 function cs(t){const e=el('cst');e.textContent=t;e.className='note'+(t==='Listening'?' on':'')}
 function share(){const n=wR+wL;if(n<12){el('shb').hidden=true;el('shl').textContent='';return}const r=Math.round(wR*100/n);el('shb').hidden=false;el('shi').style.width=r+'%';const l=el('shl');l.textContent='You '+r+'% \u00b7 Lead '+(100-r)+'%'+(r>60?' \u2014 let them talk':'');l.className='shl'+(r>60?' hi':'')}
-async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled}catch(_){}}
+async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled;coachAiOn=!!j.ai}catch(_){}}
 function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
   try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){cs('Transcript unavailable');return}
-  cws.onopen=()=>{cs('Listening')};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
+  cws.onopen=()=>{cs('Listening');el('aip').hidden=!coachAiOn;el('aip').textContent='AI on';gNext()};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
   cws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}coachMsg(m)}}
 function coachStop(){if(cws){try{cws.close()}catch(_){}cws=null}}
+// ---- answers: what the lead asked, answered from your script (instant) and by the AI coach (a moment later) ----
+let coachAiOn=false,lastAns={};
+const INTENTS=[
+ {id:'what',rx:/(what('s| is| does)? (a |an |the )?(ceramic )?(coating|tint)|how does (it|that|this) work|what (does|do) (it|that|they) do|explain (it|that|this)|tell me (more )?about|what exactly)/,tint:{steps:['s15','s13']},coating:{steps:['s15','s13']}},
+ {id:'scratch',rx:/(scratch|swirl|chip|dings?|dent|scuff)/,coating:{plays:['a-scratch'],steps:['s13']}},
+ {id:'price',rx:/(how much|what('s| is) the (price|cost)|\\bprice\\b|\\bcost\\b|quote|ballpark)/,tint:{plays:['a-price']},coating:{plays:['a-price']}},
+ {id:'time',rx:/(how long (does|will|would|is) (it|that|the)|how many hours|take all day|how much time)/,tint:{steps:['s13']},coating:{steps:['s20']}},
+ {id:'warranty',rx:/(warrant|guarantee|how long (does|will) (it|that) last|lifetime)/,tint:{steps:['s15']},coating:{steps:['s15']}},
+ {id:'brand',rx:/(what (brand|film|coating|kind)|which (brand|film|coating)|what do you (guys )?use)/,tint:{steps:['s15']},coating:{steps:['s15']}},
+ {id:'legal',rx:/(legal|ticket|how dark|darkest|florida law|pulled over)/,tint:{steps:['s10']}},
+ {id:'where',rx:/(where (are|is) you|your address|located|location|how far)/,tint:{plays:['a-location']},coating:{plays:['a-location']}},
+ {id:'book',rx:/(when can|availab|openings|how soon|earliest|appointment)/,tint:{steps:['s19']},coating:{steps:['s20']}},
+ {id:'deposit',rx:/(deposit|pay (now|up front)|credit card|payment|square)/,tint:{steps:['s21']},coating:{steps:['s22']}},
+ {id:'wax',rx:/\\bwax/,coating:{plays:['a-wax']}}];
+const OBJ2=[['p-expensive',/(too (much|expensive|pricey)|expensive|that.?s a lot|can.?t afford)/],['p-wife',/(my wife|my husband|my girlfriend|talk to my)/],['p-think',/(think about it|let me think|need to think)/],['p-text',/(text (it|me)|send (it|me)|email (it|me))/],['p-calendar',/(my (calendar|schedule)|check my|i.?m driving)/],['p-shop',/(shopping around|other (quotes|shops)|more quotes|compar)/],['p-catch',/(what.?s the catch|too good|why so cheap)/],['a-booked',/(already (booked|got|did)|someone else)/]];
+function nodesText(nodes,l,svc,kinds){const out=[];(nodes||[]).forEach(n=>{if(!n)return;if(n.k==='outcomes'){return}if(kinds.indexOf(n.k)<0)return;(n.ps||[]).forEach(p=>{if(p.t)out.push({t:gplain(p.t,l,svc)})});(n.list||[]).forEach(i=>out.push({h:i.h,t:gplain(i.t,l,svc)}))});return out}
+function sayOf(sc,spec,l,svc){const lines=[];(spec.plays||[]).forEach(id=>{const p=sc.plays.find(x=>x.id===id);if(p)nodesText(p.nodes,l,svc,['resp']).forEach(x=>lines.push(x))});
+  (spec.steps||[]).forEach(id=>{const s=sc.steps.find(x=>x.id===id);if(s){nodesText(s.main,l,svc,['say']).forEach(x=>lines.push(x));if(s.side)nodesText(s.side,l,svc,['coach']).forEach(x=>lines.push(x))}});
+  return lines}
+function openDisc(sc){return sc.steps.map((st,i)=>({st,i})).filter(o=>o.st.phase==='discovery'&&o.st.n&&!COV[o.st.id]&&o.i!==gi)}
+function nextStep(sc){let i=sc.steps.findIndex((st,k)=>k>gi&&st.n&&!COV[st.id]);if(i<0)i=sc.steps.findIndex(st=>st.n&&!COV[st.id]);return i}
+function nextAsk(sc,l,svc){const od=openDisc(sc),i=od.length?od[0].i:nextStep(sc),s=sc.steps[i];if(!s)return null;const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);return p?{t:gplain(p.t,l,svc),id:s.id}:null}
+function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc=gsvc(l),t=String(text||'').toLowerCase();
+  const fresh=id=>{const n=Date.now();if(lastAns[id]&&n-lastAns[id]<20000)return false;lastAns[id]=n;return true};
+  // pushback first, then questions
+  for(const [id,rx] of OBJ2){if(rx.test(t)){const pid=sc.plays.some(p=>p.id===id)?id:(id==='p-expensive'&&sc.plays.some(p=>p.id==='p-shop')?'p-shop':'');if(!pid||!fresh(pid))continue;
+    const lines=sayOf(sc,{plays:[pid]},l,svc);if(!lines.length)continue;showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,2).map(x=>({t:x.t})),anchor:'gx-'+pid});return true}}
+  for(const it of INTENTS){if(!it.rx.test(t))continue;const spec=it[svc];if(!spec||!fresh(it.id))continue;const lines=sayOf(sc,spec,l,svc);if(!lines.length)continue;
+    const na=nextAsk(sc,l,svc),anc=(spec.plays&&spec.plays[0])?'gx-'+spec.plays[0]:'gs-'+spec.steps[0];
+    showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,4),ask:na?na.t:'',anchor:anc});return true}
+  return true}
+function anchorId(a){a=String(a||'');if(!a)return '';if(/^(gs|gx)-/.test(a))return a;const sc=gScript();if(sc&&sc.plays.some(p=>p.id===a))return 'gx-'+a;return 'gs-'+a}
+function showAns(o){const box=el('cards');if(!box)return;
+  if(o.src==='ai'){const aq=String(o.q||'').toLowerCase();Array.prototype.slice.call(box.querySelectorAll('.card2.det')).forEach(c=>{const dq=c.dataset.q||'';if(dq&&aq&&(aq.indexOf(dq)>=0||dq.indexOf(aq)>=0))c.remove()})}
+  const d=document.createElement('div');d.className='card2 ans'+(o.src==='ai'?'':' det');d.dataset.t=Date.now();d.dataset.q=String(o.q||'').toLowerCase();
+  const q=String(o.q||'').slice(0,90);
+  d.innerHTML='<div class="bar"><span class="pill '+(o.src==='ai'?'ok':'warn')+'">'+(o.src==='ai'?'AI answer':'From your script')+'</span><span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span></div>'
+   +(o.needs_eyes?'<div class="warnb">Not covered in your script. Confirm before you state it.'+(o.note?' '+$(o.note):'')+'</div>':'')
+   +'<p class="say">'+$(o.say||'')+'</p>'
+   +(o.lines&&o.lines.length?'<div class="alines">'+o.lines.map(x=>'<div>'+(x.h?'<b>'+$(x.h)+'</b>':'')+$(x.t)+'</div>').join('')+'</div>':'')
+   +((o.ack||o.comment)&&o.src==='ai'?'<div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(o.ack||'')+'</p></div><div><span>COMMENT</span><p>'+$(o.comment||'')+'</p></div></div>':'')
+   +(o.ask?'<div class="aca"><div><span>ASK</span><p class="ask">'+$(o.ask)+'</p></div></div>':'')
+   +'<div class="bar">'+(o.anchor?'<button type="button" class="btn sm" data-open="'+$(anchorId(o.anchor))+'">Open in script</button>':'')+'<button type="button" class="btn sm" data-x="1">Dismiss</button></div>';
+  box.insertBefore(d,box.firstChild);while(box.children.length>3)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},90000)}
+el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.x){const c=b.closest('.card2');if(c)c.remove();return}
+  if(b.dataset.open){if(mt!=='script')setMain('script');const id=b.dataset.open;setTimeout(()=>{const sc=gScript();const st=id.indexOf('gs-')===0?sc&&sc.steps.findIndex(s=>'gs-'+s.id===id):-1;if(st>=0){gi=st;gMark(false)}gGo(id)},60)}});
+// the next thing still to cover, so the call keeps its shape when the lead leads
+function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];if(!sc||!l||state!=='live'){box.hidden=true;return}
+  const svc=gsvc(l),i=nextStep(sc),s=sc.steps[i],od=openDisc(sc);if(!s&&!od.length){box.hidden=true;return}
+  let h='';if(s){const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);h+='<span class="gl">Next</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b>'+(p?'<span class="gq">'+$(gplain(p.t,l,svc))+'</span>':'')+'<button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button>'}
+  if(od.length)h+='<span class="gl" style="flex-basis:100%">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('');
+  box.hidden=false;box.innerHTML=h}
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
   if(m.type==='live'){cs('Listening');return}
-  if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead')objCheck(m.text);return}
+  if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead'){if(!gScript())objCheck(m.text);else if(m.final)gDet(m.text)}return}
+  if(m.type==='answer'){showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note});return}
+  if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
 function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else gFollow(text);const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
@@ -3232,6 +3288,100 @@ init();
 // ---- Live call coach, phase 1: Twilio sends both sides of a dialer call here (one Durable Object per call), each side is transcribed live by Deepgram,
 // and the words are pushed to the Dial page over a WebSocket. The audio never goes through the browser. Needs DEEPGRAM_API_KEY.
 const coachEnabled = env => !!(env.COACH && env.DEEPGRAM_API_KEY);
+// ---- AI coach: answers what the lead just said, using only the owner's imported script and offer ----
+const COACH_MODEL_DEFAULT = "claude-haiku-5-5";
+const coachAi = env => !!env.ANTHROPIC_API_KEY;
+const coachSvc = service => { const s = String(service || ""); return /tint/i.test(s) ? "tint" : /coat|ceramic|correct|polish|detail/i.test(s) ? "coating" : ""; };
+function coachVar(name, o, lead, svc) {
+  const dflt = { shop: "Divine Detailers", address: "5181 NW 74th Ave, Miami, FL 33166", area: "Miami", rep: "Bronson" };
+  const g = k => (o[k] !== undefined && o[k] !== "" ? o[k] : dflt[k]);
+  const n = x => Number(String(x || "").replace(/[^0-9.]/g, "")) || 0, m = x => "$" + Number(x).toLocaleString("en-US");
+  const price = () => { const v = lead && lead.value > 0 ? lead.value : n(svc === "coating" ? o.coatPrice : o.tintPrice); return v > 0 ? Math.round(v) : 0; };
+  const dep = () => n(svc === "coating" ? o.coatDeposit : o.tintDeposit);
+  switch (name) {
+    case "rep": case "shop": case "address": case "area": return g(name) || "";
+    case "special": return o.special || "";
+    case "price": return price() ? m(price()) : "";
+    case "reg": return n(o.coatReg) ? m(n(o.coatReg)) : "";
+    case "dep": return dep() ? m(dep()) : "";
+    case "otd": return price() && dep() ? m(Math.max(0, price() - dep())) : "";
+    case "yrs": return n(o.coatYears) ? String(n(o.coatYears)) : "";
+    case "floor": return n(o.tintFloor) ? m(n(o.tintFloor)) : "";
+    case "days": { if (!o.specialEnd) return ""; const d = Math.round((Date.parse(o.specialEnd + "T00:00:00Z") - Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z")) / 864e5); return d >= 0 ? String(d) : ""; }
+  }
+  return "";
+}
+function coachScriptText(sc, o, lead, svc) {
+  const sw = t => { let x = String(t || ""); for (const p of (o.swaps || [])) if (p && p.f) x = x.split(p.f).join(p.t || ""); return x; };
+  const f = t => sw(t).replace(/\{(\w+)\}/g, (_, k) => coachVar(k, o, lead, svc) || "[not set]").replace(/\[\[([^\]]+)\]\]/g, (_, k) => "<" + k.toLowerCase() + ">");
+  const node = nd => {
+    if (!nd) return "";
+    if (nd.k === "outcomes") return (nd.opts || []).map(op => "IF " + f(op.cond) + ":\n" + (op.nodes || []).map(node).filter(Boolean).join("\n")).join("\n");
+    if (nd.k === "cond") return "IF " + f(nd.t) + ":";
+    if (["ret", "pill", "router"].includes(nd.k)) return "";
+    const tag = { say: "SAY", resp: "SAY", obj: "LEAD SAYS", probe: "ASK", coach: "NOTE", ex: "EXAMPLE (style only)" }[nd.k] || "SAY";
+    const ps = (nd.ps || []).map(x => x.note ? "NOTE: " + f(x.note) : tag + ": " + f(x.t)).join("\n");
+    const li = (nd.list || []).map(i => "- " + i.h + ": " + f(i.t)).join("\n");
+    return [ps, li].filter(Boolean).join("\n");
+  };
+  const out = [];
+  for (const st of sc.steps || []) {
+    out.push(`## STEP ${st.id}${st.n ? " (#" + st.n + ")" : ""} - phase ${st.phase || ""}`);
+    out.push((st.main || []).map(node).filter(Boolean).join("\n"));
+    if (st.side && st.side.length) out.push("If it comes up here:\n" + st.side.map(node).filter(Boolean).join("\n"));
+    if (st.examples && st.examples.length) out.push(st.examples.map(node).filter(Boolean).join("\n"));
+  }
+  for (const pl of sc.plays || []) { out.push(`## PLAYBOOK ${pl.id} - ${pl.title}`); out.push((pl.nodes || []).map(node).filter(Boolean).join("\n")); }
+  return out.join("\n");
+}
+const COACH_RULES = `You are a real-time call coach whispering to a sales rep (Bronson) at Divine Detailers, a car detailing shop in Miami that sells window tint, ceramic coating, paint correction, PPF and wraps. You see the live transcript of a phone call with a lead. Your job: when the lead says something that needs a response, tell the rep exactly what to say next.
+
+Ground rules:
+- Use ONLY facts that appear in the SCRIPT or OFFER below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, say so in "note", set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
+- Follow the ACA framework: Acknowledge (repeat back what they said), Comment (one short real comment, taken from the script), Ask (the next question that builds on their answer). Prefer the script's own wording, adapted to what the lead actually said. Do not read the script aloud blindly; answer the question first.
+- Be brief. "say" is what the rep says out loud: at most 2 short sentences (about 45 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
+- After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
+- Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
+- If the lead's last turn needs no response from the coach (small talk, "yeah", "ok", something already handled), return {"answer": false}.
+- "anchor" is the id of the script STEP (like s15) or PLAYBOOK (like p-wife) your answer comes from; "next" is the step id the rep should return to afterwards.
+
+Reply with ONLY one JSON object, no markdown, in this shape:
+{"answer": true, "kind": "question|objection|info", "lead_said": "<=10 word paraphrase", "say": "...", "ack": "...", "comment": "...", "ask": "...", "anchor": "s15", "next": "s07", "needs_eyes": false, "note": ""}`;
+async function coachContext(env, leadId) {
+  await ensureTable(env.DB);
+  const lead = Number.isInteger(leadId) ? await env.DB.prepare("SELECT id, name, service, year, make, model, value, message FROM leads WHERE id = ?").bind(leadId).first() : null;
+  const svc = coachSvc(lead && lead.service);
+  const rows = await env.DB.prepare("SELECT k, v FROM dial_settings WHERE k IN ('offer', ?)").bind("script_" + (svc || "none")).all().then(r => r.results || []).catch(() => []);
+  const get = k => { const r = rows.find(x => x.k === k); try { return r ? JSON.parse(r.v) : null; } catch (_) { return null; } };
+  const offer = get("offer") || {}, sc = svc ? get("script_" + svc) : null;
+  const facts = lead ? `Lead: ${lead.name || "unknown"}. Service tag: ${lead.service || "unknown"}. Vehicle: ${[lead.year, lead.make, lead.model].filter(Boolean).join(" ") || "unknown"}. Quoted job value: ${lead.value > 0 ? "$" + lead.value : "not set"}.` : "Lead: unknown.";
+  const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
+  const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
+  return { system, facts, svc };
+}
+async function coachAnswer(env, ctx, turns, said) {
+  const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}: ${t.text}`).join("\n");
+  const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\nThe lead just finished saying: "${said}"\nReturn the JSON.`;
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 9000);
+  try {
+    const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, {
+      method: "POST", signal: ac.signal,
+      headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: env.COACH_MODEL || COACH_MODEL_DEFAULT, max_tokens: 700, output_config: { effort: "low" },
+        system: [{ type: "text", text: ctx.system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] }),
+    });
+    if (!r.ok) return { error: r.status };
+    const j = await r.json();
+    if (j.stop_reason === "refusal") return null;
+    const text = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    if (a < 0 || b < a) return null;
+    const o = JSON.parse(text.slice(a, b + 1));
+    const c = x => String(x == null ? "" : x).slice(0, 400);
+    return { answer: o.answer !== false, kind: c(o.kind), lead_said: c(o.lead_said), say: c(o.say), ack: c(o.ack), comment: c(o.comment), ask: c(o.ask), anchor: c(o.anchor), next: c(o.next), needs_eyes: !!o.needs_eyes, note: c(o.note) };
+  } catch (e) { return { error: "failed" }; } finally { clearTimeout(timer); }
+}
+
 async function coachSig(env, sid) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(env.TWILIO_TOKEN || "")), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("stream:" + sid)))].map(x => x.toString(16).padStart(2, "0")).join("").slice(0, 32);
@@ -3242,6 +3392,7 @@ export class CallRoom {
   constructor(state, env) {
     this.env = env; this.browsers = new Set(); this.turns = []; this.dg = {}; this.pending = { inbound: [], outbound: [] };
     this.sid = ""; this.leadId = null; this.t0 = Date.now(); this.ended = false;
+    this.leadBuf = []; this.coachBusy = false; this.coachNext = null; this.ctx = null;
     this.sig = { talk: { rep: 0, lead: 0 }, words: { rep: 0, lead: 0 }, leadQuestions: 0, firstPriceSecs: null, turns: 0 };
     this.acc = { inbound: { sum: 0, n: 0 }, outbound: { sum: 0, n: 0 } }; this.energy = { rep: [], lead: [] };
   }
@@ -3303,6 +3454,20 @@ export class CallRoom {
     this.sig.talk[who] += Number(d.duration) || 0; this.sig.words[who] += text.split(/\s+/).length; this.sig.turns++;
     if (who === "lead" && /\?/.test(text)) this.sig.leadQuestions++;
     if (this.sig.firstPriceSecs == null && /\$|price|how much|cost|precio|cu[aá]nto/i.test(text)) this.sig.firstPriceSecs = at;
+    if (who === "lead" && coachAi(this.env)) { this.leadBuf.push(text); if (d.speech_final) this.askCoach(); }
+  }
+  async askCoach() {
+    const said = this.leadBuf.join(" ").trim(); this.leadBuf = [];
+    if (this.ended || said.split(/\s+/).length < 3 || /^(yeah|yes|ok|okay|uh huh|mm+|sure|right|no|nope|thanks|thank you)[.!, ]*$/i.test(said)) return;
+    if (this.coachBusy) { this.coachNext = said; return; }
+    this.coachBusy = true;
+    try {
+      if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said);
+      if (out && out.error) this.broadcast({ type: "coach_error" });
+      else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out });
+    } catch (e) { this.broadcast({ type: "coach_error" }); }
+    finally { this.coachBusy = false; if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
   }
   async finish() {
     if (this.ended) return; this.ended = true;
@@ -4198,7 +4363,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
-  if (p === "/admin/coach/status") return a === OWNER ? json({ enabled: coachEnabled(env) }) : json({ success: false }, 403);
+  if (p === "/admin/coach/status") return a === OWNER ? json({ enabled: coachEnabled(env), ai: coachAi(env) }) : json({ success: false }, 403);
   if (p === "/admin/coach/ws") {
     const sid = new URL(request.url).searchParams.get("sid") || "";
     if (a !== OWNER) return new Response("Forbidden", { status: 403 });
