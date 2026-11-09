@@ -13,7 +13,9 @@ Optional but strongly recommended: put your call scripts in a folder called "scr
 Steps (each can also be run alone; every step skips work that is already done):
   transcribe  audio files   -> out/transcripts/*.txt            (Deepgram)
   mine        transcripts   -> out/mined/*.json                 (Claude: one deep record per call)
-  report      mined calls   -> out/calls.csv, agents.csv, deviations.csv, pivotal.csv, moments.csv, knowledge.csv
+  report      mined calls   -> out/calls.csv, agents.csv, deviations.csv, pivotal.csv, moments.csv, knowledge.csv,
+                               turns_all.csv (every sentence of every call, with time, speaker role and tags) and
+                               response_library.jsonl / .csv (every thing a lead said, with the context and how the rep answered)
   learn       all of it     -> out/lessons.md                    (Claude: what wins, what loses, what to teach the coach)
 
 What one call record contains (out/mined/<call>.json):
@@ -28,6 +30,8 @@ What one call record contains (out/mined/<call>.json):
   knowledge    facts about tint, coating, correction and PPF said on the call, checked against the script
   scores       rapport, discovery, ACA framework, pitch, objections, close, control, overall (1-5)
   coaching     strengths, fixes, and one lesson the coach should learn
+  turns        the full call, turn by turn: time, who (rep or lead), exact words, and tags (what it was, which topic,
+               which script step, who it answers, how good the answer was)
 """
 import argparse, collections, csv, glob, json, os, re, subprocess, sys, time
 
@@ -51,7 +55,8 @@ SCHEMA = """{
  "pivotal": [{"t": "m:ss", "kind": "turning_point|lost_opportunity|strong_close|rapport_win|mistake|recovery", "description": "what happened", "effect": "how it changed the call", "repeat_or_avoid": "what to repeat or avoid next time"}],
  "knowledge": [{"topic": "short topic", "claim": "a factual statement about the product, process, price or paint/tint science made on the call", "said_by": "rep|lead", "vs_script": "matches|contradicts|not_in_script", "note": "why it matters or what to verify"}],
  "scores": {"rapport": 1, "discovery": 1, "aca_framework": 1, "pitch": 1, "objection_handling": 1, "close": 1, "control": 1, "overall": 1, "justification": "two or three sentences"},
- "coaching": {"strengths": [], "fixes": [], "one_lesson": "the single most useful lesson from this call for an AI coach"}
+ "coaching": {"strengths": [], "fixes": [], "one_lesson": "the single most useful lesson from this call for an AI coach"},
+ "turn_tags": [{"i": 12, "kind": "question|objection|buying_signal|statement|small_talk|pitch|price|close|ack|other", "topic": "one of the topics or null", "phase": "opener|rapport|discovery|recap|pitch|price|objection|close|deposit|wrap_up|other", "script_step": "s06 or null", "needs_response": true, "answers_turn": null, "answered_by": [13, 14], "quality": 1}]
 }"""
 
 RUBRIC = """Scoring (1 to 5; use the whole range; a typical average call is a 3):
@@ -77,6 +82,7 @@ Rules:
 - "moments": every question or pushback from the lead (not small talk), at most 15, in order. "better_answer" must rely only on script facts or well-known general knowledge, and must be null when the rep's answer was already strong.
 - "pivotal": 2 to 6 turning points. Say what changed because of it.
 - "knowledge": factual claims about the products, process, pricing, durations, warranty, paint or tint science (for example whether a sun-damaged clear coat needs correction or repainting). Mark vs_script as contradicts or not_in_script when the script does not cover it, so a human can verify it. Do not treat opinions or small talk as knowledge.
+- "turn_tags": the transcript is given with numbered turns (#12). Tag EVERY substantive turn of both speakers, in order. For a lead turn that needs a reply (a question, objection, buying signal, or a statement the rep should respond to) set needs_response true, list the rep turn numbers that answered it in answered_by, topic, and rate the answer in quality (1-5). For a rep turn that answers a lead turn, set answers_turn to that lead turn number and rate it. Skip one-word backchannels (yeah, ok, mm-hmm) and filler. Use the exact turn numbers from the transcript. script_step is the script step the turn corresponds to, when there is one.
 - If the call is a voicemail, wrong number, or too short to evaluate, still return the full shape with empty lists, outcome.result "no_answer_or_voicemail" or "unclear", and scores of 1 with a justification saying it was not a real conversation.
 - Topics for moments: """ + TOPICS + "."
 
@@ -138,11 +144,14 @@ def transcribe_one(path, lang, key):
         return j
     j = retry(go)
     label = "C" if ch == 2 else "S"
-    lines = []
+    lines, utts = [], []
     for u in (j.get("results", {}).get("utterances") or []):
         who = u.get("channel") if ch == 2 else u.get("speaker")
-        lines.append("[%s] %s%s: %s" % (mmss(u.get("start")), label, who if who is not None else "?", str(u.get("transcript", "")).strip()))
-    return j, "\n".join(lines)
+        spk = "%s%s" % (label, who if who is not None else "?")
+        text = str(u.get("transcript", "")).strip()
+        lines.append("[%s] %s: %s" % (mmss(u.get("start")), spk, text))
+        utts.append({"start": u.get("start"), "end": u.get("end"), "spk": spk, "text": text, "conf": u.get("confidence")})
+    return j, "\n".join(lines), utts
 
 
 def cmd_transcribe(a):
@@ -166,9 +175,9 @@ def cmd_transcribe(a):
             skipped += 1
             continue
         try:
-            j, text = transcribe_one(f, a.lang, key)
+            j, text, utts = transcribe_one(f, a.lang, key)
             with open(os.path.join(a.out, "transcripts", base + ".json"), "w") as fh:
-                json.dump({"file": os.path.basename(f), "duration": j.get("metadata", {}).get("duration")}, fh)
+                json.dump({"file": os.path.basename(f), "duration": j.get("metadata", {}).get("duration"), "utterances": utts}, fh)
             with open(tp, "w") as fh:
                 fh.write(text or "(no speech found)")
             done += 1
@@ -179,6 +188,33 @@ def cmd_transcribe(a):
             with open(os.path.join(a.out, "errors.log"), "a") as fh:
                 fh.write("%s\t%s\n" % (f, e))
     print("Transcription: %d new, %d already done, %d failed" % (done, skipped, fail))
+
+
+# ------------------------------------------------------------------ turns
+def parse_turns(txt, jpath=None):
+    """Every sentence of the call in order: number, start (and end when known), speaker label, words."""
+    turns = []
+    for line in txt.split("\n"):
+        m = re.match(r"^(?:#\d+ )?\[(\d+:\d+)\] ([SC]\d+|S\?|C\?): (.*)$", line)
+        if m:
+            turns.append({"i": len(turns) + 1, "t": m.group(1), "start": secs(m.group(1)), "end": None, "spk": m.group(2), "text": m.group(3).strip()})
+    ends = None
+    try:
+        if jpath and os.path.exists(jpath):
+            ends = (json.load(open(jpath)).get("utterances") or [])
+    except Exception:
+        ends = None
+    for k, t in enumerate(turns):
+        if ends and len(ends) == len(turns) and ends[k].get("end") is not None:
+            t["end"] = round(float(ends[k]["end"]), 1)
+            t["start"] = round(float(ends[k].get("start") or t["start"]), 1)
+        elif k + 1 < len(turns):
+            t["end"] = turns[k + 1]["start"]
+    return turns
+
+
+def numbered(turns):
+    return "\n".join("#%d [%s] %s: %s" % (t["i"], t["t"], t["spk"], t["text"]) for t in turns)
 
 
 # ------------------------------------------------------------------ scripts
@@ -263,22 +299,34 @@ def parse_json(text):
     return json.loads(text[a:b + 1])
 
 
-def call_stats(transcript, rep):
+def call_stats(turns, rep):
     """Numbers we can measure ourselves instead of asking the model: talk share, length, time to the first price mention."""
     words = {"rep": 0, "lead": 0}
     last = first_price = 0
-    for line in transcript.split("\n"):
-        m = re.match(r"\[(\d+:\d+)\] ([SC]\d+|S\?|C\?): (.*)", line)
-        if not m:
-            continue
-        t = secs(m.group(1))
-        last = max(last, t)
-        who = "rep" if m.group(2) == rep else "lead"
-        words[who] += len(m.group(3).split())
-        if not first_price and re.search(r"\$|\bprice\b|\bcost\b|how much|\bquote\b|\bbucks\b|hundred", m.group(3), re.I) and t > 20:
-            first_price = t
+    for t in turns:
+        last = max(last, int(t.get("end") or t["start"] or 0))
+        who = "rep" if t["spk"] == rep else "lead"
+        words[who] += len(t["text"].split())
+        if not first_price and re.search(r"\$|\bprice\b|\bcost\b|how much|\bquote\b|\bbucks\b|hundred", t["text"], re.I) and t["start"] > 20:
+            first_price = int(t["start"])
     tot = words["rep"] + words["lead"]
     return {"duration_sec": last, "rep_word_share_pct": round(words["rep"] * 100 / tot) if tot else None, "first_price_mention_sec": first_price or None}
+
+
+def merge_turns(turns, rep, tags):
+    by = {}
+    for tg in tags or []:
+        try:
+            by[int(tg.get("i"))] = tg
+        except Exception:
+            pass
+    out = []
+    for t in turns:
+        tg = by.get(t["i"], {})
+        out.append({"i": t["i"], "t": t["t"], "start": t["start"], "end": t["end"], "spk": t["spk"], "role": ("rep" if t["spk"] == rep else "lead") if rep else "unknown", "text": t["text"],
+                    "kind": tg.get("kind"), "topic": tg.get("topic"), "phase": tg.get("phase"), "script_step": tg.get("script_step"), "needs_response": bool(tg.get("needs_response")),
+                    "answers_turn": tg.get("answers_turn"), "answered_by": tg.get("answered_by") or [], "quality": tg.get("quality")})
+    return out
 
 
 def cmd_mine(a):
@@ -303,18 +351,21 @@ def cmd_mine(a):
             skipped += 1
             continue
         text = open(f).read()
-        if len(text.split()) < 40:
-            json.dump({"call": base, "meta": {"service": "other", "call_type": "voicemail"}, "outcome": {"result": "no_answer_or_voicemail"}, "scores": {"overall": 1}, "moments": [], "summary": "too short to evaluate"}, open(mp, "w"))
+        turns = parse_turns(text, os.path.join(a.out, "transcripts", base + ".json"))
+        if len(text.split()) < 40 or not turns:
+            json.dump({"call": base, "meta": {"service": "other", "call_type": "voicemail"}, "outcome": {"result": "no_answer_or_voicemail"}, "scores": {"overall": 1}, "moments": [], "turns": merge_turns(turns, None, []), "summary": "too short to evaluate"}, open(mp, "w"))
             skipped += 1
             continue
         try:
-            user = "Transcript of one call:\n" + text[:90000] + "\n\nReturn the JSON."
-            reply, stop = claude(a.model, a.effort, system, user, key)
+            user = "Transcript of one call (numbered turns):\n" + numbered(turns)[:90000] + "\n\nReturn the JSON."
+            reply, stop = claude(a.model, a.effort, system, user, key, max_tokens=14000)
             if stop == "max_tokens":
-                reply, stop = claude(a.model, a.effort, system, user + "\nBe more concise in every text field.", key, max_tokens=16000)
+                reply, stop = claude(a.model, a.effort, system, user + "\nBe more concise in every text field and tag only the substantive turns.", key, max_tokens=24000)
             data = parse_json(reply)
             data["call"] = base
-            data["stats"] = call_stats(text, data.get("rep_speaker"))
+            rep_spk = data.get("rep_speaker")
+            data["stats"] = call_stats(turns, rep_spk)
+            data["turns"] = merge_turns(turns, rep_spk, data.pop("turn_tags", []))
             json.dump(data, open(mp, "w"), ensure_ascii=False, indent=1)
             done += 1
             m = data.get("meta") or {}
@@ -364,11 +415,42 @@ def agent_key(c):
     return n.capitalize() if n and n not in ("none", "null", "unknown") else "Unknown"
 
 
+def build_library(c):
+    """Every thing a lead said that needed an answer, with the context before it and how the rep answered. This is what the live coach looks things up in."""
+    turns = c.get("turns") or []
+    byi = {t["i"]: t for t in turns}
+    out = []
+    for k, t in enumerate(turns):
+        if t.get("role") != "lead" or not t.get("needs_response"):
+            continue
+        reps = [byi[i] for i in (t.get("answered_by") or []) if i in byi and byi[i].get("role") == "rep"]
+        if not reps:
+            j = k + 1
+            while j < len(turns) and turns[j].get("role") != "lead" and len(reps) < 3:
+                if turns[j].get("role") == "rep":
+                    reps.append(turns[j])
+                j += 1
+        if not reps:
+            continue
+        q = [r.get("quality") for r in reps if isinstance(r.get("quality"), (int, float))] + ([t.get("quality")] if isinstance(t.get("quality"), (int, float)) else [])
+        better = None
+        for m in c.get("moments") or []:
+            if abs(secs(m.get("t")) - int(t.get("start") or 0)) <= 6 and m.get("better_answer"):
+                better = m["better_answer"]
+                break
+        out.append({"id": "%s#%d" % (str(c.get("call"))[:12], t["i"]), "call": c.get("call"), "agent": agent_key(c), "client": g(c, "meta", "client_name"), "service": g(c, "meta", "service"),
+                    "result": g(c, "outcome", "result"), "won": won(c), "t": t.get("t"), "kind": t.get("kind"), "topic": t.get("topic"), "phase": t.get("phase"), "script_step": t.get("script_step"),
+                    "lead_said": t.get("text"), "context_before": [{"role": x["role"], "text": x["text"]} for x in turns[max(0, k - 3):k]],
+                    "rep_response": " ".join(r["text"] for r in reps), "rep_response_turns": [r["i"] for r in reps], "response_t": reps[0].get("t"),
+                    "quality": round(sum(q) / len(q), 1) if q else None, "better_answer": better})
+    return out
+
+
 def cmd_report(a):
     calls = load_mined(a.out)
     if not calls:
         sys.exit("Nothing to report yet. Run the mine step first.")
-    rows, dev, piv, mom, kn = [], [], [], [], []
+    rows, dev, piv, mom, kn, trows, lib = [], [], [], [], [], [], []
     for c in calls:
         sc = c.get("scores") or {}
         rows.append({"call": c.get("call"), "agent": agent_key(c), "client": g(c, "meta", "client_name"), "service": g(c, "meta", "service"),
@@ -388,6 +470,9 @@ def cmd_report(a):
             mom.append(dict(base, **{k: m.get(k) for k in ("t", "kind", "topic", "quality", "lead_said", "rep_said", "why", "better_answer")}))
         for k in c.get("knowledge") or []:
             kn.append(dict(base, **{x: k.get(x) for x in ("topic", "claim", "said_by", "vs_script", "note")}))
+        for t in c.get("turns") or []:
+            trows.append(dict(base, client=g(c, "meta", "client_name"), **{x: t.get(x) for x in ("i", "t", "end", "role", "spk", "kind", "topic", "phase", "script_step", "needs_response", "answers_turn", "answered_by", "quality", "text")}))
+        lib.extend(build_library(c))
     mom.sort(key=lambda r: (str(r.get("topic")), -(r.get("quality") or 0)))
     write_csv(os.path.join(a.out, "calls.csv"), rows, ["call", "agent", "client", "service", "vehicle", "call_type", "result", "price_quoted", "evidence", "overall", "rapport", "discovery", "aca", "pitch", "objections", "close", "control", "minutes", "rep_talk_pct", "first_price_sec", "steps_skipped", "deviations", "summary", "lesson"])
     write_csv(os.path.join(a.out, "deviations.csv"), dev, ["call", "agent", "service", "result", "t", "script_step", "type", "script_said", "rep_said", "impact", "keep_this"])
@@ -395,6 +480,25 @@ def cmd_report(a):
     write_csv(os.path.join(a.out, "moments.csv"), mom, ["call", "agent", "service", "result", "t", "kind", "topic", "quality", "lead_said", "rep_said", "why", "better_answer"])
     write_csv(os.path.join(a.out, "knowledge.csv"), kn, ["call", "agent", "service", "topic", "claim", "said_by", "vs_script", "note"])
     json.dump(mom, open(os.path.join(a.out, "moments.json"), "w"), ensure_ascii=False, indent=1)
+    write_csv(os.path.join(a.out, "turns_all.csv"), trows, ["call", "agent", "client", "service", "result", "i", "t", "end", "role", "spk", "kind", "topic", "phase", "script_step", "needs_response", "answers_turn", "answered_by", "quality", "text"])
+    with open(os.path.join(a.out, "response_library.jsonl"), "w") as fh:
+        for r in lib:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    write_csv(os.path.join(a.out, "response_library.csv"), [dict(r, context_before=" | ".join("%s: %s" % (x["role"], x["text"]) for x in r["context_before"])) for r in lib],
+              ["id", "call", "agent", "client", "service", "result", "won", "t", "kind", "topic", "phase", "script_step", "lead_said", "context_before", "rep_response", "response_t", "quality", "better_answer"])
+    # a readable playbook: the best real answers to each topic, from calls that booked first
+    by_topic = collections.defaultdict(list)
+    for r in lib:
+        by_topic[r.get("topic") or "other"].append(r)
+    with open(os.path.join(a.out, "response_playbook.md"), "w") as fh:
+        fh.write("# Best real answers by topic\n\nSorted by rating, calls that booked first. Each entry shows what the lead said and what the rep said next.\n")
+        for topic, rs in sorted(by_topic.items(), key=lambda kv: -len(kv[1])):
+            rs.sort(key=lambda r: (not r["won"], -(r["quality"] or 0)))
+            fh.write("\n## %s (%d times it came up)\n" % (topic, len(rs)))
+            for r in rs[:6]:
+                fh.write("\n- **Lead** (%s, %s, %s, rated %s): %s\n  **Rep (%s):** %s\n" % (r["service"], r["agent"], "booked" if r["won"] else str(r["result"]), r["quality"], r["lead_said"], r["t"], r["rep_response"]))
+                if r.get("better_answer"):
+                    fh.write("  *Better:* %s\n" % r["better_answer"])
     # per-agent table
     ag = collections.defaultdict(list)
     for c in calls:
@@ -416,7 +520,8 @@ def cmd_report(a):
     tc = collections.Counter(m.get("topic") for m in mom)
     print("Questions and pushback by topic: " + ", ".join("%s %d" % (t, n) for t, n in tc.most_common(8)))
     print("Off-script moments: %d (%d marked worth keeping). Pivotal moments: %d. Product claims to verify: %d" % (len(dev), len([d for d in dev if d.get("keep_this")]), len(piv), len([k for k in kn if k.get("vs_script") != "matches"])))
-    print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv" % a.out)
+    print("Full logs: %d turns across %d calls; %d lead statements linked to the rep's answer (response_library)." % (len(trows), len(calls), len(lib)))
+    print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv turns_all.csv response_library.csv response_playbook.md" % a.out)
 
 
 # ------------------------------------------------------------------ learn
