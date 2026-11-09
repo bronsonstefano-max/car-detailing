@@ -18,6 +18,7 @@
 //   TEXT_AUTO         (var, optional, "1")      send the follow-up texts (#1 right away, #2 after 2 hours...) automatically instead of a push for each one; stops when the lead replies
 //   META_SMS_CONSENT / META_SMS_MARKETING (var, "1") the Facebook lead form's consent covers texts / promotional texts: new Meta leads are marked as agreed (marketing also marks texts)
 //   TEXT_HOURS        (var, optional "8-21")   hours (Eastern) when texts may go out
+//   TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, TWILIO_TWIML_APP_SID (secrets)  in-browser dialing on the Dial page (Twilio Voice SDK); the TwiML App's Voice URL is https://divinedetailers.com/api/twilio/voice. TWILIO_VOICE_FROM (optional) is the caller ID for calls (defaults to TWILIO_FROM)
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -134,6 +135,10 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS automation_steps_a ON automation_steps (automation_id, pos)"),
     db.prepare("CREATE TABLE IF NOT EXISTS campaigns (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'draft', send_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), finished_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS campaign_sends (campaign_id INTEGER NOT NULL, lead_id INTEGER NOT NULL, status TEXT, at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (campaign_id, lead_id))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS dial_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, call_sid TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), duration INTEGER NOT NULL DEFAULT 0, by_user TEXT)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS dial_calls_lead ON dial_calls (lead_id, started_at)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS dial_audio (kind TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL, token TEXT NOT NULL, updated_at TEXT)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS dial_settings (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
   if (flagAuto.meta && flagAuto.meta.changes) await seedAutomations(db);
@@ -1360,7 +1365,7 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
@@ -1376,12 +1381,13 @@ function bnav(on, n = 0, owner = false) {
     out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg>',
     calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg>',
     bolt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
   };
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
-  const moreKeys = ["speed", "rate", "missed", "insights", "calendar", "automations"];
+  const moreKeys = ["speed", "rate", "missed", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -2443,6 +2449,335 @@ async function campaignTest(env, b) {
     return r.ok && j.sid ? json({ success: true }) : json({ success: false, message: String(j.message || "Twilio refused the test.").slice(0, 160) }, 502);
   } catch (e) { return json({ success: false, message: "Could not reach Twilio." }, 502); }
 }
+
+// ---- In-app dialer (owner login): calls are made from the browser with Twilio's Voice SDK, every call is recorded, and two voicemail messages can be dropped
+const DIAL_DEFAULTS = {
+  tint: `# OPENER
+Hi {first}, this is Bronson with Divine Detailers in Miami. You asked about ceramic tint for {vehicle}. Did I catch you at an okay time?
+
+# FIND OUT WHAT THEY WANT
+- Is it just the side and rear windows, or the whole car?
+- Any darkness in mind? Most people want the heat and glare gone but still want to see out at night.
+- Is the heat, the privacy, or the look the main reason?
+- When do they want it done, and can they drop the car off for the day?
+
+# PRICE
+Ceramic tint starts at {price} for {vehicle}. It blocks the heat, protects the interior and has a lifetime warranty. (Confirm the final price for their car.)
+
+# CLOSE
+I have openings this week. What day works best for you? We are at {address}. I can lock you in right now.
+
+# IF THEY HESITATE
+- "Too expensive": compare to cheap film that bubbles and turns purple. Ours does not.
+- "Need to think": totally fine. Which day would you pencil in so you do not lose the spot?
+- "Shopping around": ask what quote they have and what film it is.`,
+  coating: `# OPENER
+Hi {first}, this is Bronson with Divine Detailers in Miami. You asked about a ceramic coating for {vehicle}. Did I catch you at an okay time?
+
+# FIND OUT WHAT THEY WANT
+- Is the car new or has it had paint work or swirls?
+- Do they want gloss, protection, or easier washing?
+- How do they usually wash it, and where is it parked?
+- When do they want it done?
+
+# PRICE
+Our ceramic coating package starts at {price} for {vehicle}. It adds a deep gloss, protects the paint from sun and salt, and makes washing easy. (Confirm the final price after seeing the car.)
+
+# CLOSE
+The car needs to be here for the day. What day works best? We are at {address}. I can get you on the schedule now.
+
+# IF THEY HESITATE
+- "Too expensive": a coating protects the paint for years and saves you on waxing and detailing.
+- "Need to think": no problem. Which day should I hold for you?
+- "Is it worth it": absolutely, especially in Miami sun and salt air.`,
+  missed: "Hi {first}, this is Bronson with Divine Detailers. I just tried to call you about your {service} for {vehicle} and missed you. What's a good time to talk? Reply STOP to opt out.",
+};
+async function dialSetting(env, k) {
+  const r = await env.DB.prepare("SELECT v FROM dial_settings WHERE k = ?").bind(k).first();
+  return r && String(r.v).trim() ? r.v : DIAL_DEFAULTS[k];
+}
+const dialConfigured = env => ({ ok: !!(env.TWILIO_SID && env.TWILIO_API_KEY_SID && env.TWILIO_API_KEY_SECRET && env.TWILIO_TWIML_APP_SID && (env.TWILIO_VOICE_FROM || env.TWILIO_FROM)), missing: ["TWILIO_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TWILIO_TWIML_APP_SID"].filter(k => !env[k]).concat(env.TWILIO_VOICE_FROM || env.TWILIO_FROM ? [] : ["TWILIO_FROM"]) });
+const jwtB64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function voiceToken(env, identity) {
+  const enc = o => jwtB64(new TextEncoder().encode(JSON.stringify(o)));
+  const now = Math.floor(Date.now() / 1000);
+  const head = enc({ alg: "HS256", typ: "JWT", cty: "twilio-fpa;v=1" });
+  const body = enc({ jti: `${env.TWILIO_API_KEY_SID}-${now}`, iss: env.TWILIO_API_KEY_SID, sub: env.TWILIO_SID, iat: now, exp: now + 3600, grants: { identity, voice: { incoming: { allow: false }, outgoing: { application_sid: env.TWILIO_TWIML_APP_SID } } } });
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TWILIO_API_KEY_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(head + "." + body));
+  return head + "." + body + "." + jwtB64(sig);
+}
+const xmlRes = body => new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`, { headers: { "content-type": "text/xml" } });
+const twAuth = env => ({ authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_TOKEN}`) });
+// Twilio calls this when the browser starts a call: it checks the number belongs to a lead, then dials it with recording on
+async function handleVoice(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  await ensureTable(env.DB);
+  const lead = Number.isInteger(Number(params.leadId)) ? await env.DB.prepare("SELECT id, phone FROM leads WHERE id = ?").bind(Number(params.leadId)).first() : null;
+  if (!lead || !last10(lead.phone) || last10(lead.phone) !== last10(params.To)) return xmlRes("<Say>This call cannot be placed.</Say><Hangup/>");
+  if (!quietHoursOk(env)) return xmlRes("<Say>Calls can only be placed between 8 AM and 9 PM Eastern.</Say><Hangup/>");
+  const from = e164(env.TWILIO_VOICE_FROM || env.TWILIO_FROM);
+  if (!from) return xmlRes("<Say>No caller ID number is set up.</Say><Hangup/>");
+  const base = env.PUBLIC_URL || "https://divinedetailers.com";
+  return xmlRes(`<Dial callerId="${from}" answerOnBridge="true" timeout="40" record="record-from-answer-dual" recordingStatusCallback="${base}/api/twilio/voice/recording?lead=${lead.id}" recordingStatusCallbackEvent="completed"><Number>${e164(lead.phone)}</Number></Dial>`);
+}
+async function handleVoiceRecording(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  await ensureTable(env.DB);
+  const lead = Number(new URL(request.url).searchParams.get("lead")), sid = String(params.RecordingSid || "");
+  if (Number.isInteger(lead) && /^RE[0-9a-f]{32}$/.test(sid)) await saveRecording(env, { callId: "tw:" + sid, leadId: lead, direction: "outbound", url: "/admin/rec/" + sid, duration: params.RecordingDuration });
+  return new Response(null, { status: 204 });
+}
+// recordings stay private in Twilio: the CRM streams them to a signed-in owner
+async function recordingProxy(env, sid, request) {
+  if (!/^RE[0-9a-f]{32}$/.test(sid) || !env.TWILIO_SID) return new Response("Not found", { status: 404 });
+  const h = { ...twAuth(env) }; const range = request.headers.get("range"); if (range) h.range = range;
+  const r = await fetch(`${env.TWILIO_API_BASE || "https://api.twilio.com"}/2010-04-01/Accounts/${env.TWILIO_SID}/Recordings/${sid}.mp3`, { headers: h });
+  if (!r.ok && r.status !== 206) return new Response("Recording not available", { status: r.status });
+  const out = { "content-type": "audio/mpeg", "accept-ranges": "bytes", "cache-control": "private, max-age=3600" };
+  for (const k of ["content-range", "content-length"]) if (r.headers.get(k)) out[k] = r.headers.get(k);
+  return new Response(r.body, { status: r.status, headers: out });
+}
+async function dialerQueue(env) {
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
+      (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-1 day')) tries24,
+      (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-3 hours')) tries3,
+      (SELECT MAX(d.started_at) FROM dial_calls d WHERE d.lead_id = l.id) last_try,
+      CASE WHEN l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('new','nocontact') THEN 1 ELSE 0 END cb
+    FROM leads l WHERE l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != ''
+      AND ((l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-14 days')) OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('done','lost','aged')))
+    ORDER BY cb DESC, (tries3 > 0), l.created_at DESC LIMIT 60`).all()).results || [];
+  const ids = rows.map(r => r.id);
+  const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
+  const texts = ids.length ? (await env.DB.prepare(`SELECT lead_id, direction, body, at FROM messages WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 300`).bind(...ids).all()).results || [] : [];
+  return json({ success: true, leads: rows.map(r => ({ ...r, created_at: isoUtc(r.created_at), history: notes.filter(n => n.lead_id === r.id).slice(0, 4).map(n => ({ reason: n.reason, at: isoUtc(n.at) })), texts: texts.filter(t => t.lead_id === r.id).slice(0, 3).map(t => ({ direction: t.direction, body: String(t.body).slice(0, 200), at: isoUtc(t.at) })) })) });
+}
+async function dialerLog(env, b, user) {
+  await ensureTable(env.DB);
+  if (!Number.isInteger(b.lead_id)) return json({ success: false }, 400);
+  const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(b.lead_id).first();
+  if (!cur) return json({ success: false }, 404);
+  const dur = Math.max(0, Math.min(14400, Math.floor(Number(b.duration)) || 0));
+  const mmss = `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}`;
+  const stmts = [
+    env.DB.prepare("INSERT INTO dial_calls (lead_id, call_sid, duration, by_user) VALUES (?,?,?,?)").bind(b.lead_id, clean(b.sid, 60), dur, user),
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.lead_id, cur.stage, cur.stage, dur ? `Called (in-app dialer): ${mmss}` : "Called (in-app dialer): not connected", user),
+  ];
+  // a conversation longer than the usual limit counts as contact, the same rule as the other calls
+  if (dur > contactMinSecs(env) && isNewish(cur.stage)) {
+    stmts.push(env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.lead_id, cur.stage, "contacted", `Call longer than ${contactMinSecs(env)} seconds (${mmss})`, "system"));
+    stmts.push(env.DB.prepare("UPDATE leads SET stage = 'contacted', contacted = 1, stage_changed_at = datetime('now') WHERE id = ?").bind(b.lead_id));
+  }
+  await env.DB.batch(stmts);
+  return json({ success: true });
+}
+const VM_KINDS = ["tint", "coating"];
+async function dialerAudioSave(env, b) {
+  await ensureTable(env.DB);
+  if (!VM_KINDS.includes(b.kind)) return json({ success: false, message: "Unknown voicemail." }, 400);
+  const mime = /^audio\/(wav|x-wav|mpeg|mp3)$/.test(String(b.mime)) ? String(b.mime).replace("mp3", "mpeg") : "";
+  const data = String(b.data || "");
+  if (!mime || !/^[A-Za-z0-9+/=]+$/.test(data)) return json({ success: false, message: "Use a WAV or MP3 recording." }, 400);
+  if (data.length > 1300000) return json({ success: false, message: "That recording is too long. Keep it under about 40 seconds." }, 413);
+  const token = [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(16).padStart(2, "0")).join("");
+  await env.DB.prepare("INSERT INTO dial_audio (kind, mime, data, token, updated_at) VALUES (?,?,?,?,datetime('now')) ON CONFLICT(kind) DO UPDATE SET mime = excluded.mime, data = excluded.data, token = excluded.token, updated_at = excluded.updated_at").bind(b.kind, mime, data, token).run();
+  return json({ success: true });
+}
+const audioBytes = row => Uint8Array.from(atob(row.data), c => c.charCodeAt(0));
+async function dialerAudioPlay(env, kind) {
+  await ensureTable(env.DB);
+  const row = VM_KINDS.includes(kind) ? await env.DB.prepare("SELECT mime, data FROM dial_audio WHERE kind = ?").bind(kind).first() : null;
+  return row ? new Response(audioBytes(row), { headers: { "content-type": row.mime, "cache-control": "no-store" } }) : new Response("Not found", { status: 404 });
+}
+// Twilio fetches the voicemail from this unguessable address while the message plays on the call
+async function publicVoicemail(env, token) {
+  if (!/^[0-9a-f]{24}$/.test(token) || !env.DB) return new Response("Not found", { status: 404 });
+  await ensureTable(env.DB);
+  const row = await env.DB.prepare("SELECT mime, data FROM dial_audio WHERE token = ?").bind(token).first();
+  return row ? new Response(audioBytes(row), { headers: { "content-type": row.mime, "cache-control": "public, max-age=300" } }) : new Response("Not found", { status: 404 });
+}
+// plays the saved message to whoever is on the line, then hangs up: the lead's call leg is told to play it instead of staying connected
+async function dialerVoicemailDrop(env, b, user) {
+  await ensureTable(env.DB);
+  if (!VM_KINDS.includes(b.kind) || !/^CA[0-9a-f]{32}$/.test(String(b.sid || "")) || !Number.isInteger(b.lead_id)) return json({ success: false, message: "Bad request." }, 400);
+  const row = await env.DB.prepare("SELECT token FROM dial_audio WHERE kind = ?").bind(b.kind).first();
+  if (!row) return json({ success: false, message: "Record that voicemail first." }, 400);
+  const base = `${env.TWILIO_API_BASE || "https://api.twilio.com"}/2010-04-01/Accounts/${env.TWILIO_SID}`;
+  try {
+    const list = await (await fetch(`${base}/Calls.json?ParentCallSid=${b.sid}&PageSize=5`, { headers: twAuth(env) })).json();
+    const child = (list.calls || []).find(c => ["in-progress", "ringing", "queued"].includes(c.status)) || (list.calls || [])[0];
+    if (!child) return json({ success: false, message: "The call is not connected to the lead yet." }, 409);
+    const play = `${env.PUBLIC_URL || "https://divinedetailers.com"}/vm/${row.token}`;
+    const r = await fetch(`${base}/Calls/${child.sid}.json`, { method: "POST", headers: { ...twAuth(env), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ Twiml: `<Response><Pause length="1"/><Play>${play}</Play><Hangup/></Response>` }).toString() });
+    if (!r.ok) return json({ success: false, message: "Twilio could not play the voicemail." }, 502);
+  } catch (e) { return json({ success: false, message: "Could not reach Twilio." }, 502); }
+  await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(`Left a voicemail (${b.kind} message dropped)`, user, b.lead_id).run().catch(() => {});
+  return json({ success: true });
+}
+
+async function dialerPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Dial | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+main{max-width:1100px;margin:0 auto;padding:16px 22px 40px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.ban{border-radius:12px;padding:12px 14px;font-size:14px;border:1px solid #4d3a1d;background:#10151b;color:#ffb86b}.ban code{background:#1a2027;padding:1px 6px;border-radius:6px;color:#e8eaed}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pill{display:inline-block;font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:4px 12px;background:#1a2027;color:#aab0b9}.pill.ok{background:#10301a;color:#7fe07f}.pill.warn{background:#2a2410;color:#ffd166}.pill.bad{background:#3a1414;color:#ff8a8a}
+.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:12px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer;min-height:46px}.btn.g{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.r{background:#d83a3a;border-color:#d83a3a;color:#fff}.btn:disabled{opacity:.4;cursor:default}.btn.sm{min-height:38px;padding:6px 12px;font-size:13.5px}.btn.on{background:#e8eaed;color:#07090c}
+.lead{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}.lead h2{margin:0;font-size:24px;overflow-wrap:anywhere}.lead .ph{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:#32cd32}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{background:#1a2027;border-radius:999px;padding:3px 11px;font-size:13px;color:#cfd3d9}.chip.hot{background:#10301a;color:#7fe07f}
+.kv{display:flex;flex-direction:column;gap:4px;font-size:13.5px;color:#aab0b9}.kv b{color:#e8eaed;font-weight:600}.hist{font-size:13px;color:#8a9099;border-top:1px solid #1b1f25;padding-top:8px;display:flex;flex-direction:column;gap:3px}
+.ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.ctl .call{flex:1 1 220px;min-height:64px;font-size:20px}.timer{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;min-width:78px}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:260px}.kp button{min-height:46px;background:#151a21;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;font:inherit;font-size:18px;font-weight:700}
+.panel{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}.panel h3{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf}
+.outs{display:flex;gap:8px;flex-wrap:wrap}.outs .btn{flex:1 1 130px}
+textarea,input[type=text]{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;color-scheme:dark}textarea{resize:vertical;min-height:84px}
+.script{font-size:15px;line-height:1.5}.script h4{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:#32cd32}.script p{margin:0 0 6px}.script ul{margin:0 0 6px;padding-left:20px}.script li{margin:2px 0}
+.tabs{display:flex;gap:6px}.tabs button{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:6px 14px;font:inherit;font-weight:700;cursor:pointer}.tabs button.on{background:#32cd32;border-color:#32cd32;color:#04120a}
+.q .it{display:block;width:100%;text-align:left;background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:10px 12px;color:inherit;font:inherit;cursor:pointer;margin-bottom:8px}.q .it.cur{border-color:#32cd32}.q .it b{display:block;overflow-wrap:anywhere}.q .it small{color:#8a9099}
+.note{color:#7c838d;font-size:13px}.err{color:#ff8a8a;font-size:14px;min-height:18px}.okm{color:#9fe29f}
+dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(560px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{margin:0}dialog label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+.vm{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+${BNAV_CSS}
+@media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>dialer</b></h1>${nav("dialer", tc, true)}</header>
+${bnav("dialer", tc, true)}
+<main>
+<div class="col">
+<div id="setup" class="ban" hidden></div>
+<div class="bar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
+<div id="lead" class="lead"></div>
+<div id="ctl" class="ctl"></div>
+<div id="kp" class="kp" hidden></div>
+<div id="after" class="panel" hidden>
+<h3>How did it go?</h3>
+<div class="outs" id="outs"></div>
+<textarea id="nt" rows="2" placeholder="Add a note (saved on the lead)"></textarea>
+<div class="bar"><button class="btn sm" id="ntb" type="button">Save note</button><button class="btn sm" id="mtb" type="button">Text: I missed you</button><span id="am" class="note"></span></div>
+<div id="mt" hidden><textarea id="mtx" rows="4"></textarea><div class="bar" style="margin-top:6px"><button class="btn g sm" id="mts" type="button">Send text</button><span id="mtm" class="note"></span></div></div>
+</div>
+<div class="bar"><button class="btn" id="nxt" type="button" style="flex:1;min-height:52px">Next lead &rarr;</button></div>
+<div class="panel"><div class="bar"><h3 style="margin:0">Script</h3><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div></div>
+</div>
+<div class="col q"><h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf">Up next</h3><div id="q"></div></div>
+</main>
+<dialog id="vdlg"></dialog><dialog id="sdlg"></dialog>
+<script src="/assets/twilio-voice.min.js"></script>
+<script>
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const el=id=>document.getElementById(id),ET='America/New_York';
+let Q=[],ix=0,ST={tint:'',coating:'',missed:''},AU={},dev=null,call=null,tmr=null,t0=0,sid='',state='idle',muted=false,sk='tint',vmArm=null;
+const etHour=()=>+new Date().toLocaleString('en-US',{timeZone:ET,hour:'numeric',hour12:false});
+const inHours=()=>{const h=etHour()%24;return h>=8&&h<21};
+const e164=p=>{const d=String(p||'').replace(/\\D/g,'');return d.length===10?'+1'+d:d.length===11&&d[0]==='1'?'+'+d:d?'+'+d:''};
+const pretty=p=>{const d=String(p||'').replace(/\\D/g,'').slice(-10);return d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):(p||'')};
+const svcOf=l=>/coat/i.test(String(l&&l.service||''))?'coating':'tint';
+function fillT(t,l){const veh=[l.year,l.make,l.model].filter(Boolean).join(' '),first=String(l.name||'').trim().split(/\\s+/)[0],sv=svcOf(l);
+  const v={first:first&&!/^\\+?[\\d\\s()-]+$/.test(first)?first:'there',vehicle:veh?'your '+veh:'your car',service:String(l.service||'').toLowerCase()||'detailing',service_name:sv==='coating'?'ceramic coating':'ceramic tint',price:l.value?'$'+Math.round(l.value):(sv==='coating'?'$599':'$349'),shop:'Divine Detailers',address:'5181 NW 74th Ave, Miami, FL 33166'};
+  return String(t||'').replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]===undefined?m:v[k])}
+function ago(iso){const s=Math.max(0,(Date.now()-new Date(iso))/1000);if(s<60)return 'just now';if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' hr ago';return Math.floor(s/86400)+' days ago'}
+function setSt(t,c){const s=el('st');s.textContent=t;s.className='pill'+(c?' '+c:'')}
+function scriptHtml(t){return String(t||'').split('\\n').map(line=>{line=line.replace(/\\s+$/,'');if(!line)return '';if(/^# /.test(line))return '<h4>'+$(line.slice(2))+'</h4>';if(/^- /.test(line))return '<li>'+$(line.slice(2))+'</li>';return '<p>'+$(line)+'</p>'}).join('').replace(/(<li>.*?<\\/li>)+/g,m=>'<ul>'+m+'</ul>')}
+function drawScript(){const l=Q[ix]||{};document.querySelectorAll('#stabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===sk));el('script').innerHTML=scriptHtml(fillT(ST[sk],l))}
+function drawLead(){const l=Q[ix];const box=el('lead');
+  if(!l){box.innerHTML='<h2>'+(Q.length?'Queue finished':'No leads to call')+'</h2><p class="note">'+(Q.length?'Nice work. Reload to check for new leads.':'New and not-contacted leads from the last 14 days, and callbacks that are due, show up here.')+'</p>';el('ctl').innerHTML='';el('after').hidden=true;return}
+  const car=[l.year,l.make,l.model].filter(Boolean).join(' ');
+  const lines=String(l.message||'').split('\\n').map(x=>x.trim()).filter(x=>x&&!/^(form name|ad name|adset name|platform):/i.test(x)).slice(0,6);
+  box.innerHTML='<div class="bar"><h2 style="flex:1">'+$(l.name||pretty(l.phone))+'</h2>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+'</div><div class="ph">'+$(pretty(l.phone))+'</div>'
+   +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
+   +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
+   +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
+   +'<div class="bar"><a class="btn sm" href="/admin/pipeline#id='+l.id+'" style="text-decoration:none;display:inline-flex;align-items:center">Open lead / book</a></div>';
+  sk=svcOf(l);drawScript();drawCtl()}
+function drawCtl(){const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
+  const noDev=!dev;
+  if(state==='idle'||state==='ended'){c.innerHTML='<button class="btn g call" id="cb" type="button"'+(noDev||!inHours()?' disabled':'')+'>'+(state==='ended'?'Call again':'Call '+$(pretty(l.phone)))+'</button>';kp.hidden=true;el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
+    const b=el('cb');if(b)b.onclick=dial;return}
+  const live=state==='live';
+  c.innerHTML='<span class="timer" id="tm">'+(live?'0:00':'...')+'</span><button class="btn r call" id="hb" type="button">Hang up</button><button class="btn'+(muted?' on':'')+'" id="mb" type="button"'+(live?'':' disabled')+'>'+(muted?'Unmute':'Mute')+'</button><button class="btn" id="kb" type="button"'+(live?'':' disabled')+'>Keypad</button>'
+   +['tint','coating'].map(k=>'<button class="btn sm'+(svcOf(l)===k?' g':'')+'" data-vm="'+k+'" type="button"'+(live&&AU[k]&&AU[k].has?'':' disabled')+'>'+(vmArm===k?'Tap again to drop':'Drop '+k+' voicemail')+'</button>').join('');
+  el('hb').onclick=()=>{if(call)call.disconnect()};el('mb').onclick=()=>{if(call){muted=!muted;call.mute(muted);drawCtl()}};el('kb').onclick=()=>{kp.hidden=!kp.hidden};
+  c.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vmDrop(b.dataset.vm));
+  kp.innerHTML='123456789*0#'.split('').map(d=>'<button type="button" data-d="'+d+'">'+d+'</button>').join('');kp.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(call)call.sendDigits(b.dataset.d)})}
+function tick(){const t=el('tm');if(!t||!t0)return;const s=Math.floor((Date.now()-t0)/1000);t.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+async function tok(){const r=await fetch('/admin/dialer/token');return r.json().catch(()=>({success:false,message:'Could not reach the server.'}))}
+function setup(msg,missing){const s=el('setup');s.hidden=false;s.innerHTML='<b>Calling is not set up yet.</b> '+$(msg||'')+(missing&&missing.length?'<br>Add these in Cloudflare: '+missing.map(m=>'<code>'+$(m)+'</code>').join(' '):'');setSt('Not set up','bad')}
+async function initDev(){if(typeof Twilio==='undefined'||!Twilio.Device){setup('The calling library did not load. Reload the page.');return}
+  const j=await tok();if(!j.success){setup(j.message,j.missing);return}
+  dev=new Twilio.Device(j.token,{codecPreferences:['opus','pcmu'],closeProtection:'A call is in progress. Leave anyway?'});
+  dev.on('error',e=>setSt('Error: '+((e&&e.message)||e),'bad'));
+  dev.on('tokenWillExpire',async()=>{const k=await tok();if(k.success)dev.updateToken(k.token)});
+  setSt('Ready','ok');drawCtl()}
+async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended'))return;
+  if(!inHours()){setSt('Outside calling hours','bad');return}
+  try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop())}catch(_){setSt('Allow the microphone to call','bad');return}
+  state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
+  try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
+  call.on('ringing',()=>setSt('Ringing...','warn'));
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
+  call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
+async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
+  el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();
+  if(l){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}}
+async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
+  const r=await fetch('/admin/dialer/vmdrop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sid:sid,kind:k,lead_id:l.id})});const j=await r.json().catch(()=>({}));setSt(j.success?'Voicemail dropped':(j.message||'Could not drop it'),j.success?'ok':'bad');drawCtl()}
+const OUTS=[['Answered','Answered'],['No answer','No answer'],['Left a voicemail','Left voicemail'],['Wrong number','Wrong number'],['cb','Call back tomorrow']];
+function drawOuts(){el('outs').innerHTML=OUTS.map(o=>'<button class="btn" type="button" data-o="'+$(o[0])+'">'+$(o[1])+'</button>').join('');el('mt').hidden=true;
+  el('outs').querySelectorAll('button').forEach(b=>b.onclick=async()=>{const l=Q[ix];if(!l)return;b.disabled=true;
+    if(b.dataset.o==='cb'){const d=new Date(Date.now()+864e5).toLocaleDateString('en-CA',{timeZone:ET});await fetch('/admin/stage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,follow_date:d})})}
+    else await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,outcome:b.dataset.o})});
+    el('am').textContent='Saved: '+b.textContent;b.classList.add('on')})}
+el('ntb').onclick=async()=>{const l=Q[ix],t=el('nt').value.trim();if(!l||!t)return;await fetch('/admin/touch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,label:'Call note: '+t.slice(0,300)})});el('nt').value='';el('am').textContent='Note saved.'};
+el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.missed,l);el('mt').hidden=false;el('mtm').textContent=''};
+el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
+function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();window.scrollTo({top:0})}
+el('nxt').onclick=next;
+function drawQ(){el('q').innerHTML=Q.map((l,i)=>i<ix?'':'<button class="it'+(i===ix?' cur':'')+'" data-i="'+i+'" type="button"><b>'+$(l.name||pretty(l.phone))+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+' · '+ago(l.created_at)+(l.tries24?' · '+l.tries24+' tries':'')+'</small></button>').join('')||'<p class="note">Nothing queued.</p>'}
+el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
+el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
+// scripts and the missed-you text
+el('scb').onclick=()=>{const d=el('sdlg');d.innerHTML='<div class="rb"><h3>Scripts and text</h3><p class="note" style="margin:0">Use {first} {vehicle} {service} {service_name} {price} {address}. Lines starting with # are headings and lines starting with - are bullets.</p><div><label>Tint script</label><textarea id="s1" rows="10"></textarea></div><div><label>Ceramic coating script</label><textarea id="s2" rows="10"></textarea></div><div><label>Text: I missed you</label><textarea id="s3" rows="4"></textarea></div><div class="err" id="se"></div><div class="bar" style="justify-content:flex-end"><button class="btn" id="sx" type="button">Cancel</button><button class="btn g" id="ss" type="button">Save</button></div></div>';
+  el('s1').value=ST.tint;el('s2').value=ST.coating;el('s3').value=ST.missed;d.showModal();el('sx').onclick=()=>d.close();
+  el('ss').onclick=async()=>{const r=await fetch('/admin/dialer/settings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tint:el('s1').value,coating:el('s2').value,missed:el('s3').value})});const j=await r.json().catch(()=>({}));if(!j.success){el('se').textContent=j.message||'Could not save.';return}ST.tint=el('s1').value;ST.coating=el('s2').value;ST.missed=el('s3').value;d.close();drawScript()}};
+// voicemail recordings
+let rcr=null,rto=null,rk=null;
+function wavBlob(f,rate){const n=f.length,buf=new ArrayBuffer(44+n*2),v=new DataView(buf);const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,f[i]));v.setInt16(44+i*2,s<0?s*0x8000:s*0x7fff,true)}return new Blob([buf],{type:'audio/wav'})}
+async function toWav(blob){const ab=await blob.arrayBuffer();const C=window.AudioContext||window.webkitAudioContext,ctx=new C();const buf=await new Promise((ok,no)=>ctx.decodeAudioData(ab,ok,no));const off=new OfflineAudioContext(1,Math.max(1,Math.ceil(buf.duration*8000)),8000);const s=off.createBufferSource();s.buffer=buf;s.connect(off.destination);s.start();const out=await off.startRendering();ctx.close();return wavBlob(out.getChannelData(0),8000)}
+function b64(blob){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=no;r.readAsDataURL(blob)})}
+async function saveAudio(k,wav){const j=await (await fetch('/admin/dialer/audio',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:k,mime:'audio/wav',data:await b64(wav)})})).json().catch(()=>({}));if(!j.success)throw new Error(j.message||'Could not save');await loadAudio()}
+async function loadAudio(){try{AU=await (await fetch('/admin/dialer/audio')).json()}catch(_){}}
+function vmDraw(msg){const d=el('vdlg');if(!d.open)return;d.querySelector('.rb').innerHTML='<h3>Voicemail messages</h3><p class="note" style="margin:0">Record each one here (up to 40 seconds) or upload a file. During a call, the Drop button plays it to the lead and hangs up. Leave the greeting and your number in it.</p>'
+  +['tint','coating'].map(k=>'<div class="vm"><b>'+(k==='tint'?'Ceramic tint':'Ceramic coating')+' voicemail</b><span class="note">'+(AU[k]&&AU[k].has?'Saved '+$(AU[k].updated_at||''):'Not recorded yet')+'</span>'+(AU[k]&&AU[k].has?'<audio controls preload="none" src="/admin/dialer/audio/play?kind='+k+'&t='+Date.now()+'" style="width:100%"></audio>':'')+'<div class="bar"><button class="btn sm'+(rcr&&rk===k?' r':' g')+'" data-rec="'+k+'" type="button">'+(rcr&&rk===k?'Stop and save':'Record')+'</button><label class="btn sm" style="margin:0;text-transform:none;letter-spacing:0;color:#e8eaed;font-size:13.5px">Upload file<input type="file" accept="audio/*" data-up="'+k+'" hidden></label></div><span class="note" id="vi-'+k+'">'+(msg&&msg[0]===k?$(msg[1]):'')+'</span></div>').join('')
+  +'<div class="bar" style="justify-content:flex-end"><button class="btn" id="vx" type="button">Close</button></div>';
+  el('vx').onclick=()=>{if(rcr)rcr.stop();d.close()}}
+el('vmb').onclick=async()=>{const d=el('vdlg');d.innerHTML='<div class="rb"></div>';d.showModal();await loadAudio();vmDraw()};
+el('vdlg').addEventListener('click',async e=>{const r=e.target.closest('[data-rec]');if(!r)return;const k=r.dataset.rec;
+  if(rcr){rcr.stop();return}
+  try{const st=await navigator.mediaDevices.getUserMedia({audio:true});const chunks=[];rk=k;rcr=new MediaRecorder(st);rcr.ondataavailable=ev=>{if(ev.data.size)chunks.push(ev.data)};
+    rcr.onstop=async()=>{clearTimeout(rto);st.getTracks().forEach(t=>t.stop());const b=new Blob(chunks,{type:rcr.mimeType||'audio/webm'});rcr=null;vmDraw([k,'Saving...']);try{await saveAudio(k,await toWav(b));vmDraw([k,'Saved.'])}catch(er){vmDraw([k,'Could not save: '+((er&&er.message)||er)])}};
+    rcr.start();rto=setTimeout(()=>{if(rcr)rcr.stop()},40000);vmDraw([k,'Recording... tap Stop and save when done.'])}catch(_){vmDraw([k,'Allow the microphone to record.'])}});
+el('vdlg').addEventListener('change',async e=>{const u=e.target.closest('[data-up]');if(!u||!u.files[0])return;const k=u.dataset.up;vmDraw([k,'Converting...']);try{await saveAudio(k,await toWav(u.files[0]));vmDraw([k,'Saved.'])}catch(er){vmDraw([k,'Could not use that file: '+((er&&er.message)||er)])}});
+async function init(){
+  try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
+  await loadAudio();
+  try{const q=await (await fetch('/admin/dialer/queue')).json();Q=q.leads||[]}catch(_){}
+  ix=0;drawLead();drawQ();drawScript();el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
+  await initDev()}
+init();
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
 // ---- Urable bookings on the calendar: jobs and calendar events straight from Urable, including ones made there and not in the CRM
 let urableCal = { at: 0, items: [] };
 const etLocal = ms => {
@@ -2651,6 +2986,8 @@ export default {
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
       if (p === "/calendar" || p === "/admin/calendar") return adminRoute("/admin/calendar", request, env);
+      if (p === "/dialer" || p === "/admin/dialer") return adminRoute("/admin/dialer", request, env);
+      if (p.startsWith("/admin/rec/")) return adminRoute(p, request, env);
       if (p === "/automations" || p === "/admin/automations") return adminRoute("/admin/automations", request, env);
       if (p === "/ads" || p === "/admin/ads") return adminRoute("/admin/ads", request, env);
       if (p === "/ads.csv" || p === "/admin/ads.csv") return adminRoute("/admin/ads.csv", request, env);
@@ -2660,7 +2997,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -2677,6 +3014,12 @@ export default {
       catch (e) { console.error("callrail error", e && e.message); return json({ success: false, message: "Server error" }, 500); }
     }
 
+    if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording") {
+      if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
+      try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : await handleVoiceRecording(request, env); }
+      catch (e) { console.error("voice error", e && e.message); return new Response("Server error", { status: 500 }); }
+    }
+    if (p.startsWith("/vm/") && request.method === "GET") return publicVoicemail(env, p.slice(4).replace(/\.\w+$/, ""));
     if (p === "/api/twilio/sms" || p === "/api/twilio/status") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return p === "/api/twilio/sms" ? await handleTwilioSms(request, env) : await handleTwilioStatus(request, env); }
@@ -3311,6 +3654,35 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
+  if (p === "/admin/dialer") return a === OWNER ? dialerPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p.startsWith("/admin/rec/")) return a === OWNER ? recordingProxy(env, p.slice(11), request) : new Response("Not found", { status: 404 });
+  if (p.startsWith("/admin/dialer/")) {
+    if (a !== OWNER) return json({ success: false }, 403);
+    if (p === "/admin/dialer/token" && request.method === "GET") {
+      const cfg = dialConfigured(env);
+      if (!cfg.ok) return json({ success: false, message: "Finish the Twilio voice setup.", missing: cfg.missing }, 200);
+      return json({ success: true, token: await voiceToken(env, a) });
+    }
+    if (p === "/admin/dialer/queue" && request.method === "GET") return dialerQueue(env);
+    if (p === "/admin/dialer/log" && request.method === "POST") return dialerLog(env, await request.json().catch(() => ({})), a);
+    if (p === "/admin/dialer/vmdrop" && request.method === "POST") return dialerVoicemailDrop(env, await request.json().catch(() => ({})), a);
+    if (p === "/admin/dialer/audio" && request.method === "POST") return dialerAudioSave(env, await request.json().catch(() => ({})));
+    if (p === "/admin/dialer/audio/play" && request.method === "GET") return dialerAudioPlay(env, new URL(request.url).searchParams.get("kind"));
+    if (p === "/admin/dialer/audio" && request.method === "GET") {
+      await ensureTable(env.DB);
+      const rows = (await env.DB.prepare("SELECT kind, updated_at FROM dial_audio").all()).results || [];
+      return json(Object.fromEntries(VM_KINDS.map(k => { const r = rows.find(x => x.kind === k); return [k, { has: !!r, updated_at: r ? r.updated_at : "" }]; })));
+    }
+    if (p === "/admin/dialer/settings" && request.method === "GET") { await ensureTable(env.DB); return json({ success: true, tint: await dialSetting(env, "tint"), coating: await dialSetting(env, "coating"), missed: await dialSetting(env, "missed") }); }
+    if (p === "/admin/dialer/settings" && request.method === "POST") {
+      await ensureTable(env.DB);
+      const b = await request.json().catch(() => ({}));
+      for (const k of ["tint", "coating", "missed"]) if (typeof b[k] !== "string" || b[k].length > 6000) return json({ success: false, message: "Each script has to be under 6,000 characters." }, 400);
+      await env.DB.batch(["tint", "coating", "missed"].map(k => env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(k, b[k])));
+      return json({ success: true });
+    }
+    return json({ success: false }, 404);
+  }
   if (p === "/admin/campaigns/data" && request.method === "GET") return a === OWNER ? campaignsData(env) : json({ success: false }, 403);
   if (p === "/admin/campaigns/mark-meta" && request.method === "POST") return a === OWNER ? markMetaPromo(env, await request.json().catch(() => ({})), a) : json({ success: false }, 403);
   if (p === "/admin/campaigns/preview" && request.method === "POST") return a === OWNER ? campaignPreview(env, await request.json().catch(() => ({}))) : json({ success: false }, 403);
