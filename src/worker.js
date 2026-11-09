@@ -92,6 +92,7 @@ async function ensureTableRun(db) {
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
   if (dcols.length && !dcols.includes("result")) await db.prepare("ALTER TABLE dial_log ADD COLUMN result TEXT").run();
   if (dcols.length && !dcols.includes("flagged")) await db.prepare("ALTER TABLE dial_log ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0").run();
+  if (!cols.includes("sms_consent")) await db.prepare("ALTER TABLE leads ADD COLUMN sms_consent INTEGER NOT NULL DEFAULT 0").run();
   if (!cols.includes("urable_ref")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN urable_ref TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN urable_kind TEXT")]);
   if (!cols.includes("gbraid")) await db.batch([db.prepare("ALTER TABLE leads ADD COLUMN gbraid TEXT"), db.prepare("ALTER TABLE leads ADD COLUMN wbraid TEXT")]);
   if (!cols.includes("reminded_at")) await db.prepare("ALTER TABLE leads ADD COLUMN reminded_at TEXT").run();
@@ -793,6 +794,9 @@ async function handleMeta(request, env, url, ctx) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(lead.type, lead.name, lead.email, lead.phone, lead.service, lead.also_interested, lead.make, lead.year, lead.model, lead.message, lead.page, lead.referrer, lead.gclid, lead.gbraid, lead.wbraid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, key, "", "meta-instant-form", defaultValue(lead.service)).run();
   const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
+  // the Instant Form has a required text-message consent box, so a Meta lead has agreed to texts. META_SMS_CONSENT=1 says so for every lead; otherwise a consent-looking answer on the form has to be ticked
+  const consentAns = Object.entries(nd).find(([k, v]) => /consent|agree|optin|sms|text/.test(k) && !/^(no|false|0|)$/i.test(String(v).trim()));
+  if (newLead.id && (env.META_SMS_CONSENT === "1" || consentAns)) await env.DB.prepare("UPDATE leads SET sms_consent = 1 WHERE id = ?").bind(newLead.id).run().catch(() => {});
   if (newLead.id) ctx.waitUntil(linkByPhone(env, newLead.id).catch(() => {}));
   ctx.waitUntil(notify(env, newLead, url.origin));
   if (env.AUTO_DIAL === "1" && newLead.id && phone && (env.AUTO_DIAL_ANYTIME === "1" || inBusinessHours())) ctx.waitUntil(autoDialOnce(env, newLead));
@@ -823,6 +827,7 @@ async function handleLead(request, env, ctx) {
   const type = data["form-name"] === "newsletter" || data.type === "newsletter" ? "newsletter" : "quote";
   const lead = { type };
   for (const f of FIELDS) lead[f] = clean(data[f], f === "message" ? MAX.message : MAX.default);
+  const smsConsent = String(data.sms_consent || "").toLowerCase() === "yes";
   for (const f of ["page", "referrer", "gclid", "gbraid", "wbraid", "utm_source", "utm_medium", "utm_campaign", "utm_term"]) lead[f] = clean(data[f], 500);
 
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(lead.email);
@@ -848,6 +853,7 @@ async function handleLead(request, env, ctx) {
       lead.page, lead.referrer, lead.gclid, lead.gbraid, lead.wbraid, lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term, ip, clean(request.headers.get("user-agent") || "", 300), type === "quote" ? defaultValue(lead.service) : 0).run();
 
   const newLead = { ...lead, id: ins.meta && ins.meta.last_row_id };
+  if (newLead.id && smsConsent) await env.DB.prepare("UPDATE leads SET sms_consent = 1 WHERE id = ?").bind(newLead.id).run().catch(() => {});
   if (newLead.id) ctx.waitUntil(linkByPhone(env, newLead.id).catch(() => {}));
   ctx.waitUntil(notify(env, newLead, new URL(request.url).origin));
   // optional: ring the agent's phone straight away and connect them to the new lead (AUTO_DIAL=1, AUTO_DIAL_AGENT=giordani)
@@ -1786,15 +1792,15 @@ async function remindTexts(env) {
   if (!env.DB || env.TEXT_REMINDERS === "0") return;
   if (env.AUTO_DIAL_ANYTIME !== "1" && !inBusinessHours()) return;
   await ensureTable(env.DB);
+  const auto = env.TEXT_AUTO === "1" && twilioOn(env);
   const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.year, l.make, l.model, l.created_at,
       (SELECT COUNT(*) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%' AND s.reason NOT LIKE 'Texted: Message%') AS texts,
       (SELECT MAX(s.at) FROM stage_log s WHERE s.lead_id = l.id AND s.reason LIKE 'Texted%') AS last_text,
       (SELECT COUNT(*) FROM messages m WHERE m.lead_id = l.id AND m.direction = 'in') AS replies
-    FROM leads l WHERE l.stage IN ('new','nocontact') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != '' AND l.created_at >= datetime('now','-8 days')
+    FROM leads l WHERE l.stage IN ('new','nocontact') AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != '' ${auto ? 'AND l.sms_consent = 1' : ''} AND l.created_at >= datetime('now','-8 days')
     ORDER BY l.created_at LIMIT 300`).all()).results || [];
   const ms = x => new Date(String(x).replace(" ", "T") + "Z").getTime();
   let sent = 0;
-  const auto = env.TEXT_AUTO === "1" && twilioOn(env);
   for (const r of rows) {
     const n = r.texts + 1;
     if (n > TEXT_MAX) continue;
@@ -1804,7 +1810,9 @@ async function remindTexts(env) {
     if (auto) {
       // sends itself. Once the lead has texted back, a person takes over and the automatic texts stop
       if (r.replies) continue;
-      const res = await sendLeadText(env, r, fillTemplate(textTemplateFor(n, r), r, env).body, { auto: true, label: n === 1 ? "First reply" : "Follow-up #" + n });
+      let body = fillTemplate(textTemplateFor(n, r), r, env).body;
+      if (n === 1 && !/stop/i.test(body)) body += "\n\nReply STOP to opt out.";
+      const res = await sendLeadText(env, r, body, { auto: true, label: n === 1 ? "First reply" : "Follow-up #" + n });
       if (!res.ok && !res.optout) await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind("Auto text #" + n + " failed: " + String(res.message || "").slice(0, 120), r.id).run().catch(() => {});
       if (++sent >= 3) break;
       continue;
