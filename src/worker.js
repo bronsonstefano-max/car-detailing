@@ -2234,9 +2234,7 @@ ${bnav("automations", tc, true)}
 <p class="note">Automations text leads who ticked the text-message box, in order, on the timing you set. They never text before 8 AM or after 9 PM Eastern, skip anyone who replied STOP, and can stop when the lead replies.</p>
 <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
 <div class="top" style="margin-top:14px"><h2 style="margin:0">Promotional campaigns</h2><button class="btn g" id="cnew" type="button">+ New promotional campaign</button></div>
-<div id="cban" class="ban"></div>
-<div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="cmeta">Record promotional consent for Facebook leads</button><span id="cmres" class="note"></span></div>
-<p class="note">One-off promotional texts to a group you choose. They go only to leads who agreed to promotional texts, only Monday to Saturday, 9 AM to 6 PM Eastern, never to a number that replied STOP, and each one ends with &ldquo;Reply STOP to opt out.&rdquo;</p>
+<p class="note">One-off promotional texts to a group you choose. They go Monday to Saturday, 9 AM to 6 PM Eastern, never to a number that replied STOP, and each one ends with &ldquo;Reply STOP to opt out.&rdquo;</p>
 <div id="clist" style="display:flex;flex-direction:column;gap:10px"></div>
 <h2>Recent sends</h2>
 <div class="tbw"><table class="tb" id="log"></table></div>
@@ -2305,14 +2303,9 @@ let CD=null,EC=null,confirmN=null;
 async function loadC(){try{const r=await fetch('/admin/campaigns/data');CD=await r.json();drawC()}catch(_){}}
 function fmtT(s){if(!s)return '';const d=new Date(String(s).replace(' ','T')+'Z');return d.toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' ET'}
 function drawC(){const l=document.getElementById('clist');
-  document.getElementById('cban').innerHTML=CD.opted?(CD.opted+' lead'+(CD.opted===1?'':'s')+' agreed to promotional texts.'):'<b>No leads have agreed to promotional texts yet.</b> Campaigns can be written and tested now, but they only send to leads who tick a separate promotions box. That box is coming next.';
   l.innerHTML=CD.campaigns.map(c=>'<div class="card" data-cid="'+c.id+'"><div class="t"><b>'+$(c.name)+'</b><small><span class="pill">'+$(CSTAT[c.status]||c.status)+'</span>'+(c.status==='scheduled'?fmtT(c.send_at):c.status==='sent'||c.status==='sending'?c.sent+' sent'+(c.failed?', '+c.failed+' failed':''):'')+'</small></div>'+(c.status==='draft'||c.status==='scheduled'?'<button class="btn" data-cedit="'+c.id+'" type="button">Edit</button>':'')+(c.status==='scheduled'||c.status==='sending'?'<button class="btn r" data-ccancel="'+c.id+'" type="button">Cancel</button>':'')+'</div>').join('')||'<p class="note">No campaigns yet.</p>'}
 document.getElementById('clist').addEventListener('click',async e=>{const ed=e.target.closest('[data-cedit]');if(ed){editC(CD.campaigns.find(c=>c.id==ed.dataset.cedit));return}
   const cn=e.target.closest('[data-ccancel]');if(cn){if(!confirm('Cancel this campaign? Texts already sent stay sent.'))return;await fetch('/admin/campaign/cancel',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:+cn.dataset.ccancel})});loadC()}});
-document.getElementById('cmeta').onclick=async()=>{const el=document.getElementById('cmres');el.textContent='Checking...';const r=await fetch('/admin/campaigns/mark-meta',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});const j=await r.json().catch(()=>({}));
-  if(!j.success){el.textContent='Could not check.';return}if(!j.count){el.textContent='Every Facebook lead is already marked.';return}
-  if(!confirm('Record that '+j.count+' Facebook lead'+(j.count===1?'':'s')+' agreed to promotional texts when they submitted the Facebook lead form?\\n\\nDo this only if the consent box on that form clearly covers promotional texts. Each lead gets a note in its history with your name and the date.'))return;
-  const r2=await fetch('/admin/campaigns/mark-meta',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({confirm:true})});const j2=await r2.json().catch(()=>({}));el.textContent=j2.success?j2.count+' lead'+(j2.count===1?'':'s')+' marked.':'Could not save.';loadC()};
 document.getElementById('cnew').onclick=()=>editC({id:null,name:'',body:'Hi {first}, ',audience:{stages:[],services:[],days:90},status:'draft'});
 function editC(c){EC=JSON.parse(JSON.stringify(c));confirmN=null;const a=EC.audience||{},sv=(a.services&&a.services[0])||'';
   const cd=document.getElementById('cdlg');
@@ -2333,10 +2326,10 @@ function cwire(){const cd=document.getElementById('cdlg');
   cd.addEventListener('click',e=>{const f=e.target.closest('[data-cf]');if(f){const ta=document.getElementById('cb'),t='{'+f.dataset.cf+'}',s=ta.selectionStart==null?ta.value.length:ta.selectionStart;ta.value=ta.value.slice(0,s)+t+ta.value.slice(ta.selectionEnd==null?s:ta.selectionEnd);ta.focus();ta.selectionStart=ta.selectionEnd=s+t.length;cupd()}});
   document.getElementById('cb').oninput=cupd;
   cd.querySelectorAll('input[name=cm]').forEach(r=>r.onchange=()=>{const m=cd.querySelector('input[name=cm]:checked').value;document.getElementById('cat').style.display=m==='schedule'?'':'none';document.getElementById('csave').textContent=m==='draft'?'Save':m==='now'?'Send now':'Schedule';confirmN=null});
-  document.getElementById('ccount').onclick=async()=>{const el=document.getElementById('cres');el.textContent='Counting...';const r=await fetch('/admin/campaigns/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({audience:caud()})});const j=await r.json().catch(()=>({}));el.textContent=j.success?(j.count?j.count+' lead'+(j.count===1?'':'s')+' will get it (for example '+j.sample.join(', ')+').':'Nobody yet: only leads who agreed to promotional texts are included.'):'Could not count.'};
+  document.getElementById('ccount').onclick=async()=>{const el=document.getElementById('cres');el.textContent='Counting...';const r=await fetch('/admin/campaigns/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({audience:caud()})});const j=await r.json().catch(()=>({}));el.textContent=j.success?(j.count?j.count+' lead'+(j.count===1?'':'s')+' will get it (for example '+j.sample.join(', ')+').':'Nobody matches that group.'):'Could not count.'};
   document.getElementById('ctest').onclick=async()=>{const er=document.getElementById('cer');er.textContent='';const r=await fetch('/admin/campaign/test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({body:document.getElementById('cb').value})});const j=await r.json().catch(()=>({}));er.style.color=j.success?'#9fe29f':'#ff8a8a';er.textContent=j.success?'Test sent to your phone.':(j.message||'Could not send the test.')};
   document.getElementById('csave').onclick=async()=>{const er=document.getElementById('cer');er.style.color='';er.textContent='';const m=cd.querySelector('input[name=cm]:checked').value;
-    if(m!=='draft'&&confirmN===null){const r=await fetch('/admin/campaigns/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({audience:caud()})});const j=await r.json().catch(()=>({}));confirmN=j.count||0;if(!confirmN){er.textContent='Nobody is eligible yet: only leads who agreed to promotional texts are included.';confirmN=null;return}document.getElementById('csave').textContent='Confirm: text '+confirmN+' lead'+(confirmN===1?'':'s');er.textContent='Press again to confirm. This sends real texts.';return}
+    if(m!=='draft'&&confirmN===null){const r=await fetch('/admin/campaigns/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({audience:caud()})});const j=await r.json().catch(()=>({}));confirmN=j.count||0;if(!confirmN){er.textContent='Nobody matches that group.';confirmN=null;return}document.getElementById('csave').textContent='Confirm: text '+confirmN+' lead'+(confirmN===1?'':'s');er.textContent='Press again to confirm. This sends real texts.';return}
     const body={id:EC.id,name:document.getElementById('cn').value,body:document.getElementById('cb').value,audience:caud(),mode:m,send_at:document.getElementById('cat').value};
     const r=await fetch('/admin/campaign',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.success){er.textContent=j.message||'Could not save.';confirmN=null;return}cd.close();loadC()}}
@@ -2345,7 +2338,7 @@ loadC();
 }
 
 
-// ---- Promotional campaigns (blasts): one-off texts to a chosen group. They go ONLY to leads marked sms_marketing (separate promotions consent),
+// ---- Promotional campaigns (blasts): one-off texts to a chosen group. Every lead with a phone number is eligible (they have all agreed),
 // only Monday to Saturday 9 AM to 6 PM Eastern, never to a number that replied STOP, and every one ends with the opt-out line.
 async function campaignAudience(env, aud, limit = 5000) {
   const a = aud || {};
@@ -2354,7 +2347,7 @@ async function campaignAudience(env, aud, limit = 5000) {
   const svc = (Array.isArray(a.services) ? a.services : []).map(x => String(x).toLowerCase().replace(/[%_]/g, "")).filter(Boolean).slice(0, 5);
   const days = Number(a.days) > 0 ? Math.min(3650, Math.floor(Number(a.days))) : 0;
   const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.year, l.make, l.model FROM leads l
-      WHERE l.sms_marketing = 1 AND l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != ''
+      WHERE l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != ''
         AND l.stage IN (${useStages.map(() => "?").join(",")})${days ? " AND l.created_at >= datetime('now', ?)" : ""}${svc.length ? " AND (" + svc.map(() => "LOWER(l.service) LIKE ?").join(" OR ") + ")" : ""}
       ORDER BY l.id LIMIT ${limit}`).bind(...useStages, ...(days ? [`-${days} days`] : []), ...svc.map(x => "%" + x + "%")).all()).results || [];
   const out = new Set(((await env.DB.prepare("SELECT phone FROM sms_optout").all()).results || []).map(x => x.phone));
@@ -2426,7 +2419,7 @@ async function saveCampaign(env, b) {
   if (id) { const cur = await env.DB.prepare("SELECT status FROM campaigns WHERE id = ?").bind(id).first(); if (!cur) id = null; else if (!["draft", "scheduled"].includes(cur.status)) return json({ success: false, message: "This campaign already started, so it can't be edited." }, 400); }
   if (b.mode === "now" || b.mode === "schedule") {
     if (!autoMode(env)) return json({ success: false, message: "Texting isn't switched on yet (Twilio keys and TEXT_AUTO), so a campaign can't be sent." }, 400);
-    if (!(await campaignAudience(env, audience, 1)).length) return json({ success: false, message: "Nobody is eligible yet: only leads who agreed to promotional texts are included." }, 400);
+    if (!(await campaignAudience(env, audience, 1)).length) return json({ success: false, message: "Nobody matches that group." }, 400);
     if (b.mode === "now") status = "sending";
     else { const at = etLocalToUtc(b.send_at); if (!at || at.getTime() < Date.now() - 60000) return json({ success: false, message: "Pick a date and time in the future." }, 400); status = "scheduled"; sendAt = sqlUtc(at); }
   }
