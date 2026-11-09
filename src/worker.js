@@ -2643,7 +2643,8 @@ main{max-width:1100px;margin:0 auto;padding:16px 22px 40px;display:grid;grid-tem
 textarea,input[type=text]{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;color-scheme:dark}textarea{resize:vertical;min-height:84px}
 .script{font-size:15px;line-height:1.5}.script h4{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:#32cd32}.script p{margin:0 0 6px}.script ul{margin:0 0 6px;padding-left:20px}.script li{margin:2px 0}
 .tabs{display:flex;gap:6px}.tabs button{border:1px solid #2a313a;background:#151a21;color:#aab0b9;border-radius:999px;padding:6px 14px;font:inherit;font-weight:700;cursor:pointer}.tabs button.on{background:#32cd32;border-color:#32cd32;color:#04120a}
-.q .it{display:block;width:100%;text-align:left;background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:10px 12px;color:inherit;font:inherit;cursor:pointer;margin-bottom:8px}.q .it.cur{border-color:#32cd32}.q .it b{display:block;overflow-wrap:anywhere}.q .it small{color:#8a9099}
+.q .it{display:block;width:100%;text-align:left;background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:10px 12px;color:inherit;font:inherit;cursor:pointer;margin-bottom:8px}.q .it.cur{border-color:#32cd32}.q .it.fresh{border-color:#32cd32;background:#0b1a10}.chip.new{background:#32cd32;color:#04120a;font-weight:800}
+.newb{background:#10301a;border:1px solid #1f5a2a;color:#cdf5cd;border-radius:12px;padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.q .it b{display:block;overflow-wrap:anywhere}.q .it small{color:#8a9099}
 .note{color:#7c838d;font-size:13px}.err{color:#ff8a8a;font-size:14px;min-height:18px}.okm{color:#9fe29f}
 dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:0;width:min(560px,calc(100vw - 20px));max-height:calc(100dvh - 20px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}dialog::backdrop{background:rgba(0,0,0,.7)}
 dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{margin:0}dialog label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
@@ -2657,6 +2658,7 @@ ${bnav("dialer", tc, true)}
 <div class="col">
 <div id="setup" class="ban" hidden></div>
 <div class="bar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
+<div id="newb" class="newb" hidden></div>
 <div id="lead" class="lead"></div>
 <div id="ctl" class="ctl"></div>
 <div id="kp" class="kp" hidden></div>
@@ -2694,7 +2696,7 @@ function drawLead(){const l=Q[ix];const box=el('lead');
   if(!l){box.innerHTML='<h2>'+(Q.length?'Queue finished':'No leads to call')+'</h2><p class="note">'+(Q.length?'Nice work. Reload to check for new leads.':'New and not-contacted leads from the last 14 days, and callbacks that are due, show up here.')+'</p>';el('ctl').innerHTML='';el('after').hidden=true;return}
   const car=[l.year,l.make,l.model].filter(Boolean).join(' ');
   const lines=String(l.message||'').split('\\n').map(x=>x.trim()).filter(x=>x&&!/^(form name|ad name|adset name|platform):/i.test(x)).slice(0,6);
-  box.innerHTML='<div class="bar"><h2 style="flex:1">'+$(l.name||pretty(l.phone))+'</h2>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+'</div><div class="ph">'+$(pretty(l.phone))+'</div>'
+  box.innerHTML='<div class="bar"><h2 style="flex:1">'+$(l.name||pretty(l.phone))+'</h2>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div><div class="ph">'+$(pretty(l.phone))+'</div>'
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
    +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
    +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
@@ -2729,7 +2731,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
-  el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();
+  el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();bannerDraw();
   if(l){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}}
 async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
   const r=await fetch('/admin/dialer/vmdrop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sid:sid,kind:k,lead_id:l.id})});const j=await r.json().catch(()=>({}));setSt(j.success?'Voicemail dropped':(j.message||'Could not drop it'),j.success?'ok':'bad');drawCtl()}
@@ -2742,9 +2744,9 @@ function drawOuts(){el('outs').innerHTML=OUTS.map(o=>'<button class="btn" type="
 el('ntb').onclick=async()=>{const l=Q[ix],t=el('nt').value.trim();if(!l||!t)return;await fetch('/admin/touch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,label:'Call note: '+t.slice(0,300)})});el('nt').value='';el('am').textContent='Note saved.'};
 el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.missed,l);el('mt').hidden=false;el('mtm').textContent=''};
 el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
-function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();window.scrollTo({top:0})}
+function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
-function drawQ(){el('q').innerHTML=Q.map((l,i)=>i<ix?'':'<button class="it'+(i===ix?' cur':'')+'" data-i="'+i+'" type="button"><b>'+$(l.name||pretty(l.phone))+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+' · '+ago(l.created_at)+(l.tries24?' · '+l.tries24+' tries':'')+'</small></button>').join('')||'<p class="note">Nothing queued.</p>'}
+function drawQ(){el('q').innerHTML=Q.map((l,i)=>i<ix?'':'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+$(l.name||pretty(l.phone))+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+' · '+ago(l.created_at)+(l.tries24?' · '+l.tries24+' tries':'')+'</small></button>').join('')||'<p class="note">Nothing queued.</p>'}
 el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
 el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
 // scripts and the missed-you text
@@ -2769,11 +2771,25 @@ el('vdlg').addEventListener('click',async e=>{const r=e.target.closest('[data-re
     rcr.onstop=async()=>{clearTimeout(rto);st.getTracks().forEach(t=>t.stop());const b=new Blob(chunks,{type:rcr.mimeType||'audio/webm'});rcr=null;vmDraw([k,'Saving...']);try{await saveAudio(k,await toWav(b));vmDraw([k,'Saved.'])}catch(er){vmDraw([k,'Could not save: '+((er&&er.message)||er)])}};
     rcr.start();rto=setTimeout(()=>{if(rcr)rcr.stop()},40000);vmDraw([k,'Recording... tap Stop and save when done.'])}catch(_){vmDraw([k,'Allow the microphone to record.'])}});
 el('vdlg').addEventListener('change',async e=>{const u=e.target.closest('[data-up]');if(!u||!u.files[0])return;const k=u.dataset.up;vmDraw([k,'Converting...']);try{await saveAudio(k,await toWav(u.files[0]));vmDraw([k,'Saved.'])}catch(er){vmDraw([k,'Could not use that file: '+((er&&er.message)||er)])}});
+let known=new Set(),defTitle=document.title;
+function beep(){try{const C=window.AudioContext||window.webkitAudioContext,c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(_){}}
+async function poll(){let q;try{q=await (await fetch('/admin/dialer/queue')).json()}catch(_){return}if(!q||!q.leads)return;
+  const inc=q.leads.filter(l=>!known.has(l.id));q.leads.forEach(l=>known.add(l.id));
+  const fresh=inc.filter(l=>l.stage==='new'&&(Date.now()-new Date(l.created_at))<3600000);if(!fresh.length)return;
+  fresh.forEach(l=>{l.fresh=true});
+  const atEnd=ix>=Q.length;const at=atEnd?Q.length:Math.min(ix+1,Q.length);Q.splice(at,0,...fresh);
+  if(atEnd){drawLead()}drawQ();beep();document.title='(New lead) '+defTitle;
+  nb={names:fresh.map(l=>$(l.name||pretty(l.phone))).join(', '),id:fresh[0].id};bannerDraw()}
+let nb=null;
+function bannerDraw(){const b=el('newb');if(!nb){b.hidden=true;return}const busy=state==='live'||state==='connecting',i=Q.findIndex(x=>x.id===nb.id);if(i<0||i<ix&&!busy){nb=null;b.hidden=true;return}
+  b.hidden=false;b.innerHTML='<span><b>New lead:</b> '+nb.names+' is next in line.</span>'+(busy||i===ix?'':'<button class="btn g sm" id="gonew" type="button">Go to it now</button>');
+  const g=el('gonew');if(g)g.onclick=()=>{if(state==='live'||state==='connecting')return;ix=i;state='idle';el('after').hidden=true;nb=null;b.hidden=true;document.title=defTitle;drawLead();drawQ();window.scrollTo({top:0})}}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)document.title=defTitle});
 async function init(){
   try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
   await loadAudio();
   try{const q=await (await fetch('/admin/dialer/queue')).json();Q=q.leads||[]}catch(_){}
-  ix=0;drawLead();drawQ();drawScript();el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
+  ix=0;Q.forEach(l=>known.add(l.id));drawLead();drawQ();drawScript();setInterval(poll,10000);el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
   await initDev()}
 init();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
