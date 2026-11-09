@@ -2561,6 +2561,51 @@ async function dialerQueue(env) {
   const texts = ids.length ? (await env.DB.prepare(`SELECT lead_id, direction, body, at FROM messages WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 300`).bind(...ids).all()).results || [] : [];
   return json({ success: true, leads: rows.map(r => ({ ...r, created_at: isoUtc(r.created_at), history: notes.filter(n => n.lead_id === r.id).slice(0, 4).map(n => ({ reason: n.reason, at: isoUtc(n.at) })), texts: texts.filter(t => t.lead_id === r.id).slice(0, 3).map(t => ({ direction: t.direction, body: String(t.body).slice(0, 200), at: isoUtc(t.at) })) })) });
 }
+async function dialerLead(env, id) {
+  await ensureTable(env.DB);
+  if (!Number.isInteger(id)) return json({ success: false }, 400);
+  const lead = await env.DB.prepare("SELECT id, created_at, name, email, phone, service, also_interested, year, make, model, message, page, utm_source, utm_medium, utm_campaign, stage, value, notes, appt_at, follow_up_date, call_id, duration, recording, answered FROM leads WHERE id = ?").bind(id).first();
+  if (!lead) return json({ success: false }, 404);
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const [dials, recs, cnotes, trs, msgs, log] = await Promise.all([
+    q("SELECT call_sid, started_at, duration, by_user FROM dial_calls WHERE lead_id = ? ORDER BY id DESC LIMIT 40", id),
+    q("SELECT call_id, url, duration, at FROM call_recordings WHERE lead_id = ? ORDER BY at DESC LIMIT 60", id),
+    q("SELECT call_id, direction, created_at, summary FROM call_notes WHERE lead_id = ? ORDER BY created_at DESC LIMIT 20", id),
+    q("SELECT call_sid, turns FROM call_transcripts WHERE lead_id = ? ORDER BY started_at DESC LIMIT 10", id),
+    q("SELECT direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 120", id),
+    q("SELECT from_stage, to_stage, reason, by_user, at FROM stage_log WHERE lead_id = ? ORDER BY id DESC LIMIT 120", id),
+  ]);
+  const ms = t => Date.parse(isoUtc(t));
+  const used = new Set(), calls = [];
+  for (const d of dials) {
+    const t0 = ms(d.started_at), r = recs.find(x => !used.has(x.call_id) && ms(x.at) >= t0 - 60000 && ms(x.at) <= t0 + ((d.duration || 0) + 1200) * 1000);
+    if (r) used.add(r.call_id);
+    const tr = trs.find(x => x.call_sid && x.call_sid === d.call_sid);
+    let turns = []; try { turns = tr ? JSON.parse(tr.turns || "[]").slice(0, 300) : []; } catch (_) {}
+    calls.push({ kind: "dialer", at: isoUtc(d.started_at), secs: d.duration || 0, by: d.by_user, rec: r ? r.url : "", turns });
+  }
+  for (const r of recs) if (!used.has(r.call_id) && !calls.some(c => c.rec === r.url)) calls.push({ kind: "recording", at: isoUtc(r.at), secs: r.duration || 0, by: "", rec: r.url, turns: [] });
+  for (const n of cnotes) calls.push({ kind: "callrail", at: isoUtc(n.created_at), direction: n.direction || "", summary: n.summary || "", rec: n.call_id && lead.call_id === n.call_id ? (lead.recording || "") : "", secs: n.call_id && lead.call_id === n.call_id ? (lead.duration || 0) : 0, turns: [] });
+  calls.sort((a, b) => b.at.localeCompare(a.at));
+  const notes = log.filter(x => /^(Call )?note: /i.test(x.reason || "")).map(x => ({ text: String(x.reason).replace(/^(Call )?note: /i, ""), by: x.by_user, at: isoUtc(x.at) }));
+  const activity = log.filter(x => !/^(Call )?note: /i.test(x.reason || "")).slice(0, 60).map(x => ({ reason: x.reason, from: x.from_stage, to: x.to_stage, by: x.by_user, at: isoUtc(x.at) }));
+  const first = dials.length ? dials[dials.length - 1] : null;
+  const facts = {
+    attempts: dials.length, talkSecs: dials.reduce((a, d) => a + (d.duration || 0), 0), connected: dials.filter(d => (d.duration || 0) > 0).length,
+    lastTry: dials.length ? isoUtc(dials[0].started_at) : "", firstContactMins: first ? Math.max(0, Math.round((ms(first.started_at) - ms(lead.created_at)) / 60000)) : null,
+    textsIn: msgs.filter(m => m.direction === "in").length, textsOut: msgs.filter(m => m.direction !== "in").length, optout: await isOptedOut(env, lead.phone).catch(() => false),
+  };
+  return json({ success: true, lead: { ...lead, created_at: isoUtc(lead.created_at) }, facts, calls, texts: msgs.reverse().map(m => ({ ...m, at: isoUtc(m.at) })), notes, activity });
+}
+async function dialerNote(env, b, user) {
+  await ensureTable(env.DB);
+  const text = String(b.text || "").trim().slice(0, 1000);
+  if (!Number.isInteger(b.id) || !text) return json({ success: false, message: "Write a note first." }, 400);
+  const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(b.id).first();
+  if (!cur) return json({ success: false }, 404);
+  await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, cur.stage, "Note: " + text, user).run();
+  return json({ success: true });
+}
 async function dialerLog(env, b, user) {
   await ensureTable(env.DB);
   if (!Number.isInteger(b.lead_id)) return json({ success: false }, 400);
@@ -2664,6 +2709,12 @@ main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
 .ic{display:inline-block;width:18px;height:18px;vertical-align:-4px;margin-right:6px}.ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .rec{display:none}.brk{display:none}.brief,.nl{display:none}
+.inf{display:flex;flex-direction:column;gap:12px;font-size:14.5px}.inf[hidden]{display:none!important}.itabs{display:flex;gap:6px;flex-wrap:wrap}.itabs button{border:1px solid #2a313a;background:#12171e;color:#aab0b9;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.itabs button.on{background:#e8eaed;border-color:#e8eaed;color:#07090c}.itabs small{opacity:.7;margin-left:4px}
+.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}.fg div{background:#0b0f13;border:1px solid #1b2128;border-radius:12px;padding:9px 12px;min-width:0}.fg small{display:block;font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#7c838d}.fg b{display:block;font-size:15px;overflow-wrap:anywhere}
+.warnb{background:#2a1414;border:1px solid #5a2323;color:#ffb3b3;border-radius:12px;padding:9px 12px;font-size:13.5px}
+.lst{display:flex;flex-direction:column;gap:8px}.row{background:#0b0f13;border:1px solid #1b2128;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.row .top{display:flex;gap:8px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}.row .top b{font-size:14.5px}.row .top span{color:#7c838d;font-size:12.5px}.row p{margin:0;overflow-wrap:anywhere}.row audio{width:100%;height:34px}.row details summary{cursor:pointer;color:#32cd32;font-size:13px;font-weight:700}.row .tl{display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:260px;overflow-y:auto}.row .tl div{font-size:13.5px}.row .tl .r b{color:#7fb7ff}.row .tl .l b{color:#32cd32}
+.bub{max-width:90%;padding:7px 11px;border-radius:12px;font-size:14px;overflow-wrap:anywhere}.bub.in{align-self:flex-start;background:#0f2a17}.bub.out{align-self:flex-end;background:#0f2238}.bub small{display:block;color:#7c838d;font-size:11px;margin-top:2px}.thr{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto}
+.inf textarea{min-height:64px}.inf .btn{min-height:38px}.empty{color:#6d747e;font-size:13.5px;padding:8px 2px}
 @media(min-width:1100px){
 body{background:radial-gradient(1100px 480px at 65% -10%,#0d1a12 0,#07090c 62%)}
 main{display:grid;max-width:1440px;margin:0 auto;padding:20px 32px 48px;column-gap:24px;row-gap:0;align-items:start}
@@ -2676,7 +2727,7 @@ main.m-idle,main.m-ended{grid-template-columns:370px minmax(0,1fr)}
 main.m-idle .rail,main.m-ended .rail{grid-column:1;grid-row:4;position:sticky;top:16px;max-height:calc(100dvh - 40px);overflow-y:auto}
 main.m-idle .center,main.m-ended .center{grid-column:2;grid-row:4;display:flex;flex-direction:column;gap:16px;min-width:0}
 main.m-idle .rcol,main.m-ended .rcol,main.m-idle .callrow,main.m-ended .callrow{display:none}
-main.m-idle #after,main.m-idle #coach{display:none}main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
+main.m-idle #after,main.m-idle #coach,main.m-idle #nxtrow{display:none}main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
 /* on a call: coach and script, queue tucked away */
 main.m-call{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)}
 main.m-call .rail,main.m-call .brief,main.m-call #after,main.m-call #nxtrow{display:none}
@@ -2695,7 +2746,7 @@ main.m-call .rcol{grid-column:2;grid-row:5;display:flex;flex-direction:column;ga
 .cw{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;flex:1}
 .tr{max-height:calc(100dvh - 360px);min-height:300px;font-size:15px;gap:7px;padding:12px}
 .card2{padding:14px 16px;gap:10px;border-left:4px solid #32cd32;border-radius:14px}.aca{gap:10px}.aca div{flex-direction:column;gap:2px}.aca span{min-width:0}.aca p{font-size:16px}.aca p.ask{font-size:23px;line-height:1.25;color:#fff}.aca p.ask::before{content:"\\2192  ";color:#32cd32}
-.rcol .lead{background:#0d1116;margin-bottom:0}.rcol .lead .bar:first-child,.rcol .lead .ph{display:none}.rcol .script{font-size:15.5px}
+.rcol .lead{background:#0d1116;margin-bottom:0;padding:12px 14px}.rcol .lead .kv,.rcol .lead .hist,.rcol .lead .bar:last-child{display:none}.rcol .lead .bar:first-child,.rcol .lead .ph{display:none}.rcol .script{font-size:15.5px}
 .rail{border-radius:20px;padding:16px}.rail .rs{display:flex;gap:8px;flex-wrap:wrap}.rs span{background:#121a17;border:1px solid #25402d;border-radius:999px;padding:4px 11px;font-size:12.5px;color:#aab0b9}.rs b{color:#e8eaed}
 .q .it{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;margin-bottom:8px;padding:10px 12px}.q .it .av{display:grid;width:44px;height:44px;font-size:16px}.q .it .tx{min-width:0}.q .it .tx b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15.5px}.q .it .tx small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .q .it .bd{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:3px 9px;background:#1a2027;color:#8a9099}.q .it.cur{background:#0f2418}.q .it.cur .bd{background:#32cd32;color:#04120a}
@@ -2730,7 +2781,7 @@ ${bnav("dialer", tc, true)}
 </div>
 <div class="bar" id="nxtrow"><button class="btn" id="nxt" type="button" style="flex:1;min-height:52px">Next lead &rarr;</button></div>
 </div>
-<div class="rcol" id="rcol"><div class="panel"><div class="bar"><h3 style="margin:0">Script</h3><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div></div></div>
+<div class="rcol" id="rcol"><div class="panel"><div class="bar"><div class="tabs" id="mtabs"><button type="button" data-m="script" class="on">Script</button><button type="button" data-m="info">Lead info</button></div><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div><div id="info" class="inf" hidden></div></div></div>
 <aside class="rail panel q"><h3 style="margin:0">Up next</h3><div class="rs" id="rs"></div><div id="q"></div></aside>
 </main>
 <dialog id="vdlg"></dialog><dialog id="sdlg"></dialog>
@@ -2757,13 +2808,46 @@ function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
   const lines=String(l.message||'').split('\\n').map(x=>x.trim()).filter(x=>x&&!/^(form name|ad name|adset name|platform):/i.test(x)).slice(0,6);
   const S=secs(fillT(ST[sk],l)),open=S[0]&&S[0].l[0],ask=S[1]&&S[1].l[0],off=S.find(x=>/price|offer|quote/i.test(x.h)),offer=off&&off.l[0];
   const hist=(l.texts||[]).map(t=>(t.direction==='in'?'They texted: ':'You texted: ')+t.body).concat((l.history||[]).slice(0,3).map(h=>h.reason));
-  b.innerHTML='<div class="bh"><span class="av">'+$(initials(l.name))+'</span><div style="min-width:0;flex:1"><h2>'+$(l.name||pretty(l.phone))+'</h2><div class="ph">'+$(pretty(l.phone))+'</div></div>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div>'
+  b.innerHTML='<div class="tabs" id="btabs"><button type="button" data-b="brief" class="'+(bt==='brief'?'on':'')+'">Brief</button><button type="button" data-b="info" class="'+(bt==='info'?'on':'')+'">Lead info</button></div><div id="bbody" class="bbody"'+(bt==='brief'?'':' hidden')+'><div class="bh"><span class="av">'+$(initials(l.name))+'</span><div style="min-width:0;flex:1"><h2>'+$(l.name||pretty(l.phone))+'</h2><div class="ph">'+$(pretty(l.phone))+'</div></div>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div>'
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
    +'<div class="bgrid"><div class="bc"><h4>What they asked for</h4><p class="big">'+$(l.service||'Quote request')+'</p>'+(car?'<p>'+$(car)+'</p>':'')+lines.map(x=>'<p class="mut">'+$(x)+'</p>').join('')+(hist.length?'<h4>History</h4>'+hist.map(x=>'<p class="mut">'+$(x)+'</p>').join(''):'')+'</div>'
-   +'<div class="bc">'+(open?'<h4>Open with</h4><p>'+$(open)+'</p>':'')+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div>'
+   +'<div class="bc">'+(open?'<h4>Open with</h4><p>'+$(open)+'</p>':'')+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div></div><div id="infoc" class="inf"'+(bt==='info'?'':' hidden')+'></div>'
    +'<button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button><button class="btn skip" id="sk2" type="button">Skip to next lead</button>';
-  el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb()}
+  el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
 function syncCb(){const b=el('cb2');if(b)b.disabled=!dev||!inHours()||(state!=='idle'&&state!=='ended')}
+let mt='script',bt='brief',itab='ov',INFO={};
+const fmtT=iso=>{try{return new Date(iso).toLocaleString('en-US',{timeZone:ET,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}catch(_){return ''}};
+const dur=n=>Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
+async function loadInfo(id,force){if(!id)return;if(!force&&INFO[id]){renderInfo();return}try{const j=await (await fetch('/admin/dialer/lead?id='+id)).json();if(j.success){INFO[id]=j}}catch(_){}renderInfo()}
+function infoHtml(d){if(!d)return '<p class="empty">Loading lead info...</p>';const L=d.lead,F=d.facts,sub=(k,n,c)=>'<button type="button" data-it="'+k+'" class="'+(itab===k?'on':'')+'">'+n+(c?'<small>'+c+'</small>':'')+'</button>';
+  let h='<div class="itabs">'+sub('ov','Overview')+sub('nt','Notes',d.notes.length||'')+sub('cl','Calls',d.calls.length||'')+sub('tx','Texts',d.texts.length||'')+sub('ac','Activity',d.activity.length||'')+'</div>';
+  const car=[L.year,L.make,L.model].filter(Boolean).join(' ');
+  if(itab==='ov'){
+    h+=(F.optout?'<div class="warnb"><b>Replied STOP.</b> Do not text this person.</div>':'')
+     +'<div class="fg"><div><small>Stage</small><b>'+$(L.stage)+'</b></div><div><small>Job value</small><b>'+(L.value?'$'+Math.round(L.value):'-')+'</b></div><div><small>Came in</small><b>'+$(fmtT(L.created_at))+'</b></div><div><small>Source</small><b>'+$([L.utm_medium==='paid_social'?'Facebook':L.utm_source,L.utm_campaign].filter(Boolean).join(' / ')||'Website')+'</b></div>'
+     +'<div><small>Call attempts</small><b>'+F.attempts+' ('+F.connected+' connected)</b></div><div><small>Talk time</small><b>'+dur(F.talkSecs)+'</b></div><div><small>First contact</small><b>'+(F.firstContactMins==null?'Not yet':F.firstContactMins<60?F.firstContactMins+' min':Math.round(F.firstContactMins/60)+' hr')+'</b></div><div><small>Last attempt</small><b>'+(F.lastTry?$(fmtT(F.lastTry)):'-')+'</b></div>'
+     +'<div><small>Texts</small><b>'+F.textsOut+' sent / '+F.textsIn+' got</b></div><div><small>Appointment</small><b>'+(L.appt_at?$(L.appt_at.replace('T',' ')):'-')+'</b></div><div><small>Follow-up</small><b>'+$(L.follow_up_date||'-')+'</b></div><div><small>Email</small><b>'+$(L.email||'-')+'</b></div></div>'
+     +'<div class="row"><div class="top"><b>What they asked for</b></div><p>'+$([L.service,car].filter(Boolean).join(' \u00b7 ')||'Quote request')+'</p>'+(L.also_interested?'<p class="empty">Also interested in: '+$(L.also_interested)+'</p>':'')+String(L.message||'').split('\\n').map(x=>x.trim()).filter(x=>x&&!/^(form name|ad name|adset name|platform):/i.test(x)).map(x=>'<p class="empty">'+$(x)+'</p>').join('')+'</div>'
+     +(L.notes?'<div class="row"><div class="top"><b>Notes on the lead</b></div><p>'+$(L.notes)+'</p></div>':'')
+     +'<a class="btn sm" href="/admin/pipeline#id='+L.id+'" style="text-decoration:none;display:inline-flex;align-items:center;align-self:flex-start">Open lead / book</a>'}
+  else if(itab==='nt'){
+    h+='<textarea class="nbox" rows="3" placeholder="Add an internal note (only you can see it)"></textarea><div class="bar"><button class="btn g sm" data-act="note" type="button">Add note</button><span class="note nm"></span></div><div class="lst">'
+     +(d.notes.length?d.notes.map(n=>'<div class="row"><div class="top"><b>'+$(n.by||'')+'</b><span>'+$(fmtT(n.at))+'</span></div><p>'+$(n.text)+'</p></div>').join(''):'<p class="empty">No notes yet.</p>')+'</div>'}
+  else if(itab==='cl'){
+    h+='<div class="lst">'+(d.calls.length?d.calls.map(c=>'<div class="row"><div class="top"><b>'+(c.kind==='callrail'?'Call'+(c.direction?' ('+$(c.direction)+')':''):'Call')+(c.secs?' \u00b7 '+dur(c.secs):(c.kind==='dialer'?' \u00b7 no answer':''))+'</b><span>'+$(fmtT(c.at))+(c.by?' \u00b7 '+$(c.by):'')+'</span></div>'+(c.summary?'<p>'+$(c.summary)+'</p>':'')+(c.rec?'<audio controls preload="none" src="'+$(c.rec)+'"></audio>':'')+(c.turns&&c.turns.length?'<details><summary>Transcript</summary><div class="tl">'+c.turns.map(t=>'<div class="'+(t.who==='lead'?'l':'r')+'"><b>'+(t.who==='lead'?'Lead':'You')+':</b> '+$(t.text)+'</div>').join('')+'</div></details>':'')+'</div>').join(''):'<p class="empty">No calls yet.</p>')+'</div>'}
+  else if(itab==='tx'){
+    h+=(F.optout?'<div class="warnb"><b>Replied STOP.</b> Texting is turned off for this number.</div>':'')+'<div class="thr">'+(d.texts.length?d.texts.map(m=>'<div class="bub '+(m.direction==='in'?'in':'out')+'">'+$(m.body)+'<small>'+$(fmtT(m.at))+(m.auto?' \u00b7 automatic':'')+(m.status==='failed'||m.status==='undelivered'?' \u00b7 not delivered':'')+'</small></div>').join(''):'<p class="empty">No texts yet.</p>')+'</div>'
+     +(F.optout?'':'<textarea class="tbox" rows="3" placeholder="Write a text"></textarea><div class="bar"><button class="btn g sm" data-act="send" type="button">Send text</button><span class="note nm"></span></div>')}
+  else{h+='<div class="lst">'+(d.activity.length?d.activity.map(a=>'<div class="row"><div class="top"><b>'+$(a.reason)+'</b><span>'+$(fmtT(a.at))+(a.by?' \u00b7 '+$(a.by):'')+'</span></div>'+(a.from&&a.to&&a.from!==a.to?'<p class="empty">'+$(a.from)+' \u2192 '+$(a.to)+'</p>':'')+'</div>').join(''):'<p class="empty">Nothing yet.</p>')+'</div>'}
+  return h}
+function renderInfo(){const l=Q[ix];if(!l)return;const h=infoHtml(INFO[l.id]);['info','infoc'].forEach(id=>{const e=el(id);if(e&&!e.hidden){const keep={};e.querySelectorAll('textarea').forEach(t=>keep[t.className]=t.value);e.innerHTML=h;e.querySelectorAll('textarea').forEach(t=>{if(keep[t.className])t.value=keep[t.className]})}})}
+function setMain(m){mt=m;document.querySelectorAll('#mtabs button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));el('script').hidden=m!=='script';el('stabs').hidden=m!=='script';el('info').hidden=m!=='info';if(m==='info'){const l=Q[ix];if(l)loadInfo(l.id)}}
+function setBrief(m){bt=m;const i=el('infoc'),b=el('bbody');if(!i||!b)return;document.querySelectorAll('#btabs button').forEach(x=>x.classList.toggle('on',x.dataset.b===m));b.hidden=m!=='brief';i.hidden=m!=='info';if(m==='info'){const l=Q[ix];if(l)loadInfo(l.id)}}
+document.addEventListener('click',async e=>{const t=e.target.closest('button');if(!t)return;
+  if(t.dataset.m){setMain(t.dataset.m);return}if(t.dataset.b){setBrief(t.dataset.b);return}if(t.dataset.it){itab=t.dataset.it;renderInfo();return}
+  const l=Q[ix],box=t.closest('.inf');if(!l||!box)return;const nm=box.querySelector('.nm');
+  if(t.dataset.act==='note'){const v=box.querySelector('.nbox').value.trim();if(!v)return;t.disabled=true;let ok=false;try{ok=(await (await fetch('/admin/dialer/note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,text:v})})).json()).success}catch(_){}t.disabled=false;if(ok){box.querySelector('.nbox').value='';await loadInfo(l.id,true)}else if(nm)nm.textContent='Could not save the note.'}
+  if(t.dataset.act==='send'){const v=box.querySelector('.tbox').value.trim();if(!v)return;t.disabled=true;let j={};try{j=await (await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:v})})).json()}catch(_){}t.disabled=false;if(j.success){box.querySelector('.tbox').value='';await loadInfo(l.id,true)}else if(nm)nm.textContent=j.message||'Could not send.'}});
 function setSt(t,c){const s=el('st');s.textContent=t;s.className='pill'+(c?' '+c:'');const s2=el('st2');if(s2){s2.textContent=t;s2.className='stt'+(c?' '+c:'')}}
 let made=0;const initials=n=>(String(n||'').trim().split(/\\s+/).filter(w=>/^[A-Za-z]/.test(w)).slice(0,2).map(w=>w[0].toUpperCase()).join(''))||'#';
 const mq=window.matchMedia('(min-width:1100px)');function place(){const r=el('rcol'),lead=el('lead');if(mq.matches)r.insertBefore(lead,r.firstChild);else el('callrow').insertBefore(lead,el('callrow').firstChild)}
@@ -2808,7 +2892,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
-async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
+async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
   el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();bannerDraw();
   if(l){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}}
 async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
@@ -2819,7 +2903,7 @@ function drawOuts(){el('outs').innerHTML=OUTS.map(o=>'<button class="btn" type="
     if(b.dataset.o==='cb'){const d=new Date(Date.now()+864e5).toLocaleDateString('en-CA',{timeZone:ET});await fetch('/admin/stage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,follow_date:d})})}
     else await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,outcome:b.dataset.o})});
     el('am').textContent='Saved: '+b.textContent;b.classList.add('on')})}
-el('ntb').onclick=async()=>{const l=Q[ix],t=el('nt').value.trim();if(!l||!t)return;await fetch('/admin/touch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,label:'Call note: '+t.slice(0,300)})});el('nt').value='';el('am').textContent='Note saved.'};
+el('ntb').onclick=async()=>{const l=Q[ix],t=el('nt').value.trim();if(!l||!t)return;await fetch('/admin/dialer/note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,text:t})});el('nt').value='';el('am').textContent='Note saved.';loadInfo(l.id,true)};
 el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.missed,l);el('mt').hidden=false;el('mtm').textContent=''};
 el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
 function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
@@ -3224,7 +3308,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -3903,6 +3987,8 @@ async function adminRoute(p, request, env) {
       return json({ success: true, token: await voiceToken(env, a) });
     }
     if (p === "/admin/dialer/queue" && request.method === "GET") return dialerQueue(env);
+    if (p === "/admin/dialer/lead" && request.method === "GET") return dialerLead(env, Number(new URL(request.url).searchParams.get("id")));
+    if (p === "/admin/dialer/note" && request.method === "POST") return dialerNote(env, await request.json().catch(() => ({})), a);
     if (p === "/admin/dialer/log" && request.method === "POST") return dialerLog(env, await request.json().catch(() => ({})), a);
     if (p === "/admin/dialer/vmdrop" && request.method === "POST") return dialerVoicemailDrop(env, await request.json().catch(() => ({})), a);
     if (p === "/admin/dialer/audio" && request.method === "POST") return dialerAudioSave(env, await request.json().catch(() => ({})));
