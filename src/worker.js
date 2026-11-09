@@ -2656,23 +2656,38 @@ dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:1
 dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{margin:0}dialog label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
 .vm{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
 #cards{display:flex;flex-direction:column;gap:10px;min-width:0}.cw{display:flex;flex-direction:column;gap:10px}
-.callrow{display:flex;flex-direction:column;gap:14px}.cctl{display:flex;flex-direction:column;gap:10px}
+main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex-direction:column;gap:14px;min-width:0}.callrow,.callbar,.cctl{display:flex;flex-direction:column;gap:10px;min-width:0}
+.cwho,.rail .rs,.q .it .av,.q .it .bd,.q .it.done,.shb,.shl{display:none}.q .it .tx{display:block}
 .card2:not(:first-child){opacity:.72}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
 #cards:empty::before{content:"Objection help shows up here the moment the lead pushes back.";color:#6d747e;font-size:14px;border:1px dashed #2a313a;border-radius:12px;padding:18px;text-align:center}
 #trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
-.side{display:contents}
+#cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
+.ic{display:inline-block;width:18px;height:18px;vertical-align:-4px;margin-right:6px}.ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.rec{display:none}.brk{display:none}
 @media(min-width:1100px){
-main{max-width:1560px;padding:20px 28px 40px;gap:0 22px;grid-template-columns:minmax(0,1fr) 420px;grid-template-areas:"setup setup" "bar bar" "newb newb" "call side" "coach side" "after side" "nxt side"}
-#setup{grid-area:setup}#topbar{grid-area:bar}#newb{grid-area:newb}.callrow{grid-area:call;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:stretch}#coach{grid-area:coach}#after{grid-area:after}#nxtrow{grid-area:nxt}
-main>.col{display:contents}#setup,#topbar,#newb,.callrow,#coach,#after,#nxtrow{margin-bottom:16px}
-.side{display:flex;flex-direction:column;gap:16px;grid-area:side;position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow-y:auto;align-self:start;padding-right:2px}
-.lead{background:linear-gradient(160deg,#0f1a13,#0d1116 60%);border-color:#1f3a27}.lead h2{font-size:30px}.lead .ph{font-size:24px}
-.cctl{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:16px;justify-content:center}.ctl .call{min-height:76px;font-size:22px}.timer{font-size:40px}
-#coach{min-height:460px;border-color:#1f3a27;background:linear-gradient(180deg,#0c1410,#0d1116 45%)}#coach[hidden]{display:flex!important}
-.cw{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;flex:1;min-height:380px}
-.tr{max-height:520px;min-height:380px;font-size:15px;gap:7px;padding:12px}
-.card2{padding:14px 16px;gap:10px;border-left:4px solid #32cd32}.aca{gap:10px}.aca div{flex-direction:column;gap:2px}.aca span{min-width:0}.aca p{font-size:16px}.aca p.ask{font-size:23px;line-height:1.25;color:#fff}.aca p.ask::before{content:"\\2192  ";color:#32cd32}
-.side .script{font-size:15.5px}
+body{background:radial-gradient(1200px 500px at 70% -10%,#0d1a12 0,#07090c 60%)}
+main{display:grid;max-width:1680px;padding:18px 26px 40px;gap:0 20px;grid-template-columns:290px minmax(0,1fr) 400px;grid-template-areas:"setup setup setup" "topbar topbar topbar" "newb newb newb" "rail center rcol";align-items:start}
+#setup{grid-area:setup;margin-bottom:14px}#topbar{grid-area:topbar;margin-bottom:14px}#newb{grid-area:newb;margin-bottom:14px}#st{display:none}
+.center{grid-area:center}.rcol{grid-area:rcol;position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow-y:auto}.rail{grid-area:rail;position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow-y:auto}
+.callrow{display:flex;flex-direction:column;gap:0}.callbar{position:sticky;top:12px;z-index:6;flex-direction:row;align-items:center;gap:18px;background:linear-gradient(115deg,#06271b,#0a1712 50%,#0d1116);border:1px solid #1f5a2a;border-radius:22px;padding:14px 18px;box-shadow:0 14px 34px rgba(0,0,0,.55)}
+.cwho{display:flex;gap:14px;align-items:center;min-width:0;flex:0 1 200px}.brk{display:block;flex-basis:100%;height:0}.ctl .vl{display:none}.ctl [data-vm]{text-transform:capitalize}.ctl{row-gap:10px}.av{width:52px;height:52px;border-radius:50%;background:linear-gradient(145deg,#1b5d30,#0f3a1f);color:#c9f7c9;font-weight:800;display:grid;place-items:center;font-size:19px;flex:none;letter-spacing:.5px}
+.cwho b{display:block;font-size:19px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwho .ph2{color:#9aa3ad;font-size:14px;font-variant-numeric:tabular-nums}.cwho .stt{display:inline-block;margin-top:3px;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#aab0b9}.cwho .stt.ok{color:#32cd32}.cwho .stt.warn{color:#ffd166}.cwho .stt.bad{color:#ff8a8a}
+.cctl{position:relative;flex:1;flex-direction:row;justify-content:flex-end;min-width:0}.ctl{justify-content:flex-end;gap:6px}.ctl .ic{margin-right:5px}.ctl .btn{border-radius:999px;min-height:44px;padding:8px 12px;font-size:13.5px;background:#121a17;border-color:#25402d}.ctl .btn.on{background:#e8eaed;color:#07090c}.ctl .btn.g{background:#32cd32;border-color:#32cd32;color:#04120a}.ctl .btn.r{background:#e24545;border-color:#e24545;color:#fff}.ctl .btn.sm{min-height:46px;font-size:13.5px}
+.ctl .call{flex:0 0 auto;min-width:170px;min-height:56px;font-size:17px}.ctl #cb{box-shadow:0 0 0 0 rgba(50,205,50,.5);animation:glow 2.2s infinite}@keyframes glow{70%{box-shadow:0 0 0 14px rgba(50,205,50,0)}}
+.timer{font-size:34px;min-width:84px;color:#32cd32;letter-spacing:.5px;order:-1;margin-right:6px}.rec{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.8px;color:#ff8a8a;order:-1}.rec::before{content:"";width:8px;height:8px;border-radius:50%;background:#ff4d4d;animation:pls 1.2s infinite}
+.kp{position:absolute;top:calc(100% + 16px);right:0;background:#0d1116;border:1px solid #2a313a;border-radius:18px;padding:12px;z-index:7;width:260px;box-shadow:0 16px 40px rgba(0,0,0,.6)}
+.center>.callrow+#coach{margin-top:14px}
+#coach{min-height:470px;border-color:#1f3a27;background:linear-gradient(180deg,#0c1410,#0d1116 45%);border-radius:20px;padding:16px}#coach[hidden]{display:flex!important}
+.shb{display:block;height:6px;border-radius:99px;background:#0f2a17;overflow:hidden}.shb[hidden]{display:none!important}.shb i{display:block;height:100%;width:50%;background:#7fb7ff;transition:width .6s}.shl{display:inline;font-size:12.5px;color:#9aa3ad;font-variant-numeric:tabular-nums}.shl.hi{color:#ffd166}
+.cw{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;flex:1;min-height:390px}
+.tr{max-height:540px;min-height:390px;font-size:15px;gap:7px;padding:12px}
+.card2{padding:14px 16px;gap:10px;border-left:4px solid #32cd32;border-radius:14px}.aca{gap:10px}.aca div{flex-direction:column;gap:2px}.aca span{min-width:0}.aca p{font-size:16px}.aca p.ask{font-size:23px;line-height:1.25;color:#fff}.aca p.ask::before{content:"\\2192  ";color:#32cd32}
+.rcol .lead{background:linear-gradient(160deg,#0f1a13,#0d1116 65%);border-color:#1f3a27;margin-bottom:14px}.rcol .lead h2{font-size:24px}.rcol .lead .ph{font-size:20px}
+.rcol .script{font-size:15.5px}
+.rail{border-radius:20px;padding:16px}.rail .rs{display:flex;gap:8px;flex-wrap:wrap}.rs span{background:#121a17;border:1px solid #25402d;border-radius:999px;padding:4px 11px;font-size:12.5px;color:#aab0b9}.rs b{color:#e8eaed}
+.q .it{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:10px;align-items:center;margin-bottom:6px;padding:9px 10px}.q .it .av{display:grid;width:40px;height:40px;font-size:15px}.q .it .tx{min-width:0}.q .it .tx b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.q .it .tx small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q .it .bd{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:3px 9px;background:#1a2027;color:#8a9099}.q .it.cur{background:#0f2418}.q .it.cur .bd{background:#32cd32;color:#04120a}.q .it.cur .bd.live{background:#e24545;color:#fff}
+.q .it.done{display:grid;opacity:.5;cursor:default;background:transparent;border-color:transparent}.q .it.done .av{background:#1a2027;color:#6d747e}
 }
 ${BNAV_CSS}
 @media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
@@ -2680,14 +2695,13 @@ ${BNAV_CSS}
 <header><h1>Divine Detailers <b>dialer</b></h1>${nav("dialer", tc, true)}</header>
 ${bnav("dialer", tc, true)}
 <main>
-<div class="col">
 <div id="setup" class="ban" hidden></div>
 <div class="bar" id="topbar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
 <div id="newb" class="newb" hidden></div>
-<div class="callrow"><div id="lead" class="lead"></div>
-<div class="cctl"><div id="ctl" class="ctl"></div>
-<div id="kp" class="kp" hidden></div></div></div>
-<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span></div><div class="cw"><div id="cards"></div><div id="trn" class="tr"></div></div></div>
+<div class="center">
+<div class="callrow" id="callrow"><div id="lead" class="lead"></div>
+<div class="callbar" id="callbar"><div class="cwho" id="cwho"></div><div class="cctl"><div id="ctl" class="ctl"></div><div id="kp" class="kp" hidden></div></div></div></div>
+<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div class="cw"><div id="cards"></div><div id="trn" class="tr"></div></div></div>
 <div id="after" class="panel" hidden>
 <h3>How did it go?</h3>
 <div class="outs" id="outs"></div>
@@ -2696,9 +2710,9 @@ ${bnav("dialer", tc, true)}
 <div id="mt" hidden><textarea id="mtx" rows="4"></textarea><div class="bar" style="margin-top:6px"><button class="btn g sm" id="mts" type="button">Send text</button><span id="mtm" class="note"></span></div></div>
 </div>
 <div class="bar" id="nxtrow"><button class="btn" id="nxt" type="button" style="flex:1;min-height:52px">Next lead &rarr;</button></div>
-<div class="side"><div class="panel"><div class="bar"><h3 style="margin:0">Script</h3><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div></div>
-<div class="panel q"><h3 style="margin:0">Up next</h3><div id="q"></div></div></div>
 </div>
+<div class="rcol" id="rcol"><div class="panel"><div class="bar"><h3 style="margin:0">Script</h3><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div></div></div>
+<aside class="rail panel q"><h3 style="margin:0">Up next</h3><div class="rs" id="rs"></div><div id="q"></div></aside>
 </main>
 <dialog id="vdlg"></dialog><dialog id="sdlg"></dialog>
 <script src="/assets/twilio-voice.min.js"></script>
@@ -2715,12 +2729,15 @@ function fillT(t,l){const veh=[l.year,l.make,l.model].filter(Boolean).join(' '),
   const v={first:first&&!/^\\+?[\\d\\s()-]+$/.test(first)?first:'there',vehicle:veh?'your '+veh:'your car',service:String(l.service||'').toLowerCase()||'detailing',service_name:sv==='coating'?'ceramic coating':'ceramic tint',price:l.value?'$'+Math.round(l.value):(sv==='coating'?'$599':'$349'),shop:'Divine Detailers',address:'5181 NW 74th Ave, Miami, FL 33166'};
   return String(t||'').replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]===undefined?m:v[k])}
 function ago(iso){const s=Math.max(0,(Date.now()-new Date(iso))/1000);if(s<60)return 'just now';if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' hr ago';return Math.floor(s/86400)+' days ago'}
-function setSt(t,c){const s=el('st');s.textContent=t;s.className='pill'+(c?' '+c:'')}
+function setSt(t,c){const s=el('st');s.textContent=t;s.className='pill'+(c?' '+c:'');const s2=el('st2');if(s2){s2.textContent=t;s2.className='stt'+(c?' '+c:'')}}
+let made=0;const initials=n=>(String(n||'').trim().split(/\\s+/).filter(w=>/^[A-Za-z]/.test(w)).slice(0,2).map(w=>w[0].toUpperCase()).join(''))||'#';
+const mq=window.matchMedia('(min-width:1100px)');function place(){const r=el('rcol'),lead=el('lead');if(mq.matches)r.insertBefore(lead,r.firstChild);else el('callrow').insertBefore(lead,el('callrow').firstChild)}
 function scriptHtml(t){return String(t||'').split('\\n').map(line=>{line=line.replace(/\\s+$/,'');if(!line)return '';if(/^# /.test(line))return '<h4>'+$(line.slice(2))+'</h4>';if(/^- /.test(line))return '<li>'+$(line.slice(2))+'</li>';return '<p>'+$(line)+'</p>'}).join('').replace(/(<li>.*?<\\/li>)+/g,m=>'<ul>'+m+'</ul>')}
 function drawScript(){const l=Q[ix]||{};document.querySelectorAll('#stabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===sk));el('script').innerHTML=scriptHtml(fillT(ST[sk],l))}
 function drawLead(){const l=Q[ix];const box=el('lead');
   if(!l){box.innerHTML='<h2>'+(Q.length?'Queue finished':'No leads to call')+'</h2><p class="note">'+(Q.length?'Nice work. Reload to check for new leads.':'New and not-contacted leads from the last 14 days, and callbacks that are due, show up here.')+'</p>';el('ctl').innerHTML='';el('after').hidden=true;return}
   const car=[l.year,l.make,l.model].filter(Boolean).join(' ');
+  el('cwho').innerHTML='<span class="av">'+$(initials(l.name))+'</span><span style="min-width:0"><b>'+$(l.name||pretty(l.phone))+'</b><span class="ph2">'+$(pretty(l.phone))+'</span><br><span class="stt" id="st2">'+$(el('st').textContent)+'</span></span>';
   const lines=String(l.message||'').split('\\n').map(x=>x.trim()).filter(x=>x&&!/^(form name|ad name|adset name|platform):/i.test(x)).slice(0,6);
   box.innerHTML='<div class="bar"><h2 style="flex:1">'+$(l.name||pretty(l.phone))+'</h2>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div><div class="ph">'+$(pretty(l.phone))+'</div>'
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
@@ -2730,11 +2747,11 @@ function drawLead(){const l=Q[ix];const box=el('lead');
   sk=svcOf(l);drawScript();drawCtl()}
 function drawCtl(){const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
   const noDev=!dev;
-  if(state==='idle'||state==='ended'){c.innerHTML='<button class="btn g call" id="cb" type="button"'+(noDev||!inHours()?' disabled':'')+'>'+(state==='ended'?'Call again':'Call '+$(pretty(l.phone)))+'</button>';kp.hidden=true;el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
+  if(state==='idle'||state==='ended'){c.innerHTML='<button class="btn g call" id="cb" type="button"'+(noDev||!inHours()?' disabled':'')+'><i class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></i>'+(state==='ended'?'Call again':'Call '+$(pretty(l.phone)))+'</button>';kp.hidden=true;el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
     const b=el('cb');if(b)b.onclick=dial;return}
   const live=state==='live';
-  c.innerHTML='<span class="timer" id="tm">'+(live?'0:00':'...')+'</span><button class="btn r call" id="hb" type="button">Hang up</button><button class="btn'+(muted?' on':'')+'" id="mb" type="button"'+(live?'':' disabled')+'>'+(muted?'Unmute':'Mute')+'</button><button class="btn" id="kb" type="button"'+(live?'':' disabled')+'>Keypad</button>'
-   +['tint','coating'].map(k=>'<button class="btn sm'+(svcOf(l)===k?' g':'')+'" data-vm="'+k+'" type="button"'+(live&&AU[k]&&AU[k].has?'':' disabled')+'>'+(vmArm===k?'Tap again to drop':'Drop '+k+' voicemail')+'</button>').join('');
+  c.innerHTML='<span class="timer" id="tm">'+(live?'0:00':'...')+'</span>'+(live?'<span class="rec">REC</span>':'')+'<button class="btn r call" id="hb" type="button">Hang up</button><span class="brk"></span><button class="btn'+(muted?' on':'')+'" id="mb" type="button"'+(live?'':' disabled')+'><i class="ic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></i>'+(muted?'Unmute':'Mute')+'</button><button class="btn" id="kb" type="button"'+(live?'':' disabled')+'><i class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.2"/><circle cx="12" cy="6" r="1.2"/><circle cx="18" cy="6" r="1.2"/><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/><circle cx="6" cy="18" r="1.2"/><circle cx="12" cy="18" r="1.2"/><circle cx="18" cy="18" r="1.2"/></svg></i> Keypad</button>'
+   +['tint','coating'].map(k=>'<button class="btn sm'+(svcOf(l)===k?' g':'')+'" data-vm="'+k+'" type="button"'+(live&&AU[k]&&AU[k].has?'':' disabled')+'>'+'<i class="ic"><svg viewBox="0 0 24 24"><circle cx="7" cy="12" r="3.5"/><circle cx="17" cy="12" r="3.5"/><path d="M7 15.5h10"/></svg></i>'+(vmArm===k?'Tap again to drop':'<span class="vl">Drop </span>'+k+'<span class="vl"> voicemail</span>')+'</button>').join('');
   el('hb').onclick=()=>{if(call)call.disconnect()};el('mb').onclick=()=>{if(call){muted=!muted;call.mute(muted);drawCtl()}};el('kb').onclick=()=>{kp.hidden=!kp.hidden};
   c.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vmDrop(b.dataset.vm));
   kp.innerHTML='123456789*0#'.split('').map(d=>'<button type="button" data-d="'+d+'">'+d+'</button>').join('');kp.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(call)call.sendDigits(b.dataset.d)})}
@@ -2753,10 +2770,10 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
-async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
+async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
   el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();bannerDraw();
   if(l){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}}
 async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
@@ -2772,7 +2789,9 @@ el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.misse
 el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
 function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
-function drawQ(){el('q').innerHTML=Q.map((l,i)=>i<ix?'':'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+$(l.name||pretty(l.phone))+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+' · '+ago(l.created_at)+(l.tries24?' · '+l.tries24+' tries':'')+'</small></button>').join('')||'<p class="note">Nothing queued.</p>'}
+function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
+  el('rs').innerHTML='<span><b>'+Math.max(0,Q.length-ix)+'</b> in queue</span><span><b>'+made+'</b> called</span>';
+  el('q').innerHTML=Q.map((l,i)=>i<ix?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Done</small></span></div>':'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+ago(l.created_at)+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd">Waiting</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
 el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
 el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
 // scripts and the missed-you text
@@ -2819,24 +2838,26 @@ const OBJ=[
   enc:['Good thing to ask.','I will walk you through exactly what is covered for this service.','Which service are we talking about for your car?'],
   esc:['Buena pregunta.','Le explico exactamente qué cubre este servicio.','¿De qué servicio hablamos para su carro?']},
 ];
-let cws=null,coachOn=false,lastCard={};
+let cws=null,coachOn=false,lastCard={},wR=0,wL=0;
+function cs(t){const e=el('cst');e.textContent=t;e.className='note'+(t==='Listening'?' on':'')}
+function share(){const n=wR+wL;if(n<12){el('shb').hidden=true;el('shl').textContent='';return}const r=Math.round(wR*100/n);el('shb').hidden=false;el('shi').style.width=r+'%';const l=el('shl');l.textContent='You '+r+'% \u00b7 Lead '+(100-r)+'%'+(r>60?' \u2014 let them talk':'');l.className='shl'+(r>60?' hi':'')}
 async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled}catch(_){}if(window.matchMedia('(min-width:1100px)').matches){el('coach').hidden=false;el('cst').textContent=coachOn?'Starts when the call connects':'Not set up yet (needs the Deepgram key)'}}
-function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';lastCard={};el('cst').textContent='Connecting...';
-  try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){el('cst').textContent='Transcript unavailable';return}
-  cws.onopen=()=>{el('cst').textContent='Listening'};cws.onclose=()=>{if(el('cst').textContent==='Listening')el('cst').textContent='Transcript stopped'};
+function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
+  try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){cs('Transcript unavailable');return}
+  cws.onopen=()=>{cs('Listening')};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
   cws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}coachMsg(m)}}
 function coachStop(){if(cws){try{cws.close()}catch(_){}cws=null}}
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
-  if(m.type==='live'){el('cst').textContent='Listening';return}
+  if(m.type==='live'){cs('Listening');return}
   if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead')objCheck(m.text);return}
-  if(m.type==='error'){el('cst').textContent=m.message;return}
-  if(m.type==='ended'){el('cst').textContent='Call ended'}}
-function addLine(who,text,final){const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+  if(m.type==='error'){cs(m.message);return}
+  if(m.type==='ended'){cs('Call ended')}}
+function addLine(who,text,final){if(final){const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc,d=document.createElement('div');d.className='card2';
   d.innerHTML='<div class="bar"><span class="pill warn">'+$(o.label)+'</span></div><div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(c[0])+'</p></div><div><span>COMMENT</span><p>'+$(c[1])+'</p></div><div><span>ASK</span><p class="ask">'+$(c[2])+'</p></div></div>';
   const box=el('cards');box.insertBefore(d,box.firstChild);while(box.children.length>3)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},60000)}
-let known=new Set(),defTitle=document.title;
+let known=new Set(),defTitle=document.title;place();mq.addEventListener&&mq.addEventListener('change',place);
 function beep(){try{const C=window.AudioContext||window.webkitAudioContext,c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(_){}}
 async function poll(){let q;try{q=await (await fetch('/admin/dialer/queue')).json()}catch(_){return}if(!q||!q.leads)return;
   const inc=q.leads.filter(l=>!known.has(l.id));q.leads.forEach(l=>known.add(l.id));
