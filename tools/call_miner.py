@@ -14,7 +14,7 @@ Steps (each one can also be run alone, and every step skips work that is already
 """
 import argparse, csv, glob, json, os, re, subprocess, sys, time
 
-AUDIO_EXT = (".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".flac", ".aac", ".webm")
+AUDIO_EXT = (".wav", ".wave", ".mp3", ".m4a", ".mp4", ".ogg", ".opus", ".flac", ".aac", ".webm")
 DG_BASE = os.environ.get("DEEPGRAM_BASE", "https://api.deepgram.com")
 AN_BASE = os.environ.get("ANTHROPIC_BASE", "https://api.anthropic.com")
 
@@ -93,7 +93,10 @@ def cmd_transcribe(a):
     if a.limit:
         files = files[:a.limit]
     if not files:
-        sys.exit("No audio files found in %s" % a.audio)
+        allf = [f for f in glob.glob(os.path.join(a.audio, "**", "*"), recursive=True) if os.path.isfile(f)]
+        types = sorted(set(os.path.splitext(f)[1].lower() or "(no extension)" for f in allf))
+        sys.exit("No audio files found.\n  Looked in: %s\n  Files there: %d (types: %s)\n  Put the recordings in that folder (unzip any .zip first), then run it again.\n  Not sure where they are? Run:  cd %s && pwd && ls audio | head"
+                 % (os.path.abspath(a.audio), len(allf), ", ".join(types) or "none", os.getcwd()))
     os.makedirs(os.path.join(a.out, "transcripts"), exist_ok=True)
     done = fail = skipped = 0
     for i, f in enumerate(files, 1):
