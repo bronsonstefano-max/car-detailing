@@ -271,7 +271,7 @@ def footer():
       <form name="newsletter" method="POST" action="thanks.html" {form_attrs()} data-form>{form_extra("newsletter")}<input name="email" type="email" placeholder="Your email" required aria-label="Your email"><button class="btn" type="submit">Join Now</button></form>
       <small>By subscribing, you agree to our <a href="privacy-policy.html">Privacy Policy</a> and consent to receive updates from {SITE['name']}.</small></div>
   </div>
-  <div class="copy">&copy; <span id="yr">2026</span> {SITE['name']}. All rights reserved. <a href="privacy-policy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
+  <div class="copy">&copy; <span id="yr">2026</span> {SITE['name']}, LLC. All rights reserved. <a href="privacy-policy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
 </footer>'''
 
 FONT_URL = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Special+Gothic+Expanded+One&display=swap"
@@ -980,7 +980,7 @@ def build_privacy():
     body = inner_hero("Privacy <em>policy</em>", "Last updated: November 2026", ['<a href="index.html">Home</a>', "Privacy Policy"], buttons=False)
     n = SITE['name']
     body += f'''<section class="sec"><div class="wrap"><article class="article legal">
-<p>At {n} (the &ldquo;Company&rdquo; or &ldquo;We&rdquo;), we respect your privacy and are committed to protecting it through our compliance with this policy. This policy describes the types of information we may collect from you or that you may provide when you visit this website and our practices for collecting, using, maintaining, protecting, and disclosing that information.</p>
+<p>At {n}, LLC, doing business as {n} (the &ldquo;Company&rdquo; or &ldquo;We&rdquo;), we respect your privacy and are committed to protecting it through our compliance with this policy. This policy describes the types of information we may collect from you or that you may provide when you visit this website and our practices for collecting, using, maintaining, protecting, and disclosing that information.</p>
 <p>Please read this policy carefully. If you do not agree with our policies and practices, your choice is not to use our Website. By accessing or using this Website, you agree to this privacy policy. This policy may change from time to time. Your continued use of this Website after we make changes is deemed to be acceptance of those changes.</p>
 <h2>Children Under the Age of 13</h2><p>Our Website is not intended for children under 13 years of age. No one under age 13 may provide any personal information on the Website. We do not knowingly collect personal information from children under 13. If we learn we have collected personal information from a child under 13 without parental consent, we will delete that information. If you believe we might have any information from or about a child under 13, please contact us.</p>
 <h2>Information We Collect About You</h2><p>We collect several types of information from and about users of our Website, including your name, email address, phone number, vehicle information and the details of your request when you fill out a quote or contact form. If you agree to text messages, we also keep your mobile number, the content and delivery status of the messages we exchange, and a record of when and how you opted in or out. We also collect technical data such as IP address, browser type, and pages visited through cookies and analytics tools.</p>
@@ -1011,7 +1011,7 @@ def build_terms():
     body = inner_hero("Terms of <em>service</em>", "Last updated: November 2026", ['<a href="index.html">Home</a>', "Terms of Service"], buttons=False)
     n = SITE['name']
     body += f'''<section class="sec"><div class="wrap"><article class="article legal">
-<p>These Terms of Service (&ldquo;Terms&rdquo;) apply to your use of the {n} website (the &ldquo;Website&rdquo;) and to quotes, bookings and services requested through it. By using the Website or requesting a quote, you agree to these Terms. If you do not agree, please do not use the Website.</p>
+<p>These Terms of Service (&ldquo;Terms&rdquo;) apply to your use of the {n} website operated by {n}, LLC (the &ldquo;Website&rdquo;) and to quotes, bookings and services requested through it. By using the Website or requesting a quote, you agree to these Terms. If you do not agree, please do not use the Website.</p>
 <h2>About Us</h2><p>{n} provides window tint, paint protection film (PPF), ceramic coating, paint correction, vinyl wrap and detailing services at our shop in {SITE['addr2']}.</p>
 <h2>Quotes and Estimates</h2><p>Quotes and estimates given through the Website, by phone, text or email are based on the information you provide, such as the vehicle, the service and its condition. They are not a binding offer. The final price and scope are confirmed in writing before work begins, and may change if the vehicle&rsquo;s condition or your requested work differs from what was described.</p>
 <h2>Booking and Appointments</h2><p>An appointment is confirmed only when we confirm it with you. Please give us as much notice as you can if you need to cancel or reschedule. Any deposit, cancellation or rescheduling terms will be stated in your quote or booking confirmation.</p>
@@ -1020,7 +1020,7 @@ def build_terms():
 <h2>Payment</h2><p>Payment terms are stated in your quote or invoice. Payment is due when the work is complete unless we agree otherwise in writing.</p>
 <h2>Calls, Texts and Emails</h2><p>If you submit a form or call us, we may contact you by phone or email about your request. We send text messages only if you check the text message consent box on our quote form (see the SMS Terms and Conditions below). Message and data rates may apply, and you can reply STOP to any text to opt out. Calls to and from us may be recorded or monitored for quality and training, and we will tell you at the start of the call if it is being recorded. See our <a href="privacy-policy.html">Privacy Policy</a> for how we handle your information.</p>
 <h2 id="sms-terms">SMS Terms and Conditions</h2>
-<p><strong>Program name:</strong> {n} Text Messages. <strong>Sent by:</strong> {n}, 5181 NW 74th Ave, Miami, FL 33166.</p>
+<p><strong>Program name:</strong> {n} Text Messages. <strong>Sent by:</strong> {n}, LLC, doing business as {n}, 5181 NW 74th Ave, Miami, FL 33166.</p>
 <p><strong>Opting in:</strong> you join the program only by checking the text message consent box on our website quote form and submitting the form. The box is not pre-checked, and agreeing is optional.</p>
 <p><strong>What you will receive:</strong> text messages about your quote request, sent by automated technology to the mobile number you gave us: replies to your request, quotes, appointment scheduling and confirmations, appointment reminders, and follow-ups about your request. We do not send promotional mass messages.</p>
 <p><strong>Message frequency</strong> varies with your request, typically 2 to 8 messages per request. <strong>Message and data rates may apply.</strong> You must be at least 18 and the regular user of the mobile number you give us.</p>
