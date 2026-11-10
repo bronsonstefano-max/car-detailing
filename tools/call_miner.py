@@ -1008,6 +1008,71 @@ def cmd_learn(a):
 
 
 # ------------------------------------------------------------------ main
+LEX_SYSTEM = """These are transcripts of phone calls at a car detailing shop (window tint, ceramic coating, paint protection film, paint correction, wraps), written by speech-to-text, which makes mistakes on a phone line. Find the mistakes that REPEAT: a word or phrase that is clearly the wrong transcription of a car-detailing term, where the intended term is obvious from context (for example tint heard as tent, coating heard as coding, a car model heard as another word). Also list the correctly spelled domain terms that appear: car makes and models, film and coating brands, services, shop words, payment words.
+Return ONLY JSON: {"fixes": [{"heard": "exact wrong text", "meant": "intended text", "count": 3}], "terms": ["Hellcat", "XPEL"]}.
+Rules: only fixes you are confident about; "heard" must appear in the text; skip punctuation and number formatting; skip ordinary words that are correct in the sentence; at most 60 fixes and 80 terms."""
+
+
+def cmd_lexicon(a):
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        sys.exit("Set ANTHROPIC_API_KEY first.")
+    files = sorted(glob.glob(os.path.join(a.out, "transcripts", "*.txt")))
+    if a.limit:
+        files = files[:a.limit]
+    texts = []
+    for f in files:
+        t = re.sub(r"^(?:#\d+ )?\[\d+:\d+\] [SC][\d?]*: ", "", open(f).read(), flags=re.M)
+        if len(t.split()) >= 40:
+            texts.append(t[:8000])
+    if not texts:
+        sys.exit("No transcripts found in %s/transcripts. Run the transcribe step first." % a.out)
+    chunks, cur, size = [], [], 0
+    for t in texts:
+        if size + len(t) > 60000 and cur:
+            chunks.append(cur)
+            cur, size = [], 0
+        cur.append(t)
+        size += len(t)
+    if cur:
+        chunks.append(cur)
+    print("Looking for repeated transcription mistakes in %d calls (%d batches)..." % (len(texts), len(chunks)))
+    system = [{"type": "text", "text": LEX_SYSTEM}]
+    fixes, terms = collections.Counter(), collections.Counter()
+
+    def work(n, ch):
+        try:
+            reply, _ = claude(a.model, a.effort, system, "\n\n=== NEXT CALL ===\n\n".join(ch), key, max_tokens=6000)
+            d = parse_json(reply)
+            with LOCK:
+                for x in d.get("fixes") or []:
+                    h, m = str(x.get("heard", "")).strip().lower(), str(x.get("meant", "")).strip()
+                    if h and m and h != m.lower():
+                        fixes[(h, m)] += max(1, int(x.get("count") or 1))
+                for t in d.get("terms") or []:
+                    if str(t).strip():
+                        terms[str(t).strip()] += 1
+            say("[%d/%d] batch done" % (n, len(chunks)))
+        except Fatal:
+            raise
+        except Exception as e:
+            say("[%d/%d] batch failed: %s" % (n, len(chunks), e))
+    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
+        list(ex.map(lambda t: work(t[0], t[1]), list(enumerate(chunks, 1))))
+    if STOP.is_set():
+        sys.exit("STOPPED: Anthropic refused the request (credit, key or permission). Fix it and run again.")
+    keep = [(h, m, n) for (h, m), n in fixes.items() if n >= 2]
+    keep.sort(key=lambda x: -x[2])
+    with open(os.path.join(a.out, "corrections_suggested.txt"), "w") as fh:
+        fh.write("# Paste these into the dialer: Guided scripts > Transcription fixes. One per line: heard => meant. Delete any that look wrong.\n")
+        for h, m, n in keep[:80]:
+            fh.write("%s => %s\n" % (h, m))
+    top = [t for t, n in terms.most_common(100)]
+    with open(os.path.join(a.out, "keyterms_suggested.txt"), "w") as fh:
+        fh.write("\n".join(top) + "\n")
+    print("Wrote %s (%d fixes seen twice or more) and %s (%d terms)." % (os.path.join(a.out, "corrections_suggested.txt"), len(keep), os.path.join(a.out, "keyterms_suggested.txt"), len(top)))
+
+
 def list_audio(folder):
     return sorted(f for f in glob.glob(os.path.join(folder, "**", "*"), recursive=True) if f.lower().endswith(AUDIO_EXT))
 
@@ -1048,7 +1113,7 @@ def cmd_plan(a):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("transcribe", "run", "mine", "report", "learn", "plan"):
+    for name in ("transcribe", "run", "mine", "report", "learn", "plan", "lexicon"):
         s = sub.add_parser(name)
         if name in ("transcribe", "run", "plan"):
             s.add_argument("audio", help="folder with the recordings")
@@ -1064,7 +1129,7 @@ def main():
             s.add_argument("--glossary", default="glossary.txt", help="business words to get right (optional)")
         s.add_argument("--out", default="out")
         s.add_argument("--limit", type=int, default=0, help="only the first N files (use 30 for a pilot)")
-        if name in ("run", "mine", "learn"):
+        if name in ("run", "mine", "learn", "lexicon"):
             s.add_argument("--model", default=DEFAULT_MODEL, help="default %s; use claude-haiku-5-5 for a cheaper, shallower pass" % DEFAULT_MODEL)
             s.add_argument("--effort", default="medium", help="low, medium or high")
         if name in ("run", "mine"):
@@ -1084,7 +1149,9 @@ def main():
         load_glossary(a.glossary)
         if ROSTER or GLOSSARY:
             print("Using %d rep names and %d key words" % (len(set(ROSTER.values())), len(GLOSSARY)))
-    if a.cmd == "plan":
+    if a.cmd == "lexicon":
+        cmd_lexicon(a)
+    elif a.cmd == "plan":
         cmd_plan(a)
     elif a.cmd == "transcribe":
         cmd_transcribe(a)

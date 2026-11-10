@@ -19,7 +19,7 @@
 //   META_SMS_CONSENT / META_SMS_MARKETING (var, "1") the Facebook lead form's consent covers texts / promotional texts: new Meta leads are marked as agreed (marketing also marks texts)
 //   TEXT_HOURS        (var, optional "8-21")   hours (Eastern) when texts may go out
 //   TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, TWILIO_TWIML_APP_SID (secrets)  in-browser dialing on the Dial page (Twilio Voice SDK); the TwiML App's Voice URL is https://divinedetailers.com/api/twilio/voice. TWILIO_VOICE_FROM (optional) is the caller ID for calls (defaults to TWILIO_FROM)
-//   DEEPGRAM_API_KEY  (secret)                 live transcript of dialer calls (Twilio Media Streams -> a Durable Object -> Deepgram). DEEPGRAM_LANGUAGE (optional, default "multi") sets the language
+//   DEEPGRAM_API_KEY  (secret)                 live transcript of dialer calls (Twilio Media Streams -> a Durable Object -> Deepgram). DEEPGRAM_LANGUAGE (optional, default "en"; "multi" also hears Spanish but is less accurate in English) sets the language
 //   CALL_HEADSUP      (optional, "0" turns off)  push notification as a call rings the agent: "Calling Tony" and "Window Tint · 2026 Hyundai Sonata"
 //   CRM_HOST          (var, optional)          e.g. crm.divinedetailers.com: dashboard moves there (at "/"); /admin on other hosts redirects to it
 
@@ -2664,6 +2664,8 @@ async function dialerOfferSave(env, b) {
   const out = {};
   for (const k of OFFER_KEYS) out[k] = String(o[k] == null ? "" : o[k]).trim().slice(0, 200);
   out.swaps = (Array.isArray(o.swaps) ? o.swaps : []).slice(0, 40).map(x => ({ f: String((x && x.f) || "").slice(0, 200), t: String((x && x.t) || "").slice(0, 400) })).filter(x => x.f);
+  out.fixes = (Array.isArray(o.fixes) ? o.fixes : []).slice(0, 80).map(x => ({ f: String((x && x.f) || "").slice(0, 80), t: String((x && x.t) || "").slice(0, 80) })).filter(x => x.f);
+  out.terms = (Array.isArray(o.terms) ? o.terms : []).slice(0, 30).map(x => String(x || "").trim().slice(0, 40)).filter(Boolean);
   await env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES ('offer', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(JSON.stringify(out)).run();
   return json({ success: true });
 }
@@ -2773,7 +2775,7 @@ dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{ma
 #cards{display:flex;flex-direction:column;gap:10px;min-width:0}.cw{display:flex;flex-direction:column;gap:10px}
 main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex-direction:column;gap:14px;min-width:0}.callrow,.callbar,.cctl{display:flex;flex-direction:column;gap:10px;min-width:0}
 .cwho,.rail .rs,.q .it .av,.q .it .bd,.q .it.done,.shb,.shl{display:none}.q .it .tx{display:block}
-.gnx{flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px;border-left:4px solid #32cd32}.gnx .gq.big{flex:none;font-size:21px;font-weight:700;color:#fff;line-height:1.35}.gnx.det{background:#0e1318;border-color:#2a313a;border-left-color:#2a313a}.gnx.det .gq.big{font-size:16px;font-weight:600;color:#cfd3d9}.gnx.det .gl{color:#8b929c}.gtip{font-size:13.5px;color:#aeb4bd}.gtip b{color:#32cd32;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin-right:6px}.gb{display:flex;gap:8px;flex-wrap:wrap}.qf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.qf button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}.qf button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
+.gnx{flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px;border-left:4px solid #32cd32}.gnx .gq.big{flex:none;font-size:21px;font-weight:700;color:#fff;line-height:1.35}.gnx.det{background:#0e1318;border-color:#2a313a;border-left-color:#2a313a}.gnx.det .gq.big{font-size:16px;font-weight:600;color:#cfd3d9}.gnx.det .gl{color:#8b929c}.gtip{font-size:13.5px;color:#aeb4bd}.gtip b{color:#32cd32;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin-right:6px}.gb{display:flex;gap:8px;flex-wrap:wrap}.qf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.qf button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}.qf button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.ln.low{opacity:.7;font-style:italic}.ln.low::after{content:' (unclear)';color:#ffb86b;font-size:11px}.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
 .cl{display:flex;flex-direction:column;gap:10px;min-width:0}.gnx,.gnx>*{text-align:left}
 #trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
@@ -3174,6 +3176,7 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
    +'<details class="gdet"><summary>Offer numbers (optional)</summary><p class="note" style="margin:0 0 8px">Anything left empty shows up in the script as an amber [blank] you can fill in during the call. The lead job value is used as the price when it has one.</p><div class="gform">'
    +fld('o-sp','Special name',o.special,'text','e.g. Spring')+fld('o-end','Special ends',o.specialEnd,'date')+fld('o-tp','Tint price (if the lead has none)',o.tintPrice,'number')+fld('o-td','Tint deposit',o.tintDeposit,'number')+fld('o-tf','Tint lowest price',o.tintFloor,'number')
    +fld('o-cp','Coating special price',o.coatPrice,'number')+fld('o-cr','Coating normal price',o.coatReg,'number')+fld('o-cd','Coating deposit',o.coatDeposit,'number')+fld('o-cy','Coating warranty (years)',o.coatYears,'number')+'</div></details>'
+   +'<details class="gdet"><summary>Transcription fixes (optional)</summary><div><label>Words the phone line mishears (one per line: heard => meant), for example: "tent => tint". Common ones are already built in.</label><textarea id="o-fx" rows="4" placeholder="heard => meant">'+$((o.fixes||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div><div><label>Extra words the transcriber should listen for (one per line): car models, names, anything it keeps missing</label><textarea id="o-tm" rows="3">'+$((o.terms||[]).join('\\n'))+'</textarea></div></details>'
    +'<details class="gdet"><summary>Word swaps (optional)</summary><div><label>Word swaps (one per line: find => replace). Use this to change brand names, warranty wording or anything else in the script.</label><textarea id="o-sw" rows="5" placeholder="old word => new word">'+$((o.swaps||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div></details>'
    +'<div class="vm"><b>AI coach</b><span class="note" id="ai-st">Checks that the Anthropic key you added in Cloudflare works.</span><div class="bar"><button class="btn sm" id="ai-t" type="button">Test AI coach</button></div></div>'
    +'<div class="vm"><b>Call library</b><span class="note" id="lib-st">Checking...</span><span class="note">Load response_library.jsonl from your analyzed calls. The AI coach then looks up how your best closers handled the same moment.</span><input type="file" accept=".jsonl,.json,.txt" id="lib-f" class="note"><div class="bar"><button class="btn sm" id="lib-c" type="button">Clear library</button></div></div>'
@@ -3194,8 +3197,8 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
     const list=j&&j.bundle?['tint','coating'].filter(k=>j[k]).map(k=>[k,j[k]]):(j&&j.service?[[j.service,j]]:[]);if(!list.length){el('g-pm').textContent='No scripts found in what you pasted.';return}
     let n=0;for(const [k,sc] of list){const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:k,script:sc})});const jj=await r.json().catch(()=>({}));if(!jj.success){el('g-pm').textContent=jj.message||'Could not import.';return}GS[k]=sc;n++}
     el('g-pm').textContent='Imported '+n+' script'+(n===1?'':'s')+'.';el('g-paste').value='';['tint','coating'].forEach(k=>{const e=el('gst-'+k);if(e)e.textContent=st(k)});gi=0;drawScript();drawBrief(Q[ix])};
-  el('gs').onclick=async()=>{const sw=el('o-sw').value.split('\\n').map(x=>{const i=x.indexOf('=>');return i<0?null:{f:x.slice(0,i).trim(),t:x.slice(i+2).trim()}}).filter(x=>x&&x.f);
-    const v=id=>el(id).value.trim(),off={rep:v('o-rep'),shop:v('o-shop'),address:v('o-addr'),area:v('o-area'),special:v('o-sp'),specialEnd:v('o-end'),tintPrice:v('o-tp'),tintDeposit:v('o-td'),tintFloor:v('o-tf'),coatPrice:v('o-cp'),coatReg:v('o-cr'),coatDeposit:v('o-cd'),coatYears:v('o-cy'),swaps:sw};
+  el('gs').onclick=async()=>{const fx=el('o-fx').value.split('\\n').map(x=>{const i=x.indexOf('=>');return i<0?null:{f:x.slice(0,i).trim(),t:x.slice(i+2).trim()}}).filter(x=>x&&x.f),tm=el('o-tm').value.split('\\n').map(x=>x.trim()).filter(Boolean);const sw=el('o-sw').value.split('\\n').map(x=>{const i=x.indexOf('=>');return i<0?null:{f:x.slice(0,i).trim(),t:x.slice(i+2).trim()}}).filter(x=>x&&x.f);
+    const v=id=>el(id).value.trim(),off={rep:v('o-rep'),shop:v('o-shop'),address:v('o-addr'),area:v('o-area'),special:v('o-sp'),specialEnd:v('o-end'),tintPrice:v('o-tp'),tintDeposit:v('o-td'),tintFloor:v('o-tf'),coatPrice:v('o-cp'),coatReg:v('o-cr'),coatDeposit:v('o-cd'),coatYears:v('o-cy'),swaps:sw,fixes:fx,terms:tm};
     const r=await fetch('/admin/dialer/offer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({offer:off})});const j=await r.json().catch(()=>({}));if(!j.success){el('ge').textContent=j.message||'Could not save.';return}OF=off;d.close();drawScript();drawBrief(Q[ix])}}
 
 // scripts and the missed-you text
@@ -3330,13 +3333,13 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
   box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
   if(m.type==='live'){cs('Listening');return}
-  if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
+  if(m.type==='transcript'){addLine(m.who,m.text,m.final,m.low);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
   if(m.type==='answer'){showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
-function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&n>=4)pend=null;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+function addLine(who,text,final,low){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&n>=4)pend=null;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial')+(low?' low':'');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
 let known=new Set(),defTitle=document.title;place();mq.addEventListener&&mq.addEventListener('change',place);
@@ -3420,6 +3423,7 @@ Ground rules:
 - Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 35 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
 - After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
+- The transcript is live speech-to-text over a phone line and contains mistakes: similar-sounding words (tint heard as tent, coating as coding, XPEL as expel), wrong car names, garbled numbers. Work out what the lead most likely meant from the car-detailing context. If a word that matters (a price, a date, a car, which service) is unclear, or the line is marked unclear audio, make "say" a short clarifying question ("Sorry, did you say the sides and the back?") instead of guessing.
 - Stay out of the way. If the lead just answered the rep's last question, gave the information the script was asking for, or made small talk ("yeah", "ok", "good, you?"), return {"answer": false}: the script already covers it. Step in only for a question the script does not directly ask, an objection or worry, new information that changes the plan, an unusual request, or a buying signal.
 - When REAL ANSWERS from past calls are given, they show how this shop's best closers handled the same moment. Use their approach and tone in your own words. Never copy prices, names or claims from them: {amount} and {shop} are blanks, and the OFFER always wins.
 - After you handle it, "ask" is the NEXT SCRIPT LINE given to you, word for word (or the closest natural bridge into it), so the call returns to the script.
@@ -3493,12 +3497,12 @@ async function coachStream(env, system, user, onSay) {
     return { text, usage, ms };
   } catch (e) { return { error: "failed", ms }; } finally { clearTimeout(timer); }
 }
-async function coachAnswer(env, ctx, turns, said, pos, onSay) {
-  const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}: ${t.text}`).join("\n");
+async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
+  const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}${t.low ? " (unclear audio)" : ""}: ${t.text}`).join("\n");
   const real = libPick(ctx.lib, said);
   const realText = real.length ? "REAL ANSWERS from past calls to something similar (best closers first):\n" + real.map((r, i) => `${i + 1}. Lead said: "${r.lead_said}"\n   ${r.won ? "Rep (the call booked)" : "Rep"}: "${r.rep_response}"${r.quality && r.quality < 4 && r.better ? `\n   Better answer: "${r.better}"` : ""}`).join("\n") + "\n\n" : "";
   const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
-  const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"\nReturn the JSON.`;
+  const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
   const res = await coachStream(env, ctx.system, user, onSay);
   if (res.error) return { error: res.error };
   const text = res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
@@ -3512,7 +3516,18 @@ async function coachSig(env, sid) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(env.TWILIO_TOKEN || "")), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("stream:" + sid)))].map(x => x.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
-const DG_KEYTERMS = ["ceramic coating", "ceramic tint", "paint correction", "paint protection film", "PPF", "Divine Detailers", "window tint", "clear coat", "XPEL", "Llumar", "3M", "Tesla", "Mercedes", "BMW", "Porsche"];
+const DG_KEYTERMS = ["ceramic coating", "ceramic tint", "paint correction", "paint protection film", "PPF", "Divine Detailers", "window tint", "clear coat", "XPEL", "Ceramic Coating Inc", "windshield", "visor strip", "sunroof", "tint percentage", "VLT", "five percent", "twenty percent", "thirty-five percent", "swirl marks", "deposit", "Apple Pay", "Zelle", "Square", "sedan", "SUV", "coupe", "minivan", "pickup",
+  "Tesla", "Model Y", "Model 3", "Cybertruck", "Mercedes", "Porsche", "Lexus", "Audi", "Infiniti", "Genesis", "Hyundai", "Kia", "Telluride", "Wrangler", "Rubicon", "Bronco", "Silverado", "Escalade", "Corvette", "Camaro", "Challenger", "Charger", "Hellcat", "Camry", "RAV4", "Tacoma", "Maserati", "Bentley", "Lamborghini", "Rivian", "Range Rover", "BMW", "F-150", "Mustang", "Tahoe", "Durango", "Accord", "Civic"];
+// the phone line mishears a handful of words again and again: fixed before the coach and the rep see them. [pattern, replacement]
+const BUILTIN_FIXES = [
+  [/\bceramic (coding|coat in|coting|cotton)\b/gi, "ceramic coating"], [/\b(ceramic|ceramics|seramic) (tin|tent|tints)\b/gi, "ceramic tint"], [/\bcarmic\b/gi, "ceramic"],
+  [/\b(window|car|my|the|dark|darker|lighter|get|got|have|any|your|new|old|of) tent(s|ed|ing)?\b/gi, (m, a, b) => `${a} tint${b || ""}`],
+  [/\b(x|ex)[\s-]?pell?\b/gi, "XPEL"], [/\bp[\s.]?p[\s.]?f\b/gi, "PPF"], [/\bv[\s.]?l[\s.]?t\b/gi, "VLT"], [/\bdivine (details?|detailer)\b/gi, "Divine Detailers"],
+  [/\bwind[\s-]shield\b/gi, "windshield"], [/\bsun[\s-]roof\b/gi, "sunroof"], [/\bmodel (why|wide)\b/gi, "Model Y"], [/\bclear (code|coach)\b/gi, "clear coat"],
+  [/\bsquirrel (marks?)\b/gi, "swirl $1"], [/\b(car|vinyl|full|color change) rap\b/gi, "$1 wrap"], [/\bapple[\s-]?pay\b/gi, "Apple Pay"],
+];
+const fixHeard = (text, extra) => { let t = String(text || ""); for (const [re, to] of BUILTIN_FIXES) t = t.replace(re, to); for (const [re, to] of (extra || [])) t = t.replace(re, to); return t; };
+const esc2 = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ulaw = b => { b = ~b & 0xff; const s = (((b & 0x0f) << 3) + 0x84) << ((b >> 4) & 7); return (b & 0x80) ? -(s - 0x84) : s - 0x84; };
 export class CallRoom {
   constructor(state, env) {
@@ -3554,11 +3569,20 @@ export class CallRoom {
     const sock = this.dg[track];
     if (sock && sock.ready) sock.ws.send(bin); else { this.pending[track].push(bin); if (!sock) this.openDg(track); if (this.pending[track].length > 400) this.pending[track].shift(); }
   }
+  async loadCfg() {
+    this.fixes = []; this.terms = [];
+    try {
+      const r = this.env.DB ? await this.env.DB.prepare("SELECT v FROM dial_settings WHERE k = 'offer'").first() : null; const o = r && r.v ? JSON.parse(r.v) : {};
+      this.fixes = (o.fixes || []).filter(x => x && x.f).map(x => [new RegExp(`\\b${esc2(x.f)}\\b`, "gi"), x.t || ""]);
+      this.terms = (o.terms || []).filter(Boolean);
+    } catch (e) { /* built-in fixes still apply */ }
+  }
   async openDg(track) {
     const slot = this.dg[track] = { ready: false, ws: null };
     try {
-      const qs = new URLSearchParams({ model: "nova-3", language: this.env.DEEPGRAM_LANGUAGE || "multi", encoding: "mulaw", sample_rate: "8000", channels: "1", interim_results: "true", endpointing: "300", utterance_end_ms: "1000", smart_format: "true", punctuate: "true" });
-      for (const k of DG_KEYTERMS) qs.append("keyterm", k);
+      if (!this.cfgP) this.cfgP = this.loadCfg(); await this.cfgP;
+      const qs = new URLSearchParams({ model: "nova-3", language: this.env.DEEPGRAM_LANGUAGE || "en", encoding: "mulaw", sample_rate: "8000", channels: "1", tag: track === "outbound" ? "dialer-lead" : "dialer-rep", interim_results: "true", endpointing: "300", utterance_end_ms: "1000", smart_format: "true", punctuate: "true" });
+      for (const k of [...DG_KEYTERMS, ...this.terms].slice(0, 100)) qs.append("keyterm", k);
       const resp = await fetch(`${this.env.DEEPGRAM_BASE || "https://api.deepgram.com"}/v1/listen?${qs}`, { headers: { Upgrade: "websocket", Authorization: `Token ${this.env.DEEPGRAM_API_KEY}` } });
       const ws = resp.webSocket;
       if (!ws) { this.broadcast({ type: "error", message: "The transcription service refused the connection." }); return; }
@@ -3581,20 +3605,21 @@ export class CallRoom {
   onDg(track, d) {
     if (d.type === "UtteranceEnd") { this.endOfSpeech(track); return; }
     if (d.type !== "Results") return;
-    const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0]; const text = alt && String(alt.transcript || "").trim();
-    if (!text) { if (d.speech_final) this.endOfSpeech(track); return; }
+    const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0]; const raw = alt && String(alt.transcript || "").trim();
+    if (!raw) { if (d.speech_final) this.endOfSpeech(track); return; }
+    const text = fixHeard(raw, this.fixes), low = typeof alt.confidence === "number" && alt.confidence < 0.75;
     const who = track === "outbound" ? "lead" : "rep";
     const final = !!d.is_final, at = Math.round((Date.now() - this.t0) / 1000);
-    this.broadcast({ type: "transcript", who, text, final, end: !!d.speech_final, at });
+    this.broadcast({ type: "transcript", who, text, final, end: !!d.speech_final, at, low });
     if (!final) return;
-    this.turns.push({ who, text, at });
+    this.turns.push({ who, text, at, low });
     this.sig.talk[who] += Number(d.duration) || 0; this.sig.words[who] += text.split(/\s+/).length; this.sig.turns++;
     if (who === "lead" && /\?/.test(text)) this.sig.leadQuestions++;
     if (this.sig.firstPriceSecs == null && /\$|price|how much|cost|precio|cu[aá]nto/i.test(text)) this.sig.firstPriceSecs = at;
-    if (who === "lead" && coachAi(this.env)) { this.leadBuf.push(text); if (d.speech_final) this.askCoach(); }
+    if (who === "lead" && coachAi(this.env)) { this.leadBuf.push(text); if (low) this.leadLow = true; if (d.speech_final) this.askCoach(); }
   }
   async askCoach() {
-    const said = this.leadBuf.join(" ").trim(); this.leadBuf = [];
+    const said = this.leadBuf.join(" ").trim(); this.leadBuf = []; const low = this.leadLow; this.leadLow = false;
     if (this.ended || said.split(/\s+/).length < 3 || /^(yeah|yes|ok|okay|uh huh|mm+|sure|right|no|nope|thanks|thank you)[.!, ]*$/i.test(said)) return;
     if (this.coachBusy) { this.coachNext = said; return; }
     this.coachBusy = true;
@@ -3602,7 +3627,7 @@ export class CallRoom {
     try {
       if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
       const ctxMs = Date.now() - t0;
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
       if (out && out.error) this.broadcast({ type: "coach_error" });
       else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
