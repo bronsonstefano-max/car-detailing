@@ -196,6 +196,7 @@ async function ensureTableRun(db) {
   await db.prepare("ALTER TABLE messages ADD COLUMN from_num TEXT").run().catch(() => {});
   await db.prepare("ALTER TABLE messages ADD COLUMN err TEXT").run().catch(() => {});
   await db.prepare("CREATE TABLE IF NOT EXISTS number_health (num TEXT PRIMARY KEY, level INTEGER NOT NULL DEFAULT 0, at TEXT)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS user_perms (username TEXT PRIMARY KEY, perms TEXT NOT NULL DEFAULT '[]')").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS snippets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
   await db.prepare("ALTER TABLE leads ADD COLUMN unread_flag INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
 }
@@ -1391,7 +1392,7 @@ document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touche
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
   const ins = ["insights", "speed", "rate", "msgstats", "dials", "meta", "numbers"].includes(on), t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
-  return `<nav class="navtabs">${owner ? t("/admin/dashboard", "dashboard", "Dashboard") : ""}${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}${owner ? `<a href="/admin/users" class="so ${on === "users" ? "on" : ""}">Logins</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
+  return `<nav class="navtabs">${t("/admin/dashboard", "dashboard", "Dashboard")}${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a><a href="/admin/users" class="so ${on === "users" ? "on" : ""}">Logins</a><a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
 }
 // one Insights section: overview, speed to lead and contact rate share this tab bar
 const insightTabs = on => `<div class="itabs">${[["insights", "/admin/insights", "Overview"], ["meta", "/admin/meta", "Meta Ads"], ["dials", "/admin/dials", "Dials"], ["numbers", "/admin/numbers", "Number health"], ["speed", "/admin/speed", "Speed to lead"], ["rate", "/admin/rate", "Contact rate"], ["msgstats", "/admin/msgstats", "Messages"], ["ads", "/admin/ads", "Google Ads upload"]].map(([k, h, l]) => `<a href="${h}" class="${on === k ? "on" : ""}">${l}</a>`).join("")}</div>`;
@@ -1414,8 +1415,8 @@ function bnav(on, n = 0, owner = false) {
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
   const moreKeys = ["speed", "rate", "msgstats", "dials", "meta", "numbers", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
-  return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dashboard", "dashboard", "Dashboard", ic.rate)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Reports", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+  return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a><button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button></nav>
+<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dashboard", "dashboard", "Dashboard", ic.rate)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Reports", ic.insights)}${row("/admin/users", "users", "Logins", ic.out)}${row("/logout", "out", "Sign out", ic.out)}</div></div>
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -1508,7 +1509,7 @@ const hasClick = l => !!(l && (l.gclid || l.gbraid || l.wbraid));
 // the shop login never sees where a lead came from: campaign, ad, keyword, landing page, form name and click ids are blanked before the page is built
 const AD_LINE = /^(form name|ad name|adset name|platform|campaign|keyword)\s*:/i;
 const noAds = l => ({
-  ...l, page: "", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "", utm_medium: "", utm_campaign: "", utm_term: "",
+  ...l, recording: "", page: "", referrer: "", gclid: "", gbraid: "", wbraid: "", utm_source: "", utm_medium: "", utm_campaign: "", utm_term: "",
   message: String(l.message || "").split("\n").map(line => line.split(" · ").filter(seg => !AD_LINE.test(seg.trim())).join(" · ")).filter(x => x.trim()).join("\n"),
 });
 function sourceOf(l) {
@@ -2031,7 +2032,7 @@ async function messageThreads(env, url) {
     FROM leads l WHERE EXISTS (SELECT 1 FROM messages WHERE lead_id = l.id) ORDER BY last_at DESC, l.id DESC LIMIT 200`).all()).results || [];
   return json({ success: true, on: twilioOn(env), threads: rs.map(r => ({ ...r, last_at: isoUtc(r.last_at) })) });
 }
-async function messageThread(env, url) {
+async function messageThread(env, url, owner = false) {
   await ensureTable(env.DB);
   const id = Number(url.searchParams.get("id"));
   if (!Number.isInteger(id)) return json({ success: false }, 400);
@@ -2048,9 +2049,9 @@ async function messageThread(env, url) {
   for (const c of calls) {
     let best = -1, bd = 9e15; recs.forEach((r, i) => { if (used.has(i)) return; const d = Math.abs(t2(r.at) - t2(c.started_at)); if (d < bd) { bd = d; best = i; } });
     const rec = best >= 0 && bd < 900000 ? (used.add(best), recs[best]) : null;
-    events.push({ kind: "call", at: isoUtc(c.started_at), dur: c.duration || 0, by: c.by_user || "", url: rec ? rec.url : "", dir: "out" });
+    events.push({ kind: "call", at: isoUtc(c.started_at), dur: c.duration || 0, by: c.by_user || "", url: owner && rec ? rec.url : "", dir: "out" });
   }
-  recs.forEach((r, i) => { if (!used.has(i)) events.push({ kind: "call", at: isoUtc(r.at), dur: r.duration || 0, by: "", url: r.url, dir: r.direction === "inbound" ? "in" : "out" }); });
+  recs.forEach((r, i) => { if (!used.has(i)) events.push({ kind: "call", at: isoUtc(r.at), dur: r.duration || 0, by: "", url: owner ? r.url : "", dir: r.direction === "inbound" ? "in" : "out" }); });
   for (const g of logs) {
     const r = g.reason || "";
     if (/^called \(in-app dialer\)/i.test(r) || /^texted/i.test(r)) continue;
@@ -2058,7 +2059,7 @@ async function messageThread(env, url) {
     else if (/^call result:/i.test(r)) events.push({ kind: "result", at: isoUtc(g.at), text: r.replace(/^call result:\s*/i, ""), by: g.by_user || "" });
     else if (g.to_stage !== g.from_stage) events.push({ kind: "stage", at: isoUtc(g.at), text: "Moved to " + stageName(g.to_stage), by: g.by_user || "" });
   }
-  const notes = (await callNotes(env, id).catch(() => [])).filter(n => n.summary).slice(0, 3);
+  const notes = owner ? (await callNotes(env, id).catch(() => [])).filter(n => n.summary).slice(0, 3) : [];
   return json({ success: true, lead: { ...lead, tags: String(lead.tags || "").split(",").filter(Boolean), stage_label: stageName(lead.stage), created_at: isoUtc(lead.created_at) }, on: twilioOn(env), optout: await isOptedOut(env, lead.phone), messages: ms.reverse().map(m => ({ ...m, at: isoUtc(m.at) })), events, notes });
 }
 async function messagesPage(env, user) {
@@ -2830,7 +2831,9 @@ async function usersPage(env, user) {
   const tc = await todayCount(env);
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS crm_users (username TEXT PRIMARY KEY, salt TEXT NOT NULL, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
   const rows = (await env.DB.prepare("SELECT username, created_at FROM crm_users ORDER BY username").all()).results || [];
-  const payload = JSON.stringify({ users: rows.map(r => ({ username: r.username, at: isoUtc(r.created_at) })) }).replace(/</g, "\\u003c");
+  const allUsers = [{ username: "giordani", at: "", env: true }, ...rows.map(r => ({ username: r.username, at: isoUtc(r.created_at), env: false }))];
+  for (const u of allUsers) u.perms = [...(await userPerms(env, u.username))];
+  const payload = JSON.stringify({ users: allUsers, labels: PERM_LABELS }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Logins | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
@@ -2839,27 +2842,29 @@ h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex
 ${RPT_CSS}
 main{max-width:760px}.fr{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.fr label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}.fr input{width:100%;background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;min-height:44px}
 .bt{background:#10151b;border:1px solid #232b34;color:#e8eaed;border-radius:10px;padding:9px 14px;font:inherit;font-weight:650;cursor:pointer;min-height:44px}.bt.g{background:#32cd32;border-color:#32cd32;color:#04120a}.bt.r{color:#ff8a8a}
-.ur{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #141a20}.ur:last-child{border:0}.ur b{flex:1;font-size:16px}.ur input{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:8px 10px;font:inherit;width:180px}
+.pm{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 16px;padding-top:4px}.pm label{display:flex;align-items:center;gap:7px;color:#cfd6de;font-size:13.5px;margin:0;text-transform:none;letter-spacing:0;cursor:pointer}.pm input[type=checkbox]{width:auto!important;min-height:0!important;padding:0!important;margin:0}.ps{color:#4fdc5a;font-size:12.5px;flex-basis:100%;min-height:16px}.ur{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #141a20}.ur:last-child{border:0}.ur b{flex:1;font-size:16px}.ur input{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:8px 10px;font:inherit;width:180px}
 ${BNAV_CSS}
 @media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}.fr{grid-template-columns:1fr}}
 </style></head><body>
 <header><h1>Divine Detailers <b>logins</b></h1>${nav("users", tc, true)}</header>
 ${bnav("users", tc, true)}
 <main>
-<p class="note">People you add here can sign in with their own username and password and have the same access as Giordani: leads, pipeline, messages and today, but not the dialer, scripts, coach, reports or this page. Only you can add, change or remove logins.</p>
+<p class="note">Tick what each person can open. The dialer, call scripts, coach, call recordings, call transcripts, number health and this page are never available to them. Only you can add, change or remove logins.</p>
 <div class="card"><h3>Add a login</h3><div class="fr"><div><label for="nu">Username</label><input id="nu" autocomplete="off" autocapitalize="none" maxlength="20" placeholder="letters and numbers"></div><div><label for="np">Password</label><input id="np" type="text" autocomplete="off" placeholder="at least 8 characters"></div><button class="bt g" id="add" type="button">Add login</button></div><div class="note" id="am"></div></div>
 <div class="card"><h3>Current logins</h3><div id="ul"></div></div>
-<p class="note">Bronson and Giordani's passwords are Cloudflare secrets and are not listed here.</p>
+<p class="note">Bronson's and Giordani's passwords are Cloudflare secrets: change them there. Giordani is listed so you can choose what he sees. Reports include revenue, ad spend and cost numbers, so turn that on only for someone you trust with them.</p>
 </main>
 <script type="application/json" id="data">${payload}</script>
 <script>
 ${RPT_JS}
-let U=JSON.parse(document.getElementById('data').textContent).users;
-function draw(){document.getElementById('ul').innerHTML=U.length?U.map(u=>'<div class="ur" data-u="'+$(u.username)+'"><b>'+$(u.username)+'</b><input type="text" placeholder="New password" autocomplete="off"><button class="bt" data-a="reset" type="button">Change password</button><button class="bt r" data-a="delete" type="button">Remove</button></div>').join(''):'<div class="empty">No extra logins yet.</div>'}
+const DATA=JSON.parse(document.getElementById('data').textContent);let U=DATA.users;const LB=DATA.labels;
+const pm=u=>'<div class="pm">'+Object.keys(LB).map(k=>'<label><input type="checkbox" data-p="'+k+'"'+(u.perms.indexOf(k)>=0?' checked':'')+'> '+$(LB[k])+'</label>').join('')+'</div><div class="ps"></div>';
+function draw(){document.getElementById('ul').innerHTML=U.map(u=>'<div class="ur" data-u="'+$(u.username)+'"><b>'+$(u.username)+(u.env?' <span class="note">(password is in Cloudflare)</span>':'')+'</b>'+(u.env?'':'<input type="text" placeholder="New password" autocomplete="off"><button class="bt" data-a="reset" type="button">Change password</button><button class="bt r" data-a="delete" type="button">Remove</button>')+pm(u)+'</div>').join('')}
+document.getElementById('ul').addEventListener('change',async e=>{const c=e.target.closest('input[data-p]');if(!c)return;const row=c.closest('[data-u]'),u=U.find(x=>x.username===row.dataset.u);const perms=[...row.querySelectorAll('input[data-p]')].filter(x=>x.checked).map(x=>x.dataset.p);const j=await act({action:'perms',username:u.username,perms:perms});const st=row.querySelector('.ps');if(j.success){u.perms=perms;st.textContent='Saved.'}else{st.style.color='#ff8a8a';st.textContent=j.message||'Could not save.'}setTimeout(()=>{st.textContent='';st.style.color=''},2000)});
 async function act(body){const r=await fetch('/admin/users',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});return r.json().catch(()=>({success:false,message:'No connection.'}))}
-document.getElementById('add').onclick=async()=>{const m=document.getElementById('am');m.textContent='';const j=await act({action:'add',username:document.getElementById('nu').value,password:document.getElementById('np').value});if(j.success){U=j.users;document.getElementById('nu').value='';document.getElementById('np').value='';m.textContent='Login added.';draw()}else m.textContent=j.message||'Could not add it.'};
+document.getElementById('add').onclick=async()=>{const m=document.getElementById('am');m.textContent='';const j=await act({action:'add',username:document.getElementById('nu').value,password:document.getElementById('np').value});if(j.success){U=U.concat(j.users.filter(x=>!U.some(y=>y.username===x.username)).map(x=>Object.assign(x,{env:false,perms:j.perms||[]})));document.getElementById('nu').value='';document.getElementById('np').value='';m.textContent='Login added. Choose what they can see below.';draw()}else m.textContent=j.message||'Could not add it.'};
 document.getElementById('ul').onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const row=b.closest('[data-u]'),u=row.dataset.u;
-  if(b.dataset.a==='delete'){if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='Tap again to remove';return}const j=await act({action:'delete',username:u});if(j.success){U=j.users;draw()}return}
+  if(b.dataset.a==='delete'){if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='Tap again to remove';return}const j=await act({action:'delete',username:u});if(j.success){U=U.filter(x=>x.username!==u);draw()}return}
   const pw=row.querySelector('input').value;const j=await act({action:'reset',username:u,password:pw});b.textContent=j.success?'Changed':(j.message||'Could not change');setTimeout(()=>{b.textContent='Change password'},2500)};
 draw();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
@@ -2869,19 +2874,27 @@ async function usersApi(env, request) {
   const b = await request.json().catch(() => ({})), name = String(b.username || "").trim().toLowerCase(), pw = String(b.password || "").trim();
   const list = async () => ((await env.DB.prepare("SELECT username, created_at FROM crm_users ORDER BY username").all()).results || []).map(r => ({ username: r.username, at: isoUtc(r.created_at) }));
   if (!/^[a-z0-9]{3,20}$/.test(name)) return json({ success: false, message: "Use 3 to 20 letters or numbers for the username." }, 400);
-  if (Object.hasOwn(USERS, name) || name === OWNER) return json({ success: false, message: "That username is already used." }, 400);
-  if (b.action === "delete") { await env.DB.prepare("DELETE FROM crm_users WHERE username = ?").bind(name).run(); return json({ success: true, users: await list() }); }
+  if (name === OWNER) return json({ success: false, message: "That username is already used." }, 400);
+  if (b.action === "perms") {
+    if (!Object.hasOwn(USERS, name) && !(await env.DB.prepare("SELECT 1 FROM crm_users WHERE username = ?").bind(name).first())) return json({ success: false, message: "No such login." }, 404);
+    const perms = (Array.isArray(b.perms) ? b.perms : []).filter(k => Object.hasOwn(PERM_PATHS, k));
+    await env.DB.prepare("INSERT INTO user_perms (username, perms) VALUES (?, ?) ON CONFLICT(username) DO UPDATE SET perms = excluded.perms").bind(name, JSON.stringify(perms)).run();
+    return json({ success: true, perms });
+  }
+  if (Object.hasOwn(USERS, name)) return json({ success: false, message: "That username is already used." }, 400);
+  if (b.action === "delete") { await env.DB.batch([env.DB.prepare("DELETE FROM crm_users WHERE username = ?").bind(name), env.DB.prepare("DELETE FROM user_perms WHERE username = ?").bind(name)]); return json({ success: true, users: await list() }); }
   if (pw.length < 8 || pw.length > 100) return json({ success: false, message: "The password needs at least 8 characters." }, 400);
   const exists = await env.DB.prepare("SELECT 1 FROM crm_users WHERE username = ?").bind(name).first();
   const salt = hex(crypto.getRandomValues(new Uint8Array(16))), hash = await hashPw(pw, salt);
   if (b.action === "add") {
     if (exists) return json({ success: false, message: "That username is already used." }, 400);
     await env.DB.prepare("INSERT INTO crm_users (username, salt, hash) VALUES (?,?,?)").bind(name, salt, hash).run();
+    await env.DB.prepare("INSERT OR IGNORE INTO user_perms (username, perms) VALUES (?, ?)").bind(name, JSON.stringify(PERM_DEFAULT)).run();
   } else if (b.action === "reset") {
     if (!exists) return json({ success: false, message: "No such login." }, 404);
     await env.DB.prepare("UPDATE crm_users SET salt = ?, hash = ? WHERE username = ?").bind(salt, hash, name).run();
   } else return json({ success: false }, 400);
-  return json({ success: true, users: await list() });
+  return json({ success: true, users: await list(), perms: PERM_DEFAULT });
 }
 
 // ---- Automations: editable text sequences and campaigns. Each automation has rules (who, when, what stage) and ordered steps (timing + message).
@@ -5698,8 +5711,63 @@ for(const [id,act] of [['dl','load'],['dc','clear']]){const el=document.getEleme
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
+// What each non-owner login may open. The owner sets it on the Logins page. The dialer, scripts, recordings, number health and logins are never available to these logins.
+const PERM_PATHS = { today: ["/admin/today"], leads: ["/admin"], pipeline: ["/admin/pipeline"], messages: ["/admin/messages"], calendar: ["/admin/calendar"], dashboard: ["/admin/dashboard"], reports: ["/admin/insights", "/admin/meta", "/admin/dials", "/admin/speed", "/admin/rate", "/admin/msgstats", "/admin/reports"] };
+const PERM_LABELS = { today: "Today", leads: "Leads", pipeline: "Pipeline", messages: "Messages", calendar: "Calendar", dashboard: "Dashboard", reports: "Reports (money and ad numbers)" };
+const PERM_DEFAULT = ["today", "leads", "pipeline", "messages"];
+async function userPerms(env, user) {
+  await ensureTable(env.DB);
+  const r = await env.DB.prepare("SELECT perms FROM user_perms WHERE username = ?").bind(user).first().catch(() => null);
+  let list = PERM_DEFAULT; try { if (r) list = JSON.parse(r.perms); } catch (_) {}
+  return new Set(list.filter(k => Object.hasOwn(PERM_PATHS, k)));
+}
+function permKeyFor(p) {
+  if (p === "/admin" || p === "/admin/leads.csv") return "leads";
+  if (p === "/admin/pipeline") return "pipeline";
+  if (p === "/admin/today") return "today";
+  if (p === "/admin/messages" || p === "/admin/threads" || p === "/admin/thread") return "messages";
+  if (p === "/admin/calendar" || p === "/admin/calendar/urable") return "calendar";
+  if (p === "/admin/dashboard" || p === "/admin/dashboard/data") return "dashboard";
+  if (["/admin/insights", "/admin/speed", "/admin/rate", "/admin/meta", "/admin/msgstats", "/admin/msgstats/data", "/admin/dials", "/admin/dials/data"].includes(p)) return "reports";
+  return null;
+}
+const permAllows = (perms, href) => { const path = String(href || "").split(/[?#]/)[0].replace(/\/+$/, "") || "/"; if (path === "/logout") return true; return [...perms].some(k => PERM_PATHS[k].includes(path)); };
+function filterNav(res, perms) {
+  if (!/text\/html/.test(res.headers.get("content-type") || "")) return res;
+  const rm = { element(e) { const h = e.getAttribute("href"); if (h && !permAllows(perms, h)) e.remove(); } };
+  return new HTMLRewriter().on("nav.navtabs a", rm).on(".bnav a", rm).on(".msheet a", rm).on(".itabs a", rm).transform(res);
+}
+// the pages that were owner-only but can be switched on for a login (Calendar, Dashboard, Reports)
+async function ownerViews(p, request, env) {
+  const u = new URL(request.url), days = Number(u.searchParams.get("days"));
+  if (p === "/admin/dashboard") return dashboardPage(env, OWNER);
+  if (p === "/admin/dashboard/data") return json(await dashData(env, days));
+  if (p === "/admin/calendar") return calendarPage(env, OWNER);
+  if (p === "/admin/calendar/urable") return json({ success: true, ...(await urableCalendar(env)) });
+  if (p === "/admin/insights") return insightsPage(env, OWNER);
+  if (p === "/admin/speed") return speedPage(env, OWNER);
+  if (p === "/admin/rate") return ratePage(env, OWNER);
+  if (p === "/admin/meta") return metaPage(env, OWNER);
+  if (p === "/admin/msgstats") return msgStatsPage(env, OWNER);
+  if (p === "/admin/msgstats/data") return json({ success: true, ...(await msgStatsData(env, u.searchParams.get("from"), u.searchParams.get("to"))) });
+  if (p === "/admin/dials") return dialsPage(env, OWNER);
+  if (p === "/admin/dials/data") return json(await dialsData(env, u.searchParams.get("from"), u.searchParams.get("to")));
+  return null;
+}
 async function adminRoute(p, request, env) {
   const a = await authed(request, env);
+  if (!a || a === "unconfigured" || a === OWNER || !env.DB) return adminRouteCore(p, request, env, a);
+  const perms = await userPerms(env, a), need = permKeyFor(p);
+  if (need && !perms.has(need)) {
+    if (request.method !== "GET") return json({ success: false, message: "Not allowed" }, 403);
+    const first = ["today", "leads", "pipeline", "messages", "calendar", "dashboard", "reports"].find(k => perms.has(k));
+    return first ? new Response(null, { status: 302, headers: { location: PERM_PATHS[first][0], "cache-control": "no-store" } }) : new Response("Nothing has been turned on for your login yet. Ask Bronson.", { status: 403 });
+  }
+  const view = need && ["calendar", "dashboard", "reports"].includes(need) ? await ownerViews(p, request, env) : null;
+  return filterNav(view || await adminRouteCore(p, request, env, a), perms);
+}
+async function adminRouteCore(p, request, env, a0) {
+  const a = a0 !== undefined ? a0 : await authed(request, env);
   if (a === "unconfigured") return new Response("Sign in is not set up yet. Add the PASSWORD_GIORDANI and PASSWORD_BRONSON secrets.", { status: 503 });
   if (!a) {
     if (request.method === "GET") { const u = new URL(request.url); return new Response(null, { status: 302, headers: { location: "/login?next=" + encodeURIComponent(u.pathname + u.search), "cache-control": "no-store" } }); }
@@ -5785,7 +5853,7 @@ async function adminRoute(p, request, env) {
   }
   if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT (SELECT COUNT(*) FROM messages WHERE direction = 'in' AND is_read = 0) + (SELECT COUNT(*) FROM leads WHERE unread_flag = 1) n").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
-  if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
+  if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url), a === OWNER);
   if (p === "/admin/markunread" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id)) return json({ success: false }, 400);
@@ -5876,7 +5944,7 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
   const user = typeof a === "string" ? a : "";
-  if (p === "/admin/calls") { const id = Number(new URL(request.url).searchParams.get("id")); return Number.isInteger(id) ? json({ success: true, notes: await callNotes(env, id), recordings: await callRecordings(env, id), attempts: await leadAttempts(env, id), history: await leadHistory(env, id) }) : json({ success: false }, 400); }
+  if (p === "/admin/calls") { const id = Number(new URL(request.url).searchParams.get("id")); if (a !== OWNER && Number.isInteger(id)) return json({ success: true, notes: [], recordings: [], attempts: await leadAttempts(env, id), history: await leadHistory(env, id) }); return Number.isInteger(id) ? json({ success: true, notes: await callNotes(env, id), recordings: await callRecordings(env, id), attempts: await leadAttempts(env, id), history: await leadHistory(env, id) }) : json({ success: false }, 400); }
   if (p === "/admin/delete" && request.method === "POST") {
     if (a !== OWNER) return json({ success: false, message: "Only the owner login can delete leads." }, 403);
     const b = await request.json().catch(() => ({}));
