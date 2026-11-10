@@ -18,6 +18,11 @@ What you get in the "out" folder:
   pivotal.csv                    the turning points in each call
   moments.csv                    the key questions and pushback with better answers
   knowledge.csv                  product claims made on calls that the script does not cover (verify before the coach uses them)
+  closing.csv                    per call: how many times the deposit was asked, how soon after the price, payment route, whether a date was offered, callback time, the exact closing words, price framing, upsells
+  missed_closes.csv              every moment a lead showed a buying signal and the rep did not ask for the deposit, with the exact line that would have
+  objection_stats.csv            per objection type: how often, how often those calls won, how the lead reacted, and the best reply
+  knowledge_conflicts.csv        facts that different reps told leads differently (warranty, timing...). You decide the right answer once
+  holdout_pairs.jsonl            calls set aside (10%) and never used for learning; the coach is tested on these later
   mined/                         the full deep record for each call, including every turn
   transcripts/                   the raw transcripts
 
@@ -30,3 +35,9 @@ To redo the analysis after an update (keeps the transcripts, so no new transcrip
 
 Keys: Deepgram = console.deepgram.com > API Keys. Anthropic = console.anthropic.com > API Keys.
 Never paste the keys into chat or email.
+
+Extra inputs (all optional):
+  roster.txt / glossary.txt      rep names and business words
+  metadata.csv                   file, phone, date, direction, source for each recording (see metadata.csv.example). Dates and phone numbers are also read from file names if they are there
+  results.csv                    phone, date, type (deposit / booked / job), amount from your CRM (see results.csv.example). When present, real deposits decide what counts as a win, not the AI's reading
+Redo after an update: delete out/mined, run again (transcripts are kept, so no new Deepgram cost).

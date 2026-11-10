@@ -33,7 +33,7 @@ What one call record contains (out/mined/<call>.json):
   turns        the full call, turn by turn: time, who (rep or lead), exact words, and tags (what it was, which topic,
                which script step, who it answers, how good the answer was)
 """
-import argparse, collections, csv, difflib, glob, hashlib, json, os, re, subprocess, sys, threading, time
+import argparse, collections, csv, datetime, difflib, glob, hashlib, json, os, re, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
@@ -42,12 +42,17 @@ DG_BASE = os.environ.get("DEEPGRAM_BASE", "https://api.deepgram.com")
 AN_BASE = os.environ.get("ANTHROPIC_BASE", "https://api.anthropic.com")
 DEFAULT_MODEL = "claude-sonnet-5-5"
 
+OBJECTIONS = "price_too_high, need_to_think, spouse_or_partner, shopping_around, send_info_first, not_now_later, trust_or_unknown_shop, warranty_doubt, other_shop_cheaper, diy_or_cheaper_option, wont_pay_deposit, already_has_work, other"
+
 TOPICS = "what_is_it, price, scratches_swirls, paint_condition_or_repaint, how_long, warranty, brand_or_film, legal_tint, heat_uv_privacy, location, booking_time, deposit_or_payment, wax_comparison, need_to_think, spouse, send_me_info, shopping_around, too_expensive, aftercare, other"
 
 SCHEMA = """{
- "meta": {"agent_name": "first name of the sales rep as said on the call, or null", "agent_confidence": "high|medium|low", "client_name": "the lead's name as said on the call, or null", "service": "tint|coating|correction|ppf|wrap|detail|multiple|other", "vehicle": {"year": null, "make": null, "model": null, "color": null, "condition_notes": null}, "call_type": "outbound_followup|inbound|callback|voicemail|wrong_number|other", "language": "en|es|mixed", "transcript_quality": "good|fair|poor"},
+ "meta": {"agent_name": "first name of the sales rep as said on the call, or null", "agent_confidence": "high|medium|low", "client_name": "the lead's name as said on the call, or null", "service": "tint|coating|correction|ppf|wrap|detail|multiple|other", "vehicle": {"year": null, "make": null, "model": null, "color": null, "condition_notes": null}, "call_type": "outbound_followup|inbound|callback|voicemail|wrong_number|other", "language": "en|es|mixed", "transcript_quality": "good|fair|poor", "lead_source": "ad|inbound_call|referral|returning_customer|unknown", "lead_temperature": "hot|warm|cold"},
  "rep_speaker": "S0",
- "outcome": {"result": "booked|deposit_taken|callback_set|not_interested|no_decision|lost_to_competitor|no_answer_or_voicemail|unclear", "win": false, "evidence": "what in the call shows this", "price_quoted": null, "deposit_asked": null, "appointment": null, "next_step": null},
+ "outcome": {"result": "booked|deposit_taken|callback_set|not_interested|no_decision|lost_to_competitor|no_answer_or_voicemail|unclear", "win": false, "confidence": 0.8, "closing_language": "the rep's exact words when asking for the deposit/date, or null", "evidence": "what in the call shows this", "price_quoted": null, "deposit_asked": null, "appointment": null, "next_step": null},
+ "closing": {"deposit_ask_count": 0, "first_ask_t": "m:ss or null", "payment_route": "link|card_by_phone|apple_pay|in_person|none", "date_offered_by_rep": false, "date_set": null, "callback_time_specific": null, "blocker_removed": "what stopped the deposit and how the rep handled it, or null"},
+ "missed_closes": [{"t": "m:ss", "signal": "what the lead said or did that was a buying signal", "rep_did": "what the rep did instead, close to verbatim", "should_have": "the exact line that would have asked for the deposit and date"}],
+ "price_handling": {"quote": null, "frame": "anchor|savings|value|special|none", "discount_offered": null, "upsell_attempted": null, "upsell_accepted": null},
  "summary": "two sentences: who the lead is, what they wanted, how it ended",
  "timeline": [{"t": "m:ss", "phase": "opener|rapport|discovery|recap|pitch|price|objection|close|deposit|wrap_up|other", "script_step": "step id like s06 or null", "what_happened": "one sentence"}],
  "script": {"compared_against": "tint|coating|none", "steps_covered": ["s02"], "steps_skipped": ["s09"], "order_notes": "how the call's order differed from the script, and whether that mattered",
@@ -58,7 +63,7 @@ SCHEMA = """{
  "knowledge": [{"topic": "short topic", "claim": "a factual statement about the product, process, price or paint/tint science made on the call", "said_by": "rep|lead", "vs_script": "matches|contradicts|not_in_script", "note": "why it matters or what to verify"}],
  "scores": {"rapport": 1, "discovery": 1, "aca_framework": 1, "pitch": 1, "objection_handling": 1, "close": 1, "control": 1, "overall": 1, "justification": "two or three sentences"},
  "coaching": {"strengths": [], "fixes": [], "one_lesson": "the single most useful lesson from this call for an AI coach"},
- "turn_tags": [{"i": 12, "kind": "question|objection|buying_signal|statement|small_talk|pitch|price|close|ack|other", "topic": "one of the topics or null", "phase": "opener|rapport|discovery|recap|pitch|price|objection|close|deposit|wrap_up|other", "script_step": "s06 or null", "needs_response": true, "answers_turn": null, "answered_by": [13, 14], "quality": 1}]
+ "turn_tags": [{"i": 12, "kind": "question|objection|buying_signal|statement|small_talk|pitch|price|close|ack|other", "topic": "one of the topics or null", "phase": "opener|rapport|discovery|recap|pitch|price|objection|close|deposit|wrap_up|other", "script_step": "s06 or null", "needs_response": true, "answers_turn": null, "answered_by": [13, 14], "quality": 1, "objection": "one of the objection labels or null", "reaction": "warmer|neutral|colder"}]
 }"""
 
 RUBRIC = """Scoring (1 to 5; use the whole range; a typical average call is a 3):
@@ -71,7 +76,7 @@ RUBRIC = """Scoring (1 to 5; use the whole range; a typical average call is a 3)
 - control: kept the call moving toward a booking; answered questions then steered back; did not ramble or let the lead drive off
 - overall: your overall judgement of the call, not an average"""
 
-MINE_RULES = """You are the head of sales training for a car detailing shop in Miami that sells window tint, ceramic coating, paint correction, paint protection film and wraps. You will be given the transcript of ONE recorded sales call (speakers are labeled S0/S1, or C0/C1 for the two audio channels; work out who is the sales rep: the one who introduces the shop and pitches) and the shop's call SCRIPTS.
+MINE_RULES = """You are the head of sales training for a car detailing shop that sells window tint, ceramic coating, paint correction, paint protection film and wraps. You will be given the transcript of ONE recorded sales call (speakers are labeled S0/S1, or C0/C1 for the two audio channels; work out who is the sales rep: the one who introduces the shop and pitches) and the shop's call SCRIPTS.
 
 Evaluate the call deeply and return ONLY one JSON object, no markdown, in exactly this shape (every key present; use null or [] when unknown):
 """ + SCHEMA + """
@@ -85,6 +90,10 @@ Rules:
 - "pivotal": 2 to 6 turning points. Say what changed because of it.
 - "knowledge": factual claims about the products, process, pricing, durations, warranty, paint or tint science (for example whether a sun-damaged clear coat needs correction or repainting). Mark vs_script as contradicts or not_in_script when the script does not cover it, so a human can verify it. Do not treat opinions or small talk as knowledge.
 - "turn_tags": the transcript is given with numbered turns (#12). Tag EVERY substantive turn of both speakers, in order. For a lead turn that needs a reply (a question, objection, buying signal, or a statement the rep should respond to) set needs_response true, list the rep turn numbers that answered it in answered_by, topic, and rate the answer in quality (1-5). For a rep turn that answers a lead turn, set answers_turn to that lead turn number and rate it. Skip one-word backchannels (yeah, ok, mm-hmm) and filler. Use the exact turn numbers from the transcript. script_step is the script step the turn corresponds to, when there is one.
+- Objection labels (for objection turns only, field "objection"): """ + OBJECTIONS + """.
+- "reaction" goes on a REP turn that answers a lead turn: how the lead's very next words show they took it (warmer = agreed, asked a buying question, or moved forward; neutral; colder = pushed back harder, went quiet, or tried to end the call).
+- "closing": count every time the rep asked for a deposit or a payment, with the first time. "missed_closes": every moment after a buying signal (agreed to a price, asked about dates or payment, said it sounds good) where the rep did not ask for the deposit and date; write the exact line they should have said. Empty list if none.
+- outcome.confidence is 0 to 1 and says how sure you are of the result; outcome.closing_language is the rep's own words when asking for the deposit and date.
 - WIN: a win is a deposit taken (or a payment link sent and paid) AND a specific appointment date set, on this call. Set outcome.win true only then. A date without a deposit is "booked" but not a win. A callback, or "I'll call you back", is a soft loss (result callback_set, win false). Use the transcript's own words as evidence.
 - Spoken numbers are often garbled in the transcript ("$2.69" is probably $269, "one seventy nine" is $179, "$4.99" may be $499). Interpret prices using the prices in the script and put the likely price in outcome.price_quoted; add "(unclear)" when you are not sure. Do not build a scoring judgment on a garbled number.
 - If the call is a voicemail, wrong number, or too short to evaluate, still return the full shape with empty lists, outcome.result "no_answer_or_voicemail" or "unclear", and scores of 1 with a justification saying it was not a real conversation.
@@ -419,7 +428,7 @@ def merge_turns(turns, rep, tags):
         tg = by.get(t["i"], {})
         out.append({"i": t["i"], "t": t["t"], "start": t["start"], "end": t["end"], "spk": t["spk"], "role": ("rep" if t["spk"] == rep else "lead") if rep else "unknown", "text": t["text"],
                     "kind": tg.get("kind"), "topic": tg.get("topic"), "phase": tg.get("phase"), "script_step": tg.get("script_step"), "needs_response": bool(tg.get("needs_response")),
-                    "answers_turn": tg.get("answers_turn"), "answered_by": tg.get("answered_by") or [], "quality": tg.get("quality")})
+                    "answers_turn": tg.get("answers_turn"), "answered_by": tg.get("answered_by") or [], "quality": tg.get("quality"), "objection": tg.get("objection"), "reaction": tg.get("reaction")})
     return out
 
 
@@ -487,6 +496,102 @@ def cmd_mine(a):
 
 
 # ------------------------------------------------------------------ report
+META = {}        # file base name -> {phone, date, direction, source}
+RESULTS = {}     # last 10 digits of phone -> [{date, type, amount}]
+HOLDOUT_PCT = 10
+WINDOW_DAYS = 21
+
+
+def norm_phone(x):
+    d = re.sub(r"\D", "", str(x or ""))
+    return d[-10:] if len(d) >= 10 else None
+
+
+def parse_date(x):
+    x = str(x or "").strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y", "%m/%d/%y", "%m/%d/%Y %H:%M", "%Y%m%d"):
+        try:
+            return datetime.datetime.strptime(x[:len(datetime.datetime.now().strftime(fmt))] if fmt.startswith("%Y%m%d") else x, fmt).date()
+        except Exception:
+            continue
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", x)
+    if m:
+        try:
+            return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except Exception:
+            return None
+    return None
+
+
+def load_csv_rows(path):
+    if not path or not os.path.exists(path):
+        return []
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        return [{(k or "").strip().lower(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(fh)]
+
+
+def load_meta(path):
+    META.clear()
+    for r in load_csv_rows(path):
+        key = os.path.splitext(os.path.basename(r.get("file", "")))[0].lower()
+        if key:
+            META[key] = {"phone": norm_phone(r.get("phone")), "date": parse_date(r.get("date")), "direction": r.get("direction") or None, "source": r.get("source") or None}
+
+
+def load_results(path):
+    RESULTS.clear()
+    for r in load_csv_rows(path):
+        ph = norm_phone(r.get("phone"))
+        if ph:
+            RESULTS.setdefault(ph, []).append({"date": parse_date(r.get("date")), "type": (r.get("type") or "deposit").lower(), "amount": r.get("amount")})
+
+
+def file_meta(base):
+    m = dict(META.get(str(base).lower()) or {})
+    n = str(base)
+    if not m.get("date"):
+        mm = re.search(r"(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})", n)
+        if mm:
+            try:
+                m["date"] = datetime.date(int(mm.group(1)), int(mm.group(2)), int(mm.group(3)))
+            except Exception:
+                pass
+    if not m.get("phone"):
+        rest = re.sub(r"20\d{2}[-_.]?\d{2}[-_.]?\d{2}", " ", n)
+        mm = re.search(r"(?<!\d)1?(\d{10})(?!\d)", re.sub(r"[-_. ()+]", "", rest))
+        if mm:
+            m["phone"] = mm.group(1)
+    return m
+
+
+def verify(c):
+    """What the shop's own records say about this call, when you supply results.csv. None = no way to check."""
+    ph = (c.get("_fm") or {}).get("phone")
+    if not RESULTS or not ph:
+        return None
+    d = (c.get("_fm") or {}).get("date")
+    hit = [r for r in RESULTS.get(ph, []) if d is None or r["date"] is None or -1 <= (r["date"] - d).days <= WINDOW_DAYS]
+    if any(r["type"] in ("deposit", "paid", "job", "win") for r in hit):
+        return "win"
+    return "booked" if hit else "none"
+
+
+def is_holdout(base):
+    return HOLDOUT_PCT > 0 and int(hashlib.sha1(str(base).encode()).hexdigest(), 16) % 100 < HOLDOUT_PCT
+
+
+def annotate(c):
+    c["_fm"] = file_meta(c.get("call"))
+    c["_ver"] = verify(c)
+    c["_holdout"] = is_holdout(c.get("call"))
+    return c
+
+
+def age_days(c):
+    d = (c.get("_fm") or {}).get("date")
+    return (datetime.date.today() - d).days if d else None
+
+
 def fingerprint(c):
     ts = c.get("turns") or []
     head = " ".join(t.get("text", "") for t in ts[:6]).lower()
@@ -506,7 +611,7 @@ def load_mined(out):
         if fp[0] and fp in seen:
             continue
         seen.add(fp)
-        calls.append(c)
+        calls.append(annotate(c))
     return calls
 
 
@@ -526,19 +631,28 @@ def write_csv(path, rows, fields):
 
 
 def outcome_class(c):
-    """win = deposit taken AND a date set. Booked without a deposit and callbacks are not wins."""
+    """win = deposit taken AND a date set. Booked without a deposit and callbacks are not wins. When results.csv is supplied, the shop's own records overrule the AI's reading."""
     r, w = g(c, "outcome", "result"), g(c, "outcome", "win")
     if g(c, "meta", "call_type") in ("voicemail", "wrong_number") or r == "no_answer_or_voicemail":
         return "no_conversation"
     if w is True or r == "deposit_taken":
+        ai = "win"
+    elif r == "booked":
+        ai = "booked_no_deposit"
+    elif r == "callback_set":
+        ai = "callback"
+    elif r in ("not_interested", "lost_to_competitor", "no_decision"):
+        ai = "loss"
+    else:
+        ai = "unclear"
+    v = c.get("_ver")
+    if v == "win":
         return "win"
-    if r == "booked":
+    if v == "booked":
         return "booked_no_deposit"
-    if r == "callback_set":
-        return "callback"
-    if r in ("not_interested", "lost_to_competitor", "no_decision"):
-        return "loss"
-    return "unclear"
+    if v == "none" and ai == "win":
+        return "unverified_win"      # the AI heard a deposit but the shop has no record of one
+    return ai
 
 
 def won(c):
@@ -567,12 +681,20 @@ def agent_weights(calls):
     return out
 
 
-SHOP_FACTS = re.compile(r"jack.?s auto customs|jax auto customs|jacksonville|georgia|amco|walgreens|o.?reilly|hitek|hypex|xpel|llumar|ethos|square|halloween|\\$\\s?\\d[\\d,\\.]*|\\b\\d{3,4}\\s?(?:dollars|bucks)\\b", re.I)
+SHOP_FACTS = re.compile(r"jack.?s auto customs|jax auto customs|jacksonville|georgia|amco|walgreens|o.?reilly|hitek|hypex|xpel|llumar|ethos|square|halloween|\$\s?\d[\d,\.]*|\b\d{3,4}\s?(?:dollars|bucks)\b", re.I)
 
 
-def mask(text):
-    t = re.sub(r"jack.?s auto customs|jax auto customs", "{shop}", text, flags=re.I)
-    t = re.sub(r"\\$\\s?\\d[\\d,\\.]*", "{amount}", t)
+def mask(text, names=()):
+    """Shop facts and personal details out of text that is stored for retrieval."""
+    t = re.sub(r"jack.?s auto customs|jax auto customs", "{shop}", str(text or ""), flags=re.I)
+    t = re.sub(r"\$\s?\d[\d,\.]*", "{amount}", t)
+    t = re.sub(r"[\w.+-]+@[\w-]+\.[\w.]+", "{email}", t)
+    t = re.sub(r"(?<!\w)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)", "{phone}", t)
+    t = re.sub(r"\b(?:\d[\s-]){6,}\d\b", "{number}", t)
+    t = re.sub(r"(plate|tag)( number| is| was)?[:\s]+[A-Za-z0-9 -]{5,9}", r"\1 {plate}", t, flags=re.I)
+    for n in names:
+        if n and len(str(n)) > 2:
+            t = re.sub(r"\b%s\b" % re.escape(str(n)), "{name}", t, flags=re.I)
     return t
 
 
@@ -599,15 +721,27 @@ def build_library(c, W):
             if abs(secs(m.get("t")) - int(t.get("start") or 0)) <= 6 and m.get("better_answer"):
                 better = m["better_answer"]
                 break
+        names = [g(c, "meta", "client_name")]
+        react = next((r.get("reaction") for r in reps if r.get("reaction")), None)
+        nxt = next((x for x in turns[k + 1:] if x.get("role") == "lead" and len(x["text"].split()) > 1), None)
         out.append({"id": "%s#%d" % (str(c.get("call"))[:12], t["i"]), "call": c.get("call"), "agent": agent_key(c), "client": g(c, "meta", "client_name"), "service": g(c, "meta", "service"),
-                    "result": g(c, "outcome", "result"), "won": won(c), "t": t.get("t"), "kind": t.get("kind"), "topic": t.get("topic"), "phase": t.get("phase"), "script_step": t.get("script_step"),
-                    "lead_said": t.get("text"), "context_before": [{"role": x["role"], "text": x["text"]} for x in turns[max(0, k - 3):k]],
+                    "result": g(c, "outcome", "result"), "outcome_class": outcome_class(c), "won": won(c), "holdout": bool(c.get("_holdout")), "t": t.get("t"), "kind": t.get("kind"), "customer_type": t.get("kind"),
+                    "topic": t.get("topic"), "objection": t.get("objection"), "phase": t.get("phase"), "stage": t.get("phase"), "script_step": t.get("script_step"),
+                    "reaction": react, "lead_next_said": nxt["text"] if nxt else None, "call_date": str((c.get("_fm") or {}).get("date") or "") or None, "age_days": age_days(c),
+                    "language": g(c, "meta", "language"), "lead_source": g(c, "meta", "lead_source"), "lead_temperature": g(c, "meta", "lead_temperature"), "outcome_confidence": g(c, "outcome", "confidence"),
+                    "lead_said": t.get("text"), "lead_said_masked": mask(t.get("text"), names), "context_before": [{"role": x["role"], "text": mask(x["text"], names)} for x in turns[max(0, k - 3):k]],
                     "rep_response": " ".join(r["text"] for r in reps), "rep_response_turns": [r["i"] for r in reps], "response_t": reps[0].get("t"),
                     "has_shop_facts": bool(SHOP_FACTS.search(" ".join(r["text"] for r in reps) + " " + str(better or ""))),
                     "quality": round(sum(q) / len(q), 1) if q else None, "better_answer": better})
+        r = out[-1]
         wgt = (W.get(agent_key(c)) or {}).get("weight", 1.0)
-        out[-1]["agent_weight"] = wgt
-        out[-1]["priority"] = round((out[-1]["quality"] or 0) * wgt * (1.25 if won(c) else 1.0), 2)
+        conf = r["outcome_confidence"] if isinstance(r["outcome_confidence"], (int, float)) else 0.8
+        age = r["age_days"]
+        r["agent_weight"] = wgt
+        r["rep_response_masked"] = mask(r["rep_response"], names)
+        r["priority"] = round((r["quality"] or 0) * wgt * (1.25 if won(c) else 1.0) * (0.8 + 0.2 * conf)
+                              * {"warmer": 1.2, "colder": 0.7}.get(react, 1.0) * (1.0 if age is None or age <= 180 else 0.9 if age <= 365 else 0.75), 2)
+        r["poor_audio"] = g(c, "meta", "transcript_quality") == "poor"
     return out
 
 
@@ -616,12 +750,19 @@ def cmd_report(a):
     if not calls:
         sys.exit("Nothing to report yet. Run the mine step first.")
     rows, dev, piv, mom, kn, trows, lib = [], [], [], [], [], [], []
-    W = agent_weights(calls)
+    crows, mcrows = [], []
+    train = [c for c in calls if not c.get("_holdout")]
+    W = agent_weights(train)
+    if RESULTS:
+        nv = len([c for c in calls if c.get("_ver")])
+        print("Shop records (results.csv): %d of %d calls could be checked against real deposits and bookings." % (nv, len(calls)))
     for c in calls:
         sc = c.get("scores") or {}
         rows.append({"call": c.get("call"), "agent": agent_key(c), "client": g(c, "meta", "client_name"), "service": g(c, "meta", "service"),
                      "vehicle": " ".join(str(g(c, "meta", "vehicle", k) or "") for k in ("year", "make", "model")).strip(), "call_type": g(c, "meta", "call_type"),
                      "result": g(c, "outcome", "result"), "outcome_class": outcome_class(c), "price_quoted": g(c, "outcome", "price_quoted"), "evidence": g(c, "outcome", "evidence"),
+                     "confidence": g(c, "outcome", "confidence"), "verified_by_records": c.get("_ver"), "call_date": str((c.get("_fm") or {}).get("date") or ""), "holdout": bool(c.get("_holdout")),
+                     "lead_source": g(c, "meta", "lead_source"), "lead_temp": g(c, "meta", "lead_temperature"), "deposit_asks": g(c, "closing", "deposit_ask_count"), "missed_closes": len(c.get("missed_closes") or []),
                      "overall": sc.get("overall"), "rapport": sc.get("rapport"), "discovery": sc.get("discovery"), "aca": sc.get("aca_framework"), "pitch": sc.get("pitch"),
                      "objections": sc.get("objection_handling"), "close": sc.get("close"), "control": sc.get("control"),
                      "minutes": round((g(c, "stats", "duration_sec", default=0) or 0) / 60, 1), "rep_talk_pct": g(c, "stats", "rep_word_share_pct"), "first_price_sec": g(c, "stats", "first_price_mention_sec"),
@@ -639,8 +780,21 @@ def cmd_report(a):
         for t in c.get("turns") or []:
             trows.append(dict(base, client=g(c, "meta", "client_name"), **{x: t.get(x) for x in ("i", "t", "end", "role", "spk", "kind", "topic", "phase", "script_step", "needs_response", "answers_turn", "answered_by", "quality", "text")}))
         lib.extend(build_library(c, W))
+        cl = c.get("closing") or {}
+        ph = c.get("price_handling") or {}
+        crow = {"call": c.get("call"), "agent": agent_key(c), "service": g(c, "meta", "service"), "outcome_class": outcome_class(c), "holdout": bool(c.get("_holdout")),
+                "first_price_sec": g(c, "stats", "first_price_mention_sec"), "first_ask_t": cl.get("first_ask_t"), "secs_price_to_ask": None,
+                "deposit_asks": cl.get("deposit_ask_count"), "payment_route": cl.get("payment_route"), "date_offered_by_rep": cl.get("date_offered_by_rep"), "date_set": cl.get("date_set"),
+                "callback_time_specific": cl.get("callback_time_specific"), "blocker_removed": cl.get("blocker_removed"), "closing_language": g(c, "outcome", "closing_language"),
+                "price_frame": ph.get("frame"), "discount": ph.get("discount_offered"), "upsell_attempted": ph.get("upsell_attempted"), "upsell_accepted": ph.get("upsell_accepted"),
+                "missed_closes": len(c.get("missed_closes") or [])}
+        if cl.get("first_ask_t") and crow["first_price_sec"]:
+            crow["secs_price_to_ask"] = secs(cl["first_ask_t"]) - crow["first_price_sec"]
+        crows.append(crow)
+        for m in c.get("missed_closes") or []:
+            mcrows.append(dict(base, **{k: m.get(k) for k in ("t", "signal", "rep_did", "should_have")}))
     mom.sort(key=lambda r: (str(r.get("topic")), -(r.get("quality") or 0)))
-    write_csv(os.path.join(a.out, "calls.csv"), rows, ["call", "agent", "client", "service", "vehicle", "call_type", "result", "outcome_class", "price_quoted", "evidence", "overall", "rapport", "discovery", "aca", "pitch", "objections", "close", "control", "minutes", "rep_talk_pct", "first_price_sec", "steps_skipped", "deviations", "summary", "lesson"])
+    write_csv(os.path.join(a.out, "calls.csv"), rows, ["call", "agent", "client", "service", "vehicle", "call_type", "result", "outcome_class", "price_quoted", "evidence", "confidence", "verified_by_records", "call_date", "holdout", "lead_source", "lead_temp", "deposit_asks", "missed_closes", "overall", "rapport", "discovery", "aca", "pitch", "objections", "close", "control", "minutes", "rep_talk_pct", "first_price_sec", "steps_skipped", "deviations", "summary", "lesson"])
     write_csv(os.path.join(a.out, "deviations.csv"), dev, ["call", "agent", "service", "result", "t", "script_step", "type", "script_said", "rep_said", "impact", "keep_this"])
     write_csv(os.path.join(a.out, "pivotal.csv"), piv, ["call", "agent", "service", "result", "t", "kind", "description", "effect", "repeat_or_avoid"])
     write_csv(os.path.join(a.out, "moments.csv"), mom, ["call", "agent", "service", "result", "t", "kind", "topic", "quality", "lead_said", "rep_said", "why", "better_answer"])
@@ -648,9 +802,50 @@ def cmd_report(a):
     json.dump(mom, open(os.path.join(a.out, "moments.json"), "w"), ensure_ascii=False, indent=1)
     write_csv(os.path.join(a.out, "turns_all.csv"), trows, ["call", "agent", "client", "service", "result", "i", "t", "end", "role", "spk", "kind", "topic", "phase", "script_step", "needs_response", "answers_turn", "answered_by", "quality", "text"])
     lib_all = lib
+    write_csv(os.path.join(a.out, "closing.csv"), crows, ["call", "agent", "service", "outcome_class", "holdout", "first_price_sec", "first_ask_t", "secs_price_to_ask", "deposit_asks", "payment_route", "date_offered_by_rep", "date_set", "callback_time_specific", "blocker_removed", "closing_language", "price_frame", "discount", "upsell_attempted", "upsell_accepted", "missed_closes"])
+    write_csv(os.path.join(a.out, "missed_closes.csv"), mcrows, ["call", "agent", "service", "result", "t", "signal", "rep_did", "should_have"])
+    # test calls set aside and never used for learning: lead statement -> what the rep really said, plus how the call ended
+    held = [r for r in lib_all if r.get("holdout")]
+    with open(os.path.join(a.out, "holdout_pairs.jsonl"), "w") as fh:
+        for r in held:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    lib_all = [r for r in lib_all if not r.get("holdout")]
+    # what the same objection earns: how often, how the lead reacts, and the best reply
+    ob = collections.defaultdict(list)
+    for r in lib_all:
+        if r.get("objection") and r.get("kind") == "objection":
+            ob[r["objection"]].append(r)
+    orows = []
+    for lab, rs in sorted(ob.items(), key=lambda kv: -len(kv[1])):
+        ql = [r["quality"] for r in rs if isinstance(r.get("quality"), (int, float))]
+        reacted = [r for r in rs if r.get("reaction")]
+        top = max(rs, key=lambda r: r.get("priority") or 0)
+        orows.append({"objection": lab, "times": len(rs), "calls": len(set(r["call"] for r in rs)),
+                      "win_pct_of_those_calls": round(100.0 * len(set(r["call"] for r in rs if r["won"])) / len(set(r["call"] for r in rs))),
+                      "avg_reply_quality": round(sum(ql) / len(ql), 2) if ql else None,
+                      "pct_lead_warmer": round(100.0 * len([r for r in reacted if r["reaction"] == "warmer"]) / len(reacted)) if reacted else None,
+                      "best_agent": top["agent"], "best_lead_said": top["lead_said"], "best_reply": top["rep_response"]})
+    write_csv(os.path.join(a.out, "objection_stats.csv"), orows, ["objection", "times", "calls", "win_pct_of_those_calls", "avg_reply_quality", "pct_lead_warmer", "best_agent", "best_lead_said", "best_reply"])
+    # facts reps stated that disagree: the owner picks the right answer once
+    byt = collections.defaultdict(list)
+    for c in train:
+        for k in c.get("knowledge") or []:
+            if k.get("said_by") == "rep" and k.get("topic"):
+                byt[re.sub(r"[^a-z ]+", "", str(k["topic"]).lower()).strip()].append((agent_key(c), k))
+    krows = []
+    for topic, items in byt.items():
+        nums = set(n for _, k in items for n in re.findall(r"\d[\d,\.]*", str(k.get("claim"))))
+        contra = [x for x in items if x[1].get("vs_script") == "contradicts"]
+        if len(set(a2 for a2, _ in items)) >= 2 and (len(nums) >= 2 or contra):
+            krows.append({"topic": topic, "claims": len(items), "reps": ", ".join(sorted(set(a2 for a2, _ in items))), "numbers_mentioned": ", ".join(sorted(nums)[:8]),
+                          "contradicts_script": len(contra), "examples": " || ".join("%s: %s" % (a2, k.get("claim")) for a2, k in items[:4])})
+    krows.sort(key=lambda r: -r["claims"])
+    write_csv(os.path.join(a.out, "knowledge_conflicts.csv"), krows, ["topic", "claims", "reps", "numbers_mentioned", "contradicts_script", "examples"])
     # the working library: real exchanges only (not "ok / awesome" back and forth), no repeats of the same reply, rated 3 or better
     best = {}
     for r in lib_all:
+        if r.get("poor_audio"):
+            continue
         if len(str(r["lead_said"]).split()) < 4 or len(str(r["rep_response"]).split()) < 6 or (r.get("quality") or 0) < 3:
             continue
         if (r.get("topic") or "other") == "other" and r.get("kind") not in ("question", "objection", "buying_signal"):
@@ -659,8 +854,6 @@ def cmd_report(a):
         if k not in best or (r["priority"] or 0) > (best[k]["priority"] or 0):
             best[k] = r
     lib = sorted(best.values(), key=lambda r: (str(r.get("topic")), -(r["priority"] or 0)))
-    for r in lib:
-        r["rep_response_masked"] = mask(r["rep_response"])
     with open(os.path.join(a.out, "response_library.jsonl"), "w") as fh:
         for r in lib:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -668,7 +861,7 @@ def cmd_report(a):
         for r in lib_all:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
     write_csv(os.path.join(a.out, "response_library.csv"), [dict(r, context_before=" | ".join("%s: %s" % (x["role"], x["text"]) for x in r["context_before"])) for r in lib],
-              ["id", "call", "agent", "client", "service", "result", "won", "t", "kind", "topic", "phase", "script_step", "lead_said", "context_before", "rep_response", "rep_response_masked", "has_shop_facts", "response_t", "quality", "agent_weight", "priority", "better_answer"])
+              ["id", "call", "agent", "client", "service", "result", "outcome_class", "won", "call_date", "age_days", "lead_source", "lead_temperature", "t", "customer_type", "stage", "topic", "objection", "script_step", "lead_said", "lead_said_masked", "context_before", "rep_response", "rep_response_masked", "reaction", "lead_next_said", "has_shop_facts", "response_t", "quality", "outcome_confidence", "agent_weight", "priority", "better_answer"])
     # a readable playbook: the best real answers to each topic, from calls that booked first
     by_topic = collections.defaultdict(list)
     for r in lib:
@@ -697,6 +890,7 @@ def cmd_report(a):
                       "callbacks": len([c for c in cs if outcome_class(c) == "callback"]), "overall": avg("overall"), "discovery": avg("discovery"), "aca": avg("aca_framework"), "pitch": avg("pitch"),
                       "objections": avg("objection_handling"), "close": avg("close"), "control": avg("control")})
     write_csv(os.path.join(a.out, "agents.csv"), arows, ["agent", "calls", "wins", "win_pct", "smoothed_win_pct", "weight", "callbacks", "overall", "discovery", "aca", "pitch", "objections", "close", "control"])
+    held_n = len([c for c in calls if c.get("_holdout")])
     real = [c for c in calls if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number")]
     # how many calls of each service, and how each one does
     sv = collections.defaultdict(list)
@@ -720,6 +914,9 @@ def cmd_report(a):
     oc = collections.Counter(outcome_class(c) for c in calls)
     print("\nCalls analyzed: %d unique (%d real conversations). Wins (deposit and a date): %d. Booked without deposit: %d. Callbacks: %d. Lost: %d. Unclear: %d" % (
         len(calls), len(real), oc["win"], oc["booked_no_deposit"], oc["callback"], oc["loss"], oc["unclear"]))
+    if oc["unverified_win"]:
+        print("  %d calls where the AI heard a deposit but your records show none (counted as booked, not wins)." % oc["unverified_win"])
+    print("Held out for testing (never used to teach the coach): %d calls, %d answer pairs in holdout_pairs.jsonl. Everything below is based on the other %d calls." % (held_n, len(held), len(calls) - held_n))
     print("Agent win rates (adjusted pulls small samples toward the team average; weight is how much the coach trusts that rep's answers):")
     for r in arows:
         print("  %-12s %3d calls, %s wins (%s%%, adjusted %s%%), weight %s, overall score %s" % (r["agent"], r["calls"], r["wins"], r["win_pct"], r["smoothed_win_pct"], r["weight"], r["overall"]))
@@ -728,7 +925,8 @@ def cmd_report(a):
     print("Off-script moments: %d (%d marked worth keeping). Pivotal moments: %d. Product claims to verify: %d" % (len(dev), len([d for d in dev if d.get("keep_this")]), len(piv), len([k for k in kn if k.get("vs_script") != "matches"])))
     print("Full logs: %d turns across %d unique calls; %d lead statements linked to the rep's answer, %d kept in the working library (substantive, rated 3+, no repeats)." % (len(trows), len(calls), len(lib_all), len(lib)))
     print("  %d of those mention shop-specific facts (names, prices, brands, places). Do not let the coach learn those facts from other shops' calls." % len([r for r in lib if r.get("has_shop_facts")]))
-    print("\nFiles in %s: calls.csv agents.csv deviations.csv pivotal.csv moments.csv knowledge.csv turns_all.csv response_library.csv response_playbook.md services.csv" % a.out)
+    print("Closing: %d calls with deposit-ask details (closing.csv), %d missed closes (missed_closes.csv), %d objection types (objection_stats.csv), %d topics where reps disagree (knowledge_conflicts.csv)." % (len([r for r in crows if r["deposit_asks"] is not None]), len(mcrows), len(orows), len(krows)))
+    print("\nFiles in %s: calls.csv agents.csv services.csv closing.csv missed_closes.csv objection_stats.csv knowledge_conflicts.csv deviations.csv pivotal.csv moments.csv knowledge.csv turns_all.csv response_library.csv response_playbook.md holdout_pairs.jsonl" % a.out)
 
 
 # ------------------------------------------------------------------ learn
@@ -742,7 +940,11 @@ LEARN_ASK = """Write a markdown report with these sections:
 5. Questions leads ask that the script does not answer well (script gaps)
 6. Product and process claims reps made that the script does not cover, grouped by topic, with a note on which look consistent across calls and which conflict (a human must verify these before the coach uses them)
 7. Coaching notes per agent (strengths, fixes)
-8. Ten specific rules the AI coach should follow, each tied to evidence"""
+8. Closing anatomy: compare winning and losing calls on how many times the deposit was asked, how soon after the price, the payment route offered, whether a date was offered, and whether callbacks got a specific time
+9. Missed closes: the buying signals reps let go by, how often, and the exact lines that would have closed them
+10. Price handling: which ways of framing the price, discounts and upsells go with wins
+11. Differences by lead source and lead temperature (ad lead, inbound, returning; hot, warm, cold)
+12. Twenty specific rules the AI coach should follow, each tied to evidence and ordered by importance"""
 
 
 def digest(c):
@@ -753,7 +955,9 @@ def digest(c):
          "deviations": [{"type": x.get("type"), "rep_said": x.get("rep_said"), "impact": x.get("impact"), "keep": x.get("keep_this")} for x in (g(c, "script", "deviations", default=[]) or [])[:5]],
          "best_moments": [{"topic": m.get("topic"), "lead": m.get("lead_said"), "rep": m.get("rep_said"), "q": m.get("quality")} for m in sorted(c.get("moments") or [], key=lambda m: -(m.get("quality") or 0))[:3]],
          "claims": [{"topic": k.get("topic"), "claim": k.get("claim"), "vs_script": k.get("vs_script")} for k in (c.get("knowledge") or []) if k.get("vs_script") != "matches"][:4],
-         "lesson": g(c, "coaching", "one_lesson")}
+         "lesson": g(c, "coaching", "one_lesson"), "outcome_class": outcome_class(c), "lead_source": g(c, "meta", "lead_source"), "lead_temp": g(c, "meta", "lead_temperature"),
+         "closing": c.get("closing"), "closing_language": g(c, "outcome", "closing_language"), "price_handling": c.get("price_handling"),
+         "missed_closes": [{"signal": m.get("signal"), "should_have": m.get("should_have")} for m in (c.get("missed_closes") or [])[:3]]}
     return d
 
 
@@ -761,7 +965,7 @@ def cmd_learn(a):
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         sys.exit("Set ANTHROPIC_API_KEY first.")
-    calls = [c for c in load_mined(a.out) if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number")]
+    calls = [c for c in load_mined(a.out) if g(c, "outcome", "result") != "no_answer_or_voicemail" and g(c, "meta", "call_type") not in ("voicemail", "wrong_number") and not c.get("_holdout")]
     if len(calls) < 3:
         print("Need at least 3 real conversations to learn patterns. Skipping the learning step.")
         return
@@ -774,7 +978,7 @@ def cmd_learn(a):
         parts.append(text)
     if len(parts) > 1:
         print("Merging the batches...")
-        text, _ = claude(a.model, a.effort, system, "Below are %d reports, each written from a different batch of calls. Merge them into ONE report with the same 8 sections. Keep counts honest by adding them up across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(parts), "\n\n=====\n\n".join(parts)), key, max_tokens=12000)
+        text, _ = claude(a.model, a.effort, system, "Below are %d reports, each written from a different batch of calls. Merge them into ONE report with the same 12 sections. Keep counts honest by adding them up across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(parts), "\n\n=====\n\n".join(parts)), key, max_tokens=12000)
     else:
         text = parts[0]
     with open(os.path.join(a.out, "lessons.md"), "w") as fh:
@@ -829,6 +1033,10 @@ def main():
             s.add_argument("audio", help="folder with the recordings")
             s.add_argument("--lang", default="en", help="en, es, or multi")
             s.add_argument("--smart", action="store_true", help="let Deepgram reformat numbers (off by default: it garbles prices)")
+        if name in ("run", "report", "learn"):
+            s.add_argument("--metadata", default="metadata.csv", help="optional: file, phone, date, direction, source for each recording")
+            s.add_argument("--results", default="results.csv", help="optional: phone, date, type (deposit/booked/job), amount from your CRM")
+            s.add_argument("--holdout", type=int, default=10, help="percent of calls set aside for testing the coach (default 10, 0 = none)")
         if name != "plan":
             s.add_argument("--jobs", type=int, default=3, help="calls processed at the same time (default 3; lower it if you see rate-limit errors)")
             s.add_argument("--roster", default="roster.txt", help="rep names, one per line (optional)")
@@ -843,6 +1051,13 @@ def main():
         if name == "run":
             s.add_argument("--no-learn", action="store_true", help="skip the cross-call learning step")
     a = p.parse_args()
+    if a.cmd in ("run", "report", "learn"):
+        global HOLDOUT_PCT
+        HOLDOUT_PCT = max(0, min(50, a.holdout))
+        load_meta(a.metadata)
+        load_results(a.results)
+        if META or RESULTS:
+            print("Loaded %d recording details and %d customers with real results" % (len(META), len(RESULTS)))
     if a.cmd != "plan":
         load_roster(a.roster)
         load_glossary(a.glossary)
