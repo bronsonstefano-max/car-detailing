@@ -2895,7 +2895,7 @@ const el=id=>document.getElementById(id),ET='America/New_York';
 const QF=[['','New leads'],['nocontact','Not contacted'],['contacted','Contacted'],['quoted','Quote sent'],['aged','7 day +'],['lost','Lost']];let QS=[],QC={};try{QS=JSON.parse(localStorage.getItem('dq')||'[]').filter(x=>QF.some(f=>f[0]===x))}catch(_){}
 let Q=[],ix=0,ST={tint:'',coating:'',missed:''},AU={},dev=null,call=null,tmr=null,t0=0,sid='',state='idle',muted=false,sk='tint',vmArm=null;
 const etHour=()=>+new Date().toLocaleString('en-US',{timeZone:ET,hour:'numeric',hour12:false});
-const inHours=()=>{const h=etHour()%24;return h>=8&&h<21};
+const inHours=()=>true; // manual dialing works at any hour; only the automatic dialer keeps its calling hours
 const e164=p=>{const d=String(p||'').replace(/\\D/g,'');return d.length===10?'+1'+d:d.length===11&&d[0]==='1'?'+'+d:d?'+'+d:''};
 const pretty=p=>{const d=String(p||'').replace(/\\D/g,'').slice(-10);return d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):(p||'')};
 const svcOf=l=>/coat/i.test(String(l&&l.service||''))?'coating':'tint';
