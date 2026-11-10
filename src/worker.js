@@ -1208,8 +1208,10 @@ const cookieOf = (request, name) => (request.headers.get("cookie") || "").split(
 async function authed(request, env) {
   if (!anyPassword(env)) return "unconfigured";
   const [user = "", exp = "", sig = ""] = cookieOf(request, "dd_session").split(".");
-  const pw = passwordOf(env, user);
-  if (!pw || !/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
+  let pw = passwordOf(env, user);
+  if (!/^\d{10,}$/.test(exp) || Number(exp) < Date.now() / 1000) return false;
+  if (!pw && !Object.hasOwn(USERS, user)) { const u = await dbUser(env, user); pw = u ? u.hash : ""; }
+  if (!pw) return false;
   return same(sig, await sign(pw, user + "|" + exp)) ? user : false;
 }
 const safeNext = n => (typeof n === "string" && /^\/(?!\/)[\w\-./?=&%#]*$/.test(n) && !n.startsWith("/login") ? n : "/");
@@ -1241,8 +1243,9 @@ async function loginRoute(p, request, env) {
     const r = await env.DB.prepare("SELECT COUNT(*) n FROM login_fails WHERE ip = ? AND at > ?").bind(ip, since).first();
     if (r && r.n >= 8) return htmlRes(loginHtml("Too many tries. Wait a few minutes and try again.", next), 429);
   }
-  const pw = passwordOf(env, user);
-  if (!pw || !same(pass, pw)) {
+  let pw = passwordOf(env, user), ok = !!pw && same(pass, pw);
+  if (!pw && !Object.hasOwn(USERS, user)) { const u = await dbUser(env, user); if (u) { const h = await hashPw(pass, u.salt); ok = same(h, u.hash); pw = u.hash; } }
+  if (!ok) {
     if (env.DB) await env.DB.prepare("INSERT INTO login_fails (ip, at) VALUES (?, ?)").bind(ip, Math.floor(Date.now() / 1000)).run();
     return htmlRes(loginHtml("That username or password is not right.", next, user), 401);
   }
@@ -1388,7 +1391,7 @@ document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touche
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
   const ins = ["insights", "speed", "rate", "msgstats", "dials", "meta", "numbers"].includes(on), t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
-  return `<nav class="navtabs">${owner ? t("/admin/dashboard", "dashboard", "Dashboard") : ""}${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
+  return `<nav class="navtabs">${owner ? t("/admin/dashboard", "dashboard", "Dashboard") : ""}${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}${owner ? `<a href="/admin/users" class="so ${on === "users" ? "on" : ""}">Logins</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
 }
 // one Insights section: overview, speed to lead and contact rate share this tab bar
 const insightTabs = on => `<div class="itabs">${[["insights", "/admin/insights", "Overview"], ["meta", "/admin/meta", "Meta Ads"], ["dials", "/admin/dials", "Dials"], ["numbers", "/admin/numbers", "Number health"], ["speed", "/admin/speed", "Speed to lead"], ["rate", "/admin/rate", "Contact rate"], ["msgstats", "/admin/msgstats", "Messages"], ["ads", "/admin/ads", "Google Ads upload"]].map(([k, h, l]) => `<a href="${h}" class="${on === k ? "on" : ""}">${l}</a>`).join("")}</div>`;
@@ -1442,6 +1445,7 @@ article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{di
   .navtabs a.on{background:#112417!important;color:#32cd32!important}
   .navtabs a.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:#32cd32}
   .navtabs a.so{margin-top:auto;color:#6b727c!important}
+  .navtabs a.so+a.so{margin-top:0}
   .navtabs .nb{margin-left:auto}
   header{padding-left:26px!important;min-height:64px;justify-content:flex-end!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}header>h1{margin-right:auto}
   .emb body{padding-left:0}
@@ -2809,6 +2813,75 @@ async function load(){const d=+(document.querySelector('.rb .on')||{dataset:{d:3
 document.querySelectorAll('.rb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.rb button').forEach(x=>x.classList.toggle('on',x===b));load()});
 load();setInterval(()=>{if(!document.hidden)load()},60000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Logins you create in the CRM (owner only). Passwords are never stored: only a salted hash, so nothing secret goes in the code or the public repository.
+async function hashPw(pw, salt) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]);
+  return hex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode("dd-user|" + salt), iterations: 100000 }, key, 256));
+}
+async function dbUser(env, name) {
+  if (!env.DB || !/^[a-z0-9]{3,20}$/.test(name)) return null;
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS crm_users (username TEXT PRIMARY KEY, salt TEXT NOT NULL, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+  return await env.DB.prepare("SELECT username, salt, hash FROM crm_users WHERE username = ?").bind(name).first().catch(() => null);
+}
+async function usersPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS crm_users (username TEXT PRIMARY KEY, salt TEXT NOT NULL, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+  const rows = (await env.DB.prepare("SELECT username, created_at FROM crm_users ORDER BY username").all()).results || [];
+  const payload = JSON.stringify({ users: rows.map(r => ({ username: r.username, at: isoUtc(r.created_at) })) }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Logins | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+main{max-width:760px}.fr{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.fr label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}.fr input{width:100%;background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;min-height:44px}
+.bt{background:#10151b;border:1px solid #232b34;color:#e8eaed;border-radius:10px;padding:9px 14px;font:inherit;font-weight:650;cursor:pointer;min-height:44px}.bt.g{background:#32cd32;border-color:#32cd32;color:#04120a}.bt.r{color:#ff8a8a}
+.ur{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #141a20}.ur:last-child{border:0}.ur b{flex:1;font-size:16px}.ur input{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:8px 10px;font:inherit;width:180px}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}.fr{grid-template-columns:1fr}}
+</style></head><body>
+<header><h1>Divine Detailers <b>logins</b></h1>${nav("users", tc, true)}</header>
+${bnav("users", tc, true)}
+<main>
+<p class="note">People you add here can sign in with their own username and password and have the same access as Giordani: leads, pipeline, messages and today, but not the dialer, scripts, coach, reports or this page. Only you can add, change or remove logins.</p>
+<div class="card"><h3>Add a login</h3><div class="fr"><div><label for="nu">Username</label><input id="nu" autocomplete="off" autocapitalize="none" maxlength="20" placeholder="letters and numbers"></div><div><label for="np">Password</label><input id="np" type="text" autocomplete="off" placeholder="at least 8 characters"></div><button class="bt g" id="add" type="button">Add login</button></div><div class="note" id="am"></div></div>
+<div class="card"><h3>Current logins</h3><div id="ul"></div></div>
+<p class="note">Bronson and Giordani's passwords are Cloudflare secrets and are not listed here.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+${RPT_JS}
+let U=JSON.parse(document.getElementById('data').textContent).users;
+function draw(){document.getElementById('ul').innerHTML=U.length?U.map(u=>'<div class="ur" data-u="'+$(u.username)+'"><b>'+$(u.username)+'</b><input type="text" placeholder="New password" autocomplete="off"><button class="bt" data-a="reset" type="button">Change password</button><button class="bt r" data-a="delete" type="button">Remove</button></div>').join(''):'<div class="empty">No extra logins yet.</div>'}
+async function act(body){const r=await fetch('/admin/users',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});return r.json().catch(()=>({success:false,message:'No connection.'}))}
+document.getElementById('add').onclick=async()=>{const m=document.getElementById('am');m.textContent='';const j=await act({action:'add',username:document.getElementById('nu').value,password:document.getElementById('np').value});if(j.success){U=j.users;document.getElementById('nu').value='';document.getElementById('np').value='';m.textContent='Login added.';draw()}else m.textContent=j.message||'Could not add it.'};
+document.getElementById('ul').onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const row=b.closest('[data-u]'),u=row.dataset.u;
+  if(b.dataset.a==='delete'){if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='Tap again to remove';return}const j=await act({action:'delete',username:u});if(j.success){U=j.users;draw()}return}
+  const pw=row.querySelector('input').value;const j=await act({action:'reset',username:u,password:pw});b.textContent=j.success?'Changed':(j.message||'Could not change');setTimeout(()=>{b.textContent='Change password'},2500)};
+draw();
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+async function usersApi(env, request) {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS crm_users (username TEXT PRIMARY KEY, salt TEXT NOT NULL, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+  const b = await request.json().catch(() => ({})), name = String(b.username || "").trim().toLowerCase(), pw = String(b.password || "");
+  const list = async () => ((await env.DB.prepare("SELECT username, created_at FROM crm_users ORDER BY username").all()).results || []).map(r => ({ username: r.username, at: isoUtc(r.created_at) }));
+  if (!/^[a-z0-9]{3,20}$/.test(name)) return json({ success: false, message: "Use 3 to 20 letters or numbers for the username." }, 400);
+  if (Object.hasOwn(USERS, name) || name === OWNER) return json({ success: false, message: "That username is already used." }, 400);
+  if (b.action === "delete") { await env.DB.prepare("DELETE FROM crm_users WHERE username = ?").bind(name).run(); return json({ success: true, users: await list() }); }
+  if (pw.length < 8 || pw.length > 100) return json({ success: false, message: "The password needs at least 8 characters." }, 400);
+  const exists = await env.DB.prepare("SELECT 1 FROM crm_users WHERE username = ?").bind(name).first();
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16))), hash = await hashPw(pw, salt);
+  if (b.action === "add") {
+    if (exists) return json({ success: false, message: "That username is already used." }, 400);
+    await env.DB.prepare("INSERT INTO crm_users (username, salt, hash) VALUES (?,?,?)").bind(name, salt, hash).run();
+  } else if (b.action === "reset") {
+    if (!exists) return json({ success: false, message: "No such login." }, 404);
+    await env.DB.prepare("UPDATE crm_users SET salt = ?, hash = ? WHERE username = ?").bind(salt, hash, name).run();
+  } else return json({ success: false }, 400);
+  return json({ success: true, users: await list() });
 }
 
 // ---- Automations: editable text sequences and campaigns. Each automation has rules (who, when, what stage) and ordered steps (timing + message).
@@ -4979,7 +5052,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/users" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -5770,6 +5843,8 @@ async function adminRoute(p, request, env) {
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
   if (p === "/admin/dashboard") return a === OWNER ? dashboardPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/dashboard/data" && request.method === "GET") return a === OWNER ? json(await dashData(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
+  if (p === "/admin/users" && request.method === "GET") return a === OWNER ? usersPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/users" && request.method === "POST") return a === OWNER ? usersApi(env, request) : json({ success: false }, 403);
   if (p === "/admin/numbers") return a === OWNER ? numbersPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/numbers/check" && request.method === "POST") return a === OWNER ? json({ success: true, results: await twilioNumberCheck(env) }) : json({ success: false }, 403);
   if (p === "/admin/dials") return a === OWNER ? dialsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
