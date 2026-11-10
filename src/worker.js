@@ -1381,11 +1381,11 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  const ins = on === "insights" || on === "speed" || on === "rate", t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
+  const ins = on === "insights" || on === "speed" || on === "rate" || on === "msgstats", t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
   return `<nav class="navtabs">${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
 }
 // one Insights section: overview, speed to lead and contact rate share this tab bar
-const insightTabs = on => `<div class="itabs"><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Overview</a><a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed to lead</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/ads" class="${on === "ads" ? "on" : ""}">Google Ads upload</a></div>`;
+const insightTabs = on => `<div class="itabs"><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Overview</a><a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed to lead</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/msgstats" class="${on === "msgstats" ? "on" : ""}">Messages</a><a href="/admin/ads" class="${on === "ads" ? "on" : ""}">Google Ads upload</a></div>`;
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
   const ic = {
@@ -1403,7 +1403,7 @@ function bnav(on, n = 0, owner = false) {
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
   };
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
-  const moreKeys = ["speed", "rate", "insights", "calendar", "automations", "dialer"];
+  const moreKeys = ["speed", "rate", "msgstats", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
 ${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
@@ -2166,6 +2166,144 @@ tl.addEventListener('keydown',e=>{if(e.key==='Enter'){const b=e.target.closest('
 let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<div class="th fd" data-id="'+l.id+'" role="button" tabindex="0"><span class="av">'+$(ini(l))+'</span><span class="nm"><span>'+$(nm(l))+'</span></span><span class="tm"></span><span class="sn">'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</span></div>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
 const hmm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hmm)open(+hmm[1]);
 setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur&&!(document.activeElement&&document.activeElement.id==='tin'))open(cur.id,true)},6000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Message statistics (owner only): delivery, replies, response times and what each automation earns
+const addDays = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+async function msgStatsData(env, from, to) {
+  await ensureTable(env.DB);
+  const okd = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  to = okd(to) ? to : todayStr();
+  from = okd(from) ? from : addDays(to, -29);
+  if (from > to) from = to;
+  let days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+  if (days > 366) { from = addDays(to, -365); days = 366; }
+  const pTo = addDays(from, -1), pFrom = addDays(pTo, -(days - 1));
+  const lo = addDays(pFrom, -1) + " 00:00:00", hi = addDays(to, 2) + " 00:00:00";
+  const rows = (await env.DB.prepare("SELECT id, lead_id, direction, status, auto, by_user, at FROM messages WHERE at >= ? AND at < ? ORDER BY id ASC LIMIT 120000").bind(lo, hi).all()).results || [];
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z");
+  const ed = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }), eh = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+  const dayOf = t => ed.format(new Date(t)), hourOf = t => Number(eh.format(new Date(t)));
+  const FAIL = new Set(["failed", "undelivered"]);
+  // thread pass: how long we take to answer a text, how long they take, and whether a text got a reply within a day
+  const byLead = new Map();
+  for (const r of rows) { r.t = ms(r.at); r.d = dayOf(r.t); r.h = hourOf(r.t); if (r.lead_id != null) { if (!byLead.has(r.lead_id)) byLead.set(r.lead_id, []); byLead.get(r.lead_id).push(r); } }
+  const ours = [], theirs = [];
+  for (const th of byLead.values()) {
+    th.sort((a, b) => a.t - b.t || a.id - b.id);
+    for (let i = 0; i < th.length; i++) {
+      const m = th[i];
+      if (m.direction === "in") { const nx = th.slice(i + 1).find(x => x.direction === "out" && !x.auto); if (nx && nx.t - m.t < 864e5 * 3) ours.push({ d: m.d, s: (nx.t - m.t) / 1000 }); }
+      else { const nx = th.slice(i + 1).find(x => x.direction === "in"); m.replied = !!(nx && nx.t - m.t <= 864e5); if (nx && nx.t - m.t < 864e5 * 3) theirs.push({ d: m.d, s: (nx.t - m.t) / 1000 }); }
+    }
+  }
+  const med = a => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y), i = Math.floor(b.length / 2); return Math.round(b.length % 2 ? b[i] : (b[i - 1] + b[i]) / 2); };
+  const agg = (f, t) => {
+    const r = rows.filter(x => x.d >= f && x.d <= t), out = r.filter(x => x.direction === "out"), inn = r.filter(x => x.direction === "in");
+    const sent = out.length, delivered = out.filter(x => x.status === "delivered").length, failed = out.filter(x => FAIL.has(x.status)).length;
+    const texted = new Set(out.map(x => x.lead_id).filter(v => v != null)), replied = new Set(inn.map(x => x.lead_id).filter(v => v != null));
+    const perDay = {}; for (let i = 0; i < days; i++) perDay[addDays(f, i)] = { sent: 0, delivered: 0, failed: 0, received: 0 };
+    out.forEach(x => { const p = perDay[x.d]; if (p) { p.sent++; if (x.status === "delivered") p.delivered++; if (FAIL.has(x.status)) p.failed++; } });
+    inn.forEach(x => { const p = perDay[x.d]; if (p) p.received++; });
+    const hr = Array.from({ length: 24 }, () => ({ sent: 0, replied: 0, received: 0 }));
+    out.forEach(x => { hr[x.h].sent++; if (x.replied) hr[x.h].replied++; }); inn.forEach(x => { hr[x.h].received++; });
+    const who = {}; out.forEach(x => { const k = x.auto ? "Automations" : (x.by_user || "Not recorded"); who[k] = (who[k] || 0) + 1; });
+    return { sent, delivered, failed, received: inn.length, auto: out.filter(x => x.auto).length, texted: texted.size, replied: [...replied].filter(v => texted.has(v)).length,
+      ourMed: med(ours.filter(x => x.d >= f && x.d <= t).map(x => x.s)), theirMed: med(theirs.filter(x => x.d >= f && x.d <= t).map(x => x.s)), perDay, hr, who };
+  };
+  const cur = agg(from, to), prev = agg(pFrom, pTo);
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const f0 = from + " 00:00:00", t1 = addDays(to, 1) + " 00:00:00", pf0 = pFrom + " 00:00:00", pt1 = addDays(pTo, 1) + " 00:00:00";
+  const optN = async (a, b) => ((await q("SELECT COUNT(*) n FROM sms_optout WHERE at >= ? AND at < ?", a, b))[0] || {}).n || 0;
+  const bk = "('booked','working','done')";
+  const [waiting, failedList, autos, camps, resp] = await Promise.all([
+    q(`SELECT l.id, l.name, l.phone, m.at, m.body FROM messages m JOIN leads l ON l.id = m.lead_id WHERE m.id = (SELECT MAX(id) FROM messages WHERE lead_id = l.id) AND m.direction = 'in' ORDER BY m.at ASC LIMIT 25`),
+    q("SELECT m.at, m.status, l.id, l.name, m.phone FROM messages m LEFT JOIN leads l ON l.id = m.lead_id WHERE m.direction = 'out' AND m.status IN ('failed','undelivered') AND m.at >= ? AND m.at < ? ORDER BY m.id DESC LIMIT 15", f0, t1),
+    q(`SELECT a.name, COUNT(*) sent, SUM(EXISTS(SELECT 1 FROM messages m WHERE m.lead_id = r.lead_id AND m.direction = 'in' AND m.at > r.at AND m.at <= datetime(r.at,'+2 days'))) replies, SUM(COALESCE(l.stage,'') IN ${bk}) booked FROM automation_runs r JOIN automations a ON a.id = r.automation_id LEFT JOIN leads l ON l.id = r.lead_id WHERE r.at >= ? AND r.at < ? GROUP BY a.id ORDER BY sent DESC LIMIT 20`, f0, t1),
+    q(`SELECT c.name, COUNT(*) sent, SUM(EXISTS(SELECT 1 FROM messages m WHERE m.lead_id = s.lead_id AND m.direction = 'in' AND m.at > s.at AND m.at <= datetime(s.at,'+2 days'))) replies, SUM(COALESCE(l.stage,'') IN ${bk}) booked FROM campaign_sends s JOIN campaigns c ON c.id = s.campaign_id LEFT JOIN leads l ON l.id = s.lead_id WHERE s.at >= ? AND s.at < ? GROUP BY c.id ORDER BY sent DESC LIMIT 20`, f0, t1),
+    q(`SELECT COALESCE(SUM(rep),0) rep, COALESCE(SUM(rep*b),0) repb, COALESCE(SUM(1-rep),0) non, COALESCE(SUM((1-rep)*b),0) nonb FROM (SELECT l.id, EXISTS(SELECT 1 FROM messages WHERE lead_id = l.id AND direction = 'in') rep, (l.stage IN ${bk}) b FROM leads l WHERE EXISTS(SELECT 1 FROM messages m WHERE m.lead_id = l.id AND m.direction = 'out' AND m.at >= ? AND m.at < ?))`, f0, t1),
+  ]);
+  const now = Date.now();
+  return { from, to, days, prevFrom: pFrom, prevTo: pTo, cur: { ...cur, optouts: await optN(f0, t1) }, prev: { ...prev, optouts: await optN(pf0, pt1) },
+    waiting: waiting.map(w => ({ id: w.id, name: w.name || w.phone, body: String(w.body || "").slice(0, 90), mins: Math.round((now - ms(w.at)) / 60000) })),
+    failedList: failedList.map(f => ({ id: f.id, name: f.name || prettyPhone(f.phone), phone: f.phone, status: f.status, at: isoUtc(f.at) })),
+    autos: autos.map(a => ({ ...a, kind: "Automation" })).concat(camps.map(c => ({ ...c, kind: "Campaign" }))), resp: resp[0] || {} };
+}
+async function msgStatsPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Message statistics | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+main{max-width:1100px;margin:0 auto;padding:16px 22px 50px;display:flex;flex-direction:column;gap:18px}
+.rb{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rb input[type=date]{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:9px 10px;font:inherit;min-height:42px}.rb button{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.rb button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.card{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}.card h3{margin:0;font-size:13px;letter-spacing:.9px;text-transform:uppercase;color:#aab0b9;display:flex;align-items:center;gap:8px}
+.kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}.k small{display:block;color:#8a939e;font-size:12.5px;margin-bottom:4px}.k b{display:block;font-size:30px;line-height:1.1;letter-spacing:-.5px}.k b i{font-style:normal;font-size:14px;color:#8a939e;font-weight:600;margin-left:4px}
+.dl{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 6px;margin-top:6px}.dl.up{background:#0f2c18;color:#4fdc5a}.dl.dn{background:#2c1414;color:#ff8a8a}.dl.fl{background:#1a2027;color:#8a939e}.dls{color:#6f7782;font-size:12px;margin-left:6px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:8px 0 0}h2 small{text-transform:none;letter-spacing:0;color:#7c838d;font-weight:400;font-size:12.5px;margin-left:6px}
+.ch{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:14px 16px}.ch svg{width:100%;height:auto;display:block}
+.tbw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:#7c838d;text-align:left;padding:8px 10px;border-bottom:1px solid #1d2229}td{padding:10px;border-bottom:1px solid #141a20}td a{color:#8ec0ff;text-decoration:none}
+.note{color:#7c838d;font-size:12.5px}.empty{color:#7c838d;padding:16px 0;text-align:center}.warn{color:#ffb86b}
+.hb div{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:6px 0}.hb i{display:block;height:10px;border-radius:6px;background:#32cd32}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 24px}.k b{font-size:26px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>message statistics</b></h1>${nav("msgstats", tc, true)}</header>
+${bnav("msgstats", tc, true)}
+${insightTabs("msgstats")}
+<main>
+<div class="rb"><input type="date" id="f"><span class="note">to</span><input type="date" id="t"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+<p class="note" id="rn"></p>
+<div class="g2"><div class="card"><h3>Texts you sent</h3><div class="kp" id="o"></div></div><div class="card"><h3>Texts you received</h3><div class="kp" id="i"></div></div></div>
+<div class="g2"><div class="card"><h3>Speed of replies</h3><div class="kp" id="rs"></div></div><div class="card"><h3>Text replies and booking</h3><div class="kp" id="bk"></div></div></div>
+<h2>Failure rate by day<small>the dashed line is 10%: above it, check your numbers and the Twilio registration</small></h2><div class="ch" id="c1"></div>
+<h2>Texts sent and received by day</h2><div class="ch" id="c2"></div>
+<h2>Best time to text<small>share of texts that got a reply within 24 hours, by the hour they were sent (Eastern)</small></h2><div class="ch" id="c3"></div>
+<h2>Waiting on you<small>the lead texted last and nobody has answered yet</small></h2><div class="card"><div class="tbw"><table id="wt"></table></div></div>
+<h2>Automations and campaigns<small>texts sent in this range, replies within 2 days, and how many of those leads are booked now</small></h2><div class="card"><div class="tbw"><table id="at"></table></div></div>
+<div class="g2"><div><h2>Who sent them</h2><div class="card hb" id="wh"></div></div><div><h2>Texts that failed<small>fix these numbers</small></h2><div class="card"><div class="tbw"><table id="ft"></table></div></div></div></div>
+<p class="note">Times are Eastern. "Delivered" and "failed" come from the carrier's report, so the most recent texts can show as sent for a few minutes. Reply rate counts leads who replied at least once. Booked means Deposit collected, In shop or Service completed.</p>
+</main>
+<script>
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const F=document.getElementById('f'),T=document.getElementById('t');
+const pct=(a,b)=>b?Math.round(1000*a/b)/10:0,fmt=n=>n>=10000?(n/1000).toFixed(1).replace(/\\.0$/,'')+'K':Number(n).toLocaleString('en-US');
+const dur=s=>{if(s==null)return '-';if(s<60)return s+' sec';const m=Math.round(s/60);if(m<60)return m+' min';const h=Math.floor(m/60);if(h<48)return h+' h '+(m%60)+' min';return Math.round(h/24)+' days'};
+function delta(c,p,inv){if(!p&&!c)return '<span class="dl fl">0%</span>';if(!p)return '<span class="dl fl">new</span>';const d=Math.round(100*(c-p)/p);if(!d)return '<span class="dl fl">0%</span>';const good=inv?d<0:d>0;return '<span class="dl '+(good?'up':'dn')+'">'+(d>0?'&#9650; ':'&#9660; ')+Math.abs(d)+'%</span>'}
+const kp=(l,v,sub,dl)=>'<div class="k"><small>'+l+'</small><b>'+v+(sub?'<i>'+sub+'</i>':'')+'</b>'+(dl?dl+'<span class="dls">vs previous</span>':'')+'</div>';
+function chart(id,days,series,opt){const W=900,H=230,L=40,B=26,Tp=12,n=days.length,bw=(W-L-10)/n,mx=Math.max(opt.min||1,...days.map((d,i)=>Math.max(...series.map(s=>s.v[i]))));const y=v=>Tp+(H-B-Tp)*(1-v/mx);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';for(let k=0;k<=4;k++){const v=mx*k/4;s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="#1b2128"/><text x="'+(L-6)+'" y="'+(y(v)+4)+'" fill="#6f7782" font-size="11" text-anchor="end">'+(opt.unit==='%'?Math.round(v)+'%':Math.round(v))+'</text>'}
+  const sw=bw/(series.length)*0.78;days.forEach((d,i)=>{series.forEach((se,j)=>{const v=se.v[i],x=L+i*bw+(bw-sw*series.length)/2+j*sw,col=se.hot&&se.hot(v)?'#ff7a7a':se.c;s+='<rect x="'+x+'" y="'+y(v)+'" width="'+Math.max(1,sw-1)+'" height="'+Math.max(0,(H-B)-y(v))+'" rx="2" fill="'+col+'"><title>'+d+': '+(opt.unit==='%'?v+'%':v)+' '+se.n+'</title></rect>'});if(n<=14||i%Math.ceil(n/12)===0)s+='<text x="'+(L+i*bw+bw/2)+'" y="'+(H-8)+'" fill="#6f7782" font-size="11" text-anchor="middle">'+d.slice(5)+'</text>'});
+  if(opt.line!=null)s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(opt.line)+'" y2="'+y(opt.line)+'" stroke="#ff5d5d" stroke-dasharray="6 5"/>';
+  if(opt.legend)s+=series.map((se,j)=>'<rect x="'+(L+j*110)+'" y="2" width="10" height="10" rx="2" fill="'+se.c+'"/><text x="'+(L+j*110+15)+'" y="11" fill="#aab0b9" font-size="11">'+se.n+'</text>').join('');
+  document.getElementById(id).innerHTML=s+'</svg>'}
+function mins(m){if(m<60)return m+' min';const h=Math.floor(m/60);if(h<48)return h+' h';return Math.round(h/24)+' days'}
+function draw(d){const c=d.cur,p=d.prev;document.getElementById('rn').textContent=d.from+' to '+d.to+' ('+d.days+' days), compared with '+d.prevFrom+' to '+d.prevTo+'.';
+  const nd=c.sent-c.delivered-c.failed;
+  document.getElementById('o').innerHTML=kp('Sent',fmt(c.sent),'',delta(c.sent,p.sent))+kp('Delivered',fmt(c.delivered),pct(c.delivered,c.sent)+'%',delta(c.delivered,p.delivered))+kp('Failed',fmt(c.failed),pct(c.failed,c.sent)+'%',delta(c.failed,p.failed,true))+(nd>0?kp('No report yet',fmt(nd),'',''):'');
+  document.getElementById('i').innerHTML=kp('Received',fmt(c.received),'',delta(c.received,p.received))+kp('Reply rate',pct(c.replied,c.texted)+'%',c.replied+' of '+c.texted,delta(pct(c.replied,c.texted),pct(p.replied,p.texted)))+kp('Opt-out rate',pct(c.optouts,c.texted)+'%',c.optouts+' STOP',delta(pct(c.optouts,c.texted),pct(p.optouts,p.texted),true));
+  document.getElementById('rs').innerHTML=kp('You answer in (median)',dur(c.ourMed),'',p.ourMed!=null&&c.ourMed!=null?delta(c.ourMed,p.ourMed,true):'')+kp('They answer in (median)',dur(c.theirMed),'',p.theirMed!=null&&c.theirMed!=null?delta(c.theirMed,p.theirMed):'')+kp('Waiting on you',d.waiting.length,'',d.waiting.length?'<span class="dl dn">answer these</span>':'<span class="dl up">all caught up</span>');
+  const r=d.resp,rr=pct(r.repb,r.rep),nr=pct(r.nonb,r.non);
+  document.getElementById('bk').innerHTML=kp('Booked, replied to texts',rr+'%',(r.repb||0)+' of '+(r.rep||0))+kp('Booked, never replied',nr+'%',(r.nonb||0)+' of '+(r.non||0))+kp('Automatic texts',pct(c.auto,c.sent)+'%',fmt(c.auto)+' of '+fmt(c.sent));
+  const days=Object.keys(c.perDay);
+  chart('c1',days,[{n:'failed',v:days.map(k=>pct(c.perDay[k].failed,c.perDay[k].sent)),c:'#4a5ae8',hot:v=>v>10}],{unit:'%',line:10,min:12});
+  chart('c2',days,[{n:'sent',v:days.map(k=>c.perDay[k].sent),c:'#32cd32'},{n:'received',v:days.map(k=>c.perDay[k].received),c:'#4a9be8'}],{legend:true});
+  const hrs=Array.from({length:24},(_,h)=>h),lab=h=>(h%12||12)+(h<12?'a':'p');
+  chart('c3',hrs.map(lab),[{n:'reply rate',v:hrs.map(h=>c.hr[h].sent>=5?pct(c.hr[h].replied,c.hr[h].sent):0),c:'#a78bfa'}],{unit:'%',min:10});
+  document.getElementById('wt').innerHTML=d.waiting.length?'<tr><th>Lead</th><th>Their last text</th><th>Waiting</th></tr>'+d.waiting.map(w=>'<tr><td><a href="/admin/messages#id='+w.id+'">'+$(w.name)+'</a></td><td>'+$(w.body)+'</td><td'+(w.mins>60?' class="warn"':'')+'>'+mins(w.mins)+'</td></tr>').join(''):'<tr><td class="empty">Every text has been answered.</td></tr>';
+  document.getElementById('at').innerHTML=d.autos.length?'<tr><th>Name</th><th>Type</th><th>Sent</th><th>Replies</th><th>Reply rate</th><th>Booked now</th></tr>'+d.autos.map(a=>'<tr><td>'+$(a.name)+'</td><td>'+a.kind+'</td><td>'+a.sent+'</td><td>'+a.replies+'</td><td>'+pct(a.replies,a.sent)+'%</td><td>'+a.booked+'</td></tr>').join(''):'<tr><td class="empty">No automation or campaign texts in this range.</td></tr>';
+  const who=Object.entries(c.who).sort((a,b)=>b[1]-a[1]),mx=Math.max(1,...who.map(w=>w[1]));
+  document.getElementById('wh').innerHTML=who.length?who.map(w=>'<div><span style="text-transform:capitalize">'+$(w[0])+'</span><span><i style="width:'+Math.max(3,Math.round(100*w[1]/mx))+'%"></i></span><span>'+w[1]+'</span></div>').join(''):'<span class="note">No texts sent in this range.</span>';
+  document.getElementById('ft').innerHTML=d.failedList.length?'<tr><th>Lead</th><th>Number</th><th>Result</th></tr>'+d.failedList.map(f=>'<tr><td>'+(f.id?'<a href="/admin/pipeline#id='+f.id+'">'+$(f.name)+'</a>':$(f.name))+'</td><td>'+$(f.phone||'')+'</td><td class="warn">'+$(f.status)+'</td></tr>').join(''):'<tr><td class="empty">No failed texts. Nice.</td></tr>'}
+async function load(){const r=await fetch('/admin/msgstats/data?from='+F.value+'&to='+T.value);const j=await r.json();if(j.success){F.value=j.from;T.value=j.to;draw(j)}}
+const iso=d=>d.toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+function preset(n){const t=new Date();T.value=iso(t);F.value=iso(new Date(t.getTime()-(n-1)*864e5));document.querySelectorAll('.rb button').forEach(b=>b.classList.toggle('on',+b.dataset.d===n));load()}
+document.querySelectorAll('.rb button').forEach(b=>b.onclick=()=>preset(+b.dataset.d));[F,T].forEach(i=>i.onchange=()=>{document.querySelectorAll('.rb button').forEach(b=>b.classList.remove('on'));load()});
+preset(30);setInterval(()=>{if(!document.hidden)load()},120000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
@@ -4289,6 +4427,7 @@ export default {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
+      if (p === "/msgstats" || p === "/admin/msgstats") return adminRoute("/admin/msgstats", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
@@ -4304,7 +4443,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -5055,6 +5194,8 @@ async function adminRoute(p, request, env) {
 
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
+  if (p === "/admin/msgstats") return a === OWNER ? msgStatsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/msgstats/data" && request.method === "GET") { if (a !== OWNER) return json({ success: false }, 403); const u = new URL(request.url); return json({ success: true, ...(await msgStatsData(env, u.searchParams.get("from"), u.searchParams.get("to"))) }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/insights") return a === OWNER ? insightsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/adspend" && request.method === "POST") {
