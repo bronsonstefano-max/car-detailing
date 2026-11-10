@@ -192,6 +192,10 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_call_id ON leads(call_id)"),
   ]);
+  await db.prepare("ALTER TABLE dial_calls ADD COLUMN from_num TEXT").run().catch(() => {});
+  await db.prepare("ALTER TABLE messages ADD COLUMN from_num TEXT").run().catch(() => {});
+  await db.prepare("ALTER TABLE messages ADD COLUMN err TEXT").run().catch(() => {});
+  await db.prepare("CREATE TABLE IF NOT EXISTS number_health (num TEXT PRIMARY KEY, level INTEGER NOT NULL DEFAULT 0, at TEXT)").run();
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
@@ -1381,11 +1385,11 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  const ins = ["insights", "speed", "rate", "msgstats", "dials", "meta"].includes(on), t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
-  return `<nav class="navtabs">${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
+  const ins = ["insights", "speed", "rate", "msgstats", "dials", "meta", "numbers"].includes(on), t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
+  return `<nav class="navtabs">${owner ? t("/admin/dashboard", "dashboard", "Dashboard") : ""}${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
 }
 // one Insights section: overview, speed to lead and contact rate share this tab bar
-const insightTabs = on => `<div class="itabs">${[["insights", "/admin/insights", "Overview"], ["meta", "/admin/meta", "Meta Ads"], ["dials", "/admin/dials", "Dials"], ["speed", "/admin/speed", "Speed to lead"], ["rate", "/admin/rate", "Contact rate"], ["msgstats", "/admin/msgstats", "Messages"], ["ads", "/admin/ads", "Google Ads upload"]].map(([k, h, l]) => `<a href="${h}" class="${on === k ? "on" : ""}">${l}</a>`).join("")}</div>`;
+const insightTabs = on => `<div class="itabs">${[["insights", "/admin/insights", "Overview"], ["meta", "/admin/meta", "Meta Ads"], ["dials", "/admin/dials", "Dials"], ["numbers", "/admin/numbers", "Number health"], ["speed", "/admin/speed", "Speed to lead"], ["rate", "/admin/rate", "Contact rate"], ["msgstats", "/admin/msgstats", "Messages"], ["ads", "/admin/ads", "Google Ads upload"]].map(([k, h, l]) => `<a href="${h}" class="${on === k ? "on" : ""}">${l}</a>`).join("")}</div>`;
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
   const ic = {
@@ -1403,10 +1407,10 @@ function bnav(on, n = 0, owner = false) {
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
   };
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
-  const moreKeys = ["speed", "rate", "msgstats", "dials", "meta", "insights", "calendar", "automations", "dialer"];
+  const moreKeys = ["speed", "rate", "msgstats", "dials", "meta", "numbers", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Reports", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dashboard", "dashboard", "Dashboard", ic.rate)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Reports", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -1937,7 +1941,7 @@ async function sendLeadText(env, lead, body, { user = "system", auto = false, la
   const status = ok ? String(j.status || "queued") : "failed";
   const reason = auto ? `Texted: ${label || "Auto text"} (auto)` : `Texted: Message: ${body.slice(0, 80)}`;
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO messages (lead_id, phone, direction, body, status, sid, by_user, auto, is_read) VALUES (?,?,?,?,?,?,?,?,1)").bind(lead.id, to, "out", body, status, ok ? j.sid : "", user, auto ? 1 : 0),
+    env.DB.prepare("INSERT INTO messages (lead_id, phone, direction, body, status, sid, by_user, auto, is_read, from_num, err) VALUES (?,?,?,?,?,?,?,?,1,?,?)").bind(lead.id, to, "out", body, status, ok ? j.sid : "", user, auto ? 1 : 0, normNum(env.TWILIO_FROM) || null, ok ? null : String(j.code || "").slice(0, 12) || null),
     ...(ok ? [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(reason, user, lead.id)] : []),
   ]);
   return ok ? { ok: true } : { ok: false, message: String(j.message || "Twilio refused the text.").slice(0, 200) };
@@ -1986,7 +1990,7 @@ async function handleTwilioStatus(request, env) {
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
   if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
   const sid = String(params.MessageSid || params.SmsSid || ""), st = String(params.MessageStatus || params.SmsStatus || "");
-  if (sid && st) await env.DB.prepare("UPDATE messages SET status = ? WHERE sid = ? AND direction = 'out'").bind(st.slice(0, 20), sid).run();
+  if (sid && st) await env.DB.prepare("UPDATE messages SET status = ?, err = COALESCE(NULLIF(?, ''), err) WHERE sid = ? AND direction = 'out'").bind(st.slice(0, 20), String(params.ErrorCode || "").slice(0, 12), sid).run();
   return twiml();
 }
 const isoUtc = t => String(t || "").replace(" ", "T") + "Z";
@@ -2498,6 +2502,240 @@ function draw(){const f=RF.value,t=RT.value,L=R.filter(r=>r.cd>=f&&r.cd<=t),n=L.
   drawSpend(f,t)}
 document.getElementById('gb').onchange=draw;
 rangeUI(draw);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Number health (owner only): is each calling and texting number still getting through, or is it being flagged as spam?
+const normNum = n => { const d = String(n || "").replace(/\D/g, ""); return !d ? "" : d.length === 10 ? "+1" + d : d.length === 11 && d[0] === "1" ? "+" + d : "+" + d; };
+const ourNumbers = env => [...new Set([env.TWILIO_FROM, ...String(env.TWILIO_NUMBERS || "").split(/[\s,]+/)].map(normNum).filter(Boolean))];
+async function numberHealth(env) {
+  await ensureTable(env.DB);
+  const nums = ourNumbers(env), primary = nums[0] || "";
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const [dials, msgs, outc, opt, texted] = await Promise.all([
+    q("SELECT lead_id, duration, started_at, from_num FROM dial_calls WHERE started_at >= datetime('now','-30 days') ORDER BY started_at ASC LIMIT 20000"),
+    q("SELECT status, err, at, from_num FROM messages WHERE direction = 'out' AND at >= datetime('now','-30 days') LIMIT 40000"),
+    q("SELECT lead_id, reason, at FROM stage_log WHERE reason LIKE 'Call result: Left a voicemail%' AND at >= datetime('now','-30 days')"),
+    q("SELECT COUNT(*) n FROM sms_optout WHERE at >= datetime('now','-7 days')"),
+    q("SELECT COUNT(DISTINCT lead_id) n FROM messages WHERE direction = 'out' AND at >= datetime('now','-7 days')"),
+  ]);
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z"), now = Date.now(), day = 864e5;
+  const all = [...new Set([...nums, ...dials.map(r => normNum(r.from_num)), ...msgs.map(r => normNum(r.from_num))].filter(Boolean))];
+  if (!all.length && (dials.length || msgs.length)) all.push("Not recorded");
+  const numOf = r => normNum(r.from_num) || primary || "Not recorded";
+  const vmAt = new Map(); for (const o of outc) { if (!vmAt.has(o.lead_id)) vmAt.set(o.lead_id, []); vmAt.get(o.lead_id).push(ms(o.at)); }
+  const out = [];
+  for (const num of all) {
+    const dr = dials.filter(r => numOf(r) === num).map(r => ({ t: ms(r.started_at), dur: r.duration || 0, lead: r.lead_id }));
+    const mr = msgs.filter(r => numOf(r) === num).map(r => ({ t: ms(r.at), st: r.status, err: String(r.err || "") }));
+    for (const d of dr) d.vm = (vmAt.get(d.lead) || []).some(t => t >= d.t - 6e4 && t - d.t < 6 * 36e5);
+    const calls = rows => ({ n: rows.length, picked: rows.filter(x => x.dur > 0).length, short: rows.filter(x => x.dur > 0 && x.dur < 10).length, vm: rows.filter(x => x.vm).length });
+    const texts = rows => ({ n: rows.length, delivered: rows.filter(x => x.st === "delivered").length, failed: rows.filter(x => x.st === "failed" || x.st === "undelivered").length, blocked: rows.filter(x => x.err === "30007").length });
+    const inW = (rows, a, b) => rows.filter(x => x.t >= now - b * day && x.t < now - a * day);
+    const cur = { calls: calls(inW(dr, 0, 7)), texts: texts(inW(mr, 0, 7)) }, base = { calls: calls(inW(dr, 7, 30)), texts: texts(inW(mr, 7, 30)) };
+    const rate = (a, b) => (b ? a / b : null), reasons = []; let level = 0;
+    const up = (l, t) => { level = Math.max(level, l); reasons.push(t); };
+    const ar = rate(cur.calls.picked, cur.calls.n), bar = rate(base.calls.picked, base.calls.n), P = v => Math.round(v * 100) + "%";
+    const callsOk = cur.calls.n >= 15, textsOk = cur.texts.n >= 30;
+    if (callsOk && base.calls.n >= 20 && bar != null) {
+      const drop = bar - ar;
+      if (drop >= 0.2 && ar <= 0.6 * bar) up(2, "Answer rate fell from " + P(bar) + " to " + P(ar) + " this week.");
+      else if (drop >= 0.1) up(1, "Answer rate dipped from " + P(bar) + " to " + P(ar) + " this week.");
+    } else if (callsOk && ar < 0.15) up(1, "Only " + P(ar) + " of calls are being picked up (not enough history to compare yet).");
+    if (cur.calls.picked >= 10) { const sr = cur.calls.short / cur.calls.picked; if (sr > 0.6) up(2, P(sr) + " of answered calls ended in under 10 seconds (people hanging up fast)."); else if (sr > 0.4) up(1, P(sr) + " of answered calls ended in under 10 seconds (people hanging up fast)."); }
+    if (textsOk) {
+      const br = cur.texts.blocked / cur.texts.n, fr = cur.texts.failed / cur.texts.n;
+      if (br >= 0.08) up(2, P(br) + " of texts were blocked by carriers (error 30007)."); else if (br >= 0.03) up(1, P(br) + " of texts were blocked by carriers (error 30007).");
+      if (fr >= 0.2) up(2, P(fr) + " of texts failed or were not delivered."); else if (fr >= 0.1) up(1, P(fr) + " of texts failed or were not delivered.");
+    }
+    if (all.length <= 1 && texted[0] && texted[0].n >= 20) { const or = (opt[0].n || 0) / texted[0].n; if (or >= 0.06) up(2, P(or) + " of the people texted this week replied STOP."); else if (or >= 0.03) up(1, P(or) + " of the people texted this week replied STOP."); }
+    const status = !callsOk && !textsOk ? "learning" : level >= 2 ? "red" : level === 1 ? "yellow" : "green";
+    const daily = Array.from({ length: 14 }, (_, i) => { const a = 13 - i, c = calls(inW(dr, a, a + 1)), t = texts(inW(mr, a, a + 1)); return { d: new Date(now - a * day).toLocaleDateString("en-CA", { timeZone: TZ }), dials: c.n, picked: c.picked, texts: t.n, delivered: t.delivered, blocked: t.blocked }; });
+    out.push({ num, label: num.startsWith("+1") ? prettyPhone(num.slice(2)) : num, primary: num === primary, status, level: status === "learning" ? 0 : level, reasons,
+      suggest: status === "red" ? "Pause outbound calls from this number, switch to a backup number, and register a replacement." : status === "yellow" ? "Keep an eye on it for a few days. Lower the daily volume and vary your text wording." : status === "learning" ? "Needs about 15 calls or 30 texts in a week to judge." : "Looks healthy.",
+      cur, base, daily });
+  }
+  return out;
+}
+async function numberHealthAlert(env) {
+  if (!env.DB || new Date().getUTCMinutes() !== 7) return;
+  await ensureTable(env.DB);
+  for (const n of await numberHealth(env)) {
+    const prev = await env.DB.prepare("SELECT level FROM number_health WHERE num = ?").bind(n.num).first();
+    const was = prev ? prev.level : 0;
+    if (n.level > was && n.level >= 1) await pushToDevices(env, { title: n.level >= 2 ? "Number health: RED" : "Number health: yellow", message: `${n.label}: ${n.reasons[0] || "check this number"}`, click: env.CRM_HOST ? `https://${env.CRM_HOST}/admin/numbers` : undefined, users: [OWNER] }).catch(() => {});
+    await env.DB.prepare("INSERT INTO number_health (num, level, at) VALUES (?,?,datetime('now')) ON CONFLICT(num) DO UPDATE SET level = excluded.level, at = excluded.at").bind(n.num, n.level).run();
+  }
+}
+// best-effort look at Twilio's own spam status for each number (Voice Integrity). Only runs when the owner presses the button.
+async function twilioNumberCheck(env) {
+  const base = env.TWILIO_API_BASE || "https://api.twilio.com", auth = { authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_TOKEN}`) }, out = [];
+  if (!env.TWILIO_SID || !env.TWILIO_TOKEN) return [{ num: "", ok: false, message: "Twilio is not set up yet." }];
+  for (const num of ourNumbers(env)) {
+    try {
+      const r = await fetch(`${base}/2010-04-01/Accounts/${env.TWILIO_SID}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(num)}`, { headers: auth, signal: AbortSignal.timeout(8000) });
+      const j = await r.json().catch(() => ({})), sid = j.incoming_phone_numbers && j.incoming_phone_numbers[0] && j.incoming_phone_numbers[0].sid;
+      if (!sid) { out.push({ num, ok: false, message: "Twilio does not list this number on the account." }); continue; }
+      const v = await fetch(`${env.TWILIO_VOICE_INTEGRITY_BASE || "https://voiceintegrity.twilio.com"}/v1/PhoneNumbers/${sid}`, { headers: auth, signal: AbortSignal.timeout(8000) });
+      if (!v.ok) { out.push({ num, ok: false, message: v.status === 404 ? "No Voice Integrity registration for this number yet. Turn it on in Twilio (Trust Hub > Voice Integrity)." : "Twilio answered " + v.status + "." }); continue; }
+      const d = await v.json().catch(() => ({})); out.push({ num, ok: true, data: JSON.stringify(d).slice(0, 600) });
+    } catch (e) { out.push({ num, ok: false, message: "Could not reach Twilio." }); }
+  }
+  return out;
+}
+async function numbersPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env), list = await numberHealth(env);
+  const payload = JSON.stringify({ list, twilio: !!(env.TWILIO_SID && env.TWILIO_TOKEN) }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Number health | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+.nm{display:flex;flex-direction:column;gap:14px}.nh{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.nh b{font-size:22px;letter-spacing:-.3px}.st{border-radius:999px;padding:4px 14px;font-weight:800;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+.st.green{background:#0f2c18;color:#4fdc5a;border:1px solid #1f6a37}.st.yellow{background:#2a2410;color:#ffd166;border:1px solid #5a4a1f}.st.red{background:#2c1414;color:#ff8a8a;border:1px solid #6a2a2a}.st.learning{background:#161c23;color:#9aa4af;border:1px solid #2a323b}
+.rs{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}.sg{background:#0b0f13;border:1px solid #1b2530;border-radius:12px;padding:10px 14px;color:#cfd6de}
+.btnc{background:#10151b;border:1px solid #232b34;color:#e8eaed;border-radius:10px;padding:9px 14px;font:inherit;font-weight:650;cursor:pointer}.btnc:hover{border-color:#34404c}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>number health</b></h1>${nav("numbers", tc, true)}</header>
+${bnav("numbers", tc, true)}
+${insightTabs("numbers")}
+<main>
+<p class="note">Each number gets a status from how people react to it: calls picked up, calls ended in seconds, texts delivered and texts blocked by carriers. It compares the last 7 days with the 3 weeks before. A phone alert goes to your login only when a number turns yellow or red.</p>
+<div id="list"></div>
+<div class="card"><h3>Twilio's own spam status</h3><p class="note" id="tw">Asks Twilio what it reports for each number (Voice Integrity). Turn Voice Integrity on in Twilio first, or this will say it has nothing for the number.</p><div><button class="btnc" id="chk" type="button">Check with Twilio</button></div><div id="twr" class="note"></div></div>
+<p class="note">No tool can promise a number is clean: the carriers' spam lists are not public. This catches problems early from behavior, but it needs a few days of calling to sharpen. Numbers are recorded from now on; older calls and texts count toward your main number.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+${RPT_JS}
+const D=JSON.parse(document.getElementById('data').textContent);
+const P=v=>v==null?'-':Math.round(v*100)+'%';
+function card(n){const c=n.cur,b=n.base,ar=c.calls.n?c.calls.picked/c.calls.n:null,bar=b.calls.n?b.calls.picked/b.calls.n:null,dl=c.texts.n?c.texts.delivered/c.texts.n:null,bl=c.texts.n?c.texts.blocked/c.texts.n:null,sh=c.calls.picked?c.calls.short/c.calls.picked:null;
+  return '<div class="card nm"><div class="nh"><b>'+$(n.label)+'</b><span class="st '+n.status+'">'+n.status+'</span>'+(n.primary?'<span class="note">main number</span>':'')+'</div>'
+  +(n.reasons.length?'<ul class="rs">'+n.reasons.map(r=>'<li>'+$(r)+'</li>').join('')+'</ul>':'')+'<div class="sg">'+$(n.suggest)+'</div>'
+  +'<div class="kp">'+kp('Calls (7 days)',c.calls.n,'')+kp('Picked up',P(ar),bar!=null?'was '+P(bar):'')+kp('Hung up in under 10 sec',P(sh),'of answered')+kp('Texts (7 days)',c.texts.n,'')+kp('Delivered',P(dl),'')+kp('Blocked by carriers',P(bl),'')+'</div>'
+  +'<div class="ch" id="ch'+n.num.replace(/\\D/g,'')+'"></div></div>'}
+const el=document.getElementById('list');
+el.innerHTML=D.list.length?D.list.map(card).join(''):'<div class="card"><div class="empty">No numbers found. Add TWILIO_FROM in Cloudflare and make a few calls.</div></div>';
+D.list.forEach(n=>{const e=document.getElementById('ch'+n.num.replace(/\\D/g,''));if(e)chart('ch'+n.num.replace(/\\D/g,''),n.daily.map(d=>d.d),[{n:'calls',v:n.daily.map(d=>d.dials),c:'#4a9be8'},{n:'picked up',v:n.daily.map(d=>d.picked),c:'#32cd32'},{n:'texts blocked',v:n.daily.map(d=>d.blocked),c:'#ff7a7a'}],{legend:true})});
+document.getElementById('chk').onclick=async e=>{e.target.disabled=true;document.getElementById('twr').textContent='Asking Twilio...';try{const j=await (await fetch('/admin/numbers/check',{method:'POST'})).json();document.getElementById('twr').innerHTML=(j.results||[]).map(r=>'<p><b>'+$(r.num||'')+'</b> '+(r.ok?'<span class="good">'+$(r.data)+'</span>':'<span class="warn">'+$(r.message)+'</span>')+'</p>').join('')||'No numbers to check.'}catch(_){document.getElementById('twr').textContent='Could not reach the server.'}e.target.disabled=false};
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Dashboard (owner only): the page the CRM opens to
+async function dashData(env, days) {
+  await ensureTable(env.DB);
+  days = [1, 7, 30, 90].includes(days) ? days : 30;
+  const today = todayStr(), start = days === 1 ? today : addDays(today, -(days - 1)), startUtc = start + " 05:00:00", minS = contactMinSecs(env);
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const base = "l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo'";
+  const [all, logs, called, reachedA, reachedB, notCalled, due, waiting, appts, dialsToday] = await Promise.all([
+    q(`SELECT l.id, l.stage, l.value, l.created_at FROM leads l WHERE ${base} ORDER BY l.id DESC LIMIT 6000`),
+    q(`SELECT s.lead_id, s.to_stage FROM stage_log s JOIN leads l ON l.id = s.lead_id WHERE l.created_at >= ? AND ${base} AND s.to_stage IN ('interested','quoted','deposit','booked','working','done')`, startUtc),
+    q(`SELECT DISTINCT d.lead_id FROM dial_calls d JOIN leads l ON l.id = d.lead_id WHERE l.created_at >= ? AND ${base}`, startUtc),
+    q(`SELECT DISTINCT d.lead_id FROM dial_calls d JOIN leads l ON l.id = d.lead_id WHERE l.created_at >= ? AND ${base} AND d.duration > ?`, startUtc, minS),
+    q(`SELECT DISTINCT s.lead_id FROM stage_log s JOIN leads l ON l.id = s.lead_id WHERE l.created_at >= ? AND ${base} AND s.reason IN ('Call result: Answered','Call result: Interested','Call result: Callback','Call result: Booked','Call result: Deposit pending','Call result: Quote sent','Call result: Not interested')`, startUtc),
+    q(`SELECT l.id, l.name, l.service, l.created_at FROM leads l WHERE ${base} AND l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-7 days') AND NOT EXISTS (SELECT 1 FROM dial_calls d WHERE d.lead_id = l.id) ORDER BY l.created_at ASC LIMIT 8`),
+    q(`SELECT l.id, l.name, l.service, l.follow_up_date, l.follow_up FROM leads l WHERE ${base} AND COALESCE(l.follow_up_date,'') != '' AND l.follow_up_date <= ? AND l.stage NOT IN ('lost','done') ORDER BY l.follow_up_date ASC LIMIT 8`, today),
+    q(`SELECT l.id, l.name, m.at FROM messages m JOIN leads l ON l.id = m.lead_id WHERE m.id = (SELECT MAX(id) FROM messages WHERE lead_id = l.id) AND m.direction = 'in' ORDER BY m.at ASC LIMIT 8`),
+    q(`SELECT l.id, l.name, l.service, l.appt_at, l.stage FROM leads l WHERE ${base} AND COALESCE(l.appt_at,'') != '' AND l.stage != 'lost' AND l.appt_at >= ? ORDER BY l.appt_at ASC LIMIT 8`, today),
+    q("SELECT COUNT(*) n FROM dial_calls WHERE started_at >= ?", today + " 05:00:00"),
+  ]);
+  const OPEN = ["new", "nocontact", "contacted", "quoted", "aged", "interested", "deposit"], WON = ["booked", "working", "done"];
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z"), age = l => Math.floor((Date.now() - ms(l.created_at)) / 864e5);
+  const inR = all.filter(l => l.created_at >= startUtc);
+  const ever = { interested: new Set(), deposit: new Set(), booked: new Set(), working: new Set(), done: new Set() };
+  const rank = { interested: 0, quoted: 0, deposit: 1, booked: 2, working: 3, done: 4 };
+  const reach = new Set([...reachedA, ...reachedB].map(r => r.lead_id));
+  const step = new Map(); // furthest step a lead ever reached
+  const bump = (id, r) => step.set(id, Math.max(step.get(id) ?? -1, r));
+  for (const g of logs) bump(g.lead_id, rank[g.to_stage]);
+  for (const l of inR) { const cur = { interested: 0, quoted: 0, deposit: 1, booked: 2, working: 3, done: 4 }[l.stage]; if (cur != null) bump(l.id, cur); }
+  const n = inR.length, cnt = f => inR.filter(l => f(step.get(l.id) ?? -1)).length;
+  const calledSet = new Set(called.map(r => r.lead_id));
+  const funnel = [["New leads", n], ["Called", inR.filter(l => calledSet.has(l.id)).length], ["Reached", inR.filter(l => reach.has(l.id)).length], ["Interested", cnt(r => r >= 0)], ["Deposit pending", cnt(r => r >= 1)], ["Deposit collected", cnt(r => r >= 2)], ["In shop", cnt(r => r >= 3)], ["Completed", cnt(r => r >= 4)]];
+  const sum = (arr, f) => arr.filter(f).reduce((a, l) => a + (l.value || 0), 0);
+  const status = { open: inR.filter(l => OPEN.includes(l.stage)).length, won: inR.filter(l => WON.includes(l.stage)).length, lost: inR.filter(l => l.stage === "lost").length };
+  const value = { open: sum(inR, l => OPEN.includes(l.stage)), won: sum(inR, l => WON.includes(l.stage)), lost: sum(inR, l => l.stage === "lost") };
+  const BK = [["d1", "1-2 days", 0, 2], ["d3", "3-6 days", 3, 6], ["d7", "7+ days", 7, 29], ["d30", "30+ days", 30, 1e9]], dist = {};
+  for (const l of all) { let k = l.stage; if (["new", "nocontact", "contacted", "quoted", "aged"].includes(k)) { const a = age(l); k = (BK.find(b => a >= b[2] && a <= b[3]) || BK[0])[0]; } (dist[k] = dist[k] || { n: 0, v: 0 }); dist[k].n++; dist[k].v += l.value || 0; }
+  const labels = Object.fromEntries(BK.map(b => [b[0], b[1]]).concat([["interested", "Interested (call back)"], ["deposit", "Deposit pending"], ["booked", "Deposit collected"], ["working", "In shop"], ["done", "Service completed"], ["lost", "NO"]]));
+  const order = ["d1", "d3", "d7", "d30", "interested", "deposit", "booked", "working", "done", "lost"];
+  const nums = await numberHealth(env).catch(() => []);
+  return { success: true, days, start, today, n, status, value, funnel, won: status.won, conv: n ? Math.round(1000 * status.won / n) / 10 : 0,
+    dist: order.filter(k => dist[k]).map(k => ({ k, label: labels[k], n: dist[k].n, v: dist[k].v })),
+    notCalled: notCalled.map(l => ({ id: l.id, name: l.name, service: l.service, mins: Math.round((Date.now() - ms(l.created_at)) / 60000) })),
+    due: due.map(l => ({ id: l.id, name: l.name, what: l.follow_up || "Follow up", date: l.follow_up_date })),
+    waiting: waiting.map(w => ({ id: w.id, name: w.name, mins: Math.round((Date.now() - ms(w.at)) / 60000) })),
+    appts: appts.map(a => ({ id: a.id, name: a.name, service: a.service, at: a.appt_at })),
+    dialsToday: (dialsToday[0] || {}).n || 0, numbers: nums.map(x => ({ label: x.label, status: x.status, reason: x.reasons[0] || x.suggest })) };
+}
+async function dashboardPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Dashboard | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+main{max-width:1300px}.dh{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.dh h2{margin:0;font-size:22px;text-transform:none;letter-spacing:-.3px;color:#fff}
+.g3{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}.g6{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.sm{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px 16px;text-decoration:none;color:inherit;display:block}.sm small{display:block;color:#8a939e;font-size:12.5px}.sm b{display:block;font-size:28px;line-height:1.15;margin-top:4px;letter-spacing:-.4px}.sm span{font-size:12px;color:#7c838d}.sm.hot b{color:#ff9a6b}.sm:hover{border-color:#2b3641}
+.dn{display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:center}.lg{display:flex;flex-direction:column;gap:8px;font-size:13.5px}.lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px}.lg span{color:#8a939e;margin-left:6px}
+.rg{text-align:center}.rg b{display:block;font-size:12px;color:#8a939e;font-weight:500}.rg strong{font-size:26px}
+.fn div{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;margin:7px 0;font-size:14px}.fn i{display:block;height:22px;border-radius:6px;background:linear-gradient(90deg,#1f6a37,#32cd32)}.fn span.p{color:#8a939e;font-size:12.5px;text-align:right}
+.li{display:flex;flex-direction:column}.li a{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #141a20;color:inherit;text-decoration:none;font-size:14px}.li a:last-child{border:0}.li a span{color:#8a939e;white-space:nowrap}.li a:hover b{color:#4fdc5a}
+.nb2{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #141a20}.nb2:last-child{border:0}.pl{border-radius:999px;padding:2px 10px;font-weight:800;font-size:11px;letter-spacing:.5px;text-transform:uppercase;flex:none;margin-top:2px}.pl.green{background:#0f2c18;color:#4fdc5a}.pl.yellow{background:#2a2410;color:#ffd166}.pl.red{background:#2c1414;color:#ff8a8a}.pl.learning{background:#161c23;color:#9aa4af}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}.fn div{grid-template-columns:110px 1fr 70px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>dashboard</b></h1>${nav("dashboard", tc, true)}</header>
+${bnav("dashboard", tc, true)}
+<main>
+<div class="dh"><h2 id="hi">Dashboard</h2><div class="rb"><button data-d="1">Today</button><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div></div>
+<div class="g6" id="kpi"></div>
+<div class="g3"><div class="card"><h3>Opportunity status</h3><div class="dn" id="st"></div></div><div class="card"><h3>Opportunity value</h3><div class="kp" id="vl"></div></div><div class="card"><h3>Conversion rate</h3><div class="dn" id="cv"></div></div></div>
+<div class="g2"><div class="card"><h3>Funnel</h3><div class="fn" id="fn"></div></div><div class="card"><h3>Where leads are now</h3><div class="dn" id="ds"></div></div></div>
+<div class="g3"><div class="card"><h3>Needs attention</h3><div class="li" id="at"></div></div><div class="card"><h3>Coming up</h3><div class="li" id="ap"></div></div><div class="card"><h3>Number health</h3><div id="nh"></div></div></div>
+<p class="note" id="nt"></p>
+</main>
+<script>
+${RPT_JS}
+const COL=['#4a9be8','#22d3ee','#a78bfa','#32cd32','#f5b942','#ff8a5b','#8b95a3','#6ee7b7','#f472b6','#64748b'];
+function donut(id,parts,center){const tot=parts.reduce((a,p)=>a+p.v,0)||1,R=62,C=2*Math.PI*R;let off=0,s='<svg width="170" height="170" viewBox="0 0 170 170"><g transform="rotate(-90 85 85)"><circle cx="85" cy="85" r="'+R+'" fill="none" stroke="#161c23" stroke-width="22"/>';
+  parts.forEach(p=>{const len=C*p.v/tot;if(p.v>0)s+='<circle cx="85" cy="85" r="'+R+'" fill="none" stroke="'+p.c+'" stroke-width="22" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'"><title>'+p.n+': '+p.v+'</title></circle>';off+=len});
+  s+='</g><text x="85" y="92" text-anchor="middle" fill="#e8eaed" font-size="24" font-weight="700">'+center+'</text></svg>';
+  document.getElementById(id).innerHTML=s+'<div class="lg">'+parts.map(p=>'<div><i style="background:'+p.c+'"></i>'+$(p.n)+'<span>'+p.v+(p.x?' &middot; '+p.x:'')+'</span></div>').join('')+'</div>'}
+function ring(pctv,label,sub){const R=62,C=2*Math.PI*R,len=C*Math.min(100,pctv)/100;return '<div class="rg"><svg width="170" height="170" viewBox="0 0 170 170"><g transform="rotate(-90 85 85)"><circle cx="85" cy="85" r="'+R+'" fill="none" stroke="#161c23" stroke-width="16"/><circle cx="85" cy="85" r="'+R+'" fill="none" stroke="#32cd32" stroke-width="16" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'"/></g><text x="85" y="94" text-anchor="middle" fill="#e8eaed" font-size="26" font-weight="700">'+pctv+'%</text></svg><b>'+label+'</b><strong>'+sub+'</strong></div>'}
+const mn=m=>m<60?m+' min':m<2880?Math.floor(m/60)+' h':Math.round(m/1440)+' days';
+const sd=a=>{const d=new Date(String(a).replace(' ','T'));return isNaN(d)?a:d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})};
+function draw(d){const h=new Date().getHours();document.getElementById('hi').textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+', Bronson';
+  const goal=+(localStorage.getItem('dgoal')||50);
+  document.getElementById('kpi').innerHTML=
+   '<a class="sm" href="/admin/pipeline"><small>New leads</small><b>'+d.n+'</b><span>in this range</span></a>'
+   +'<a class="sm'+(d.notCalled.length?' hot':'')+'" href="/admin/dialer"><small>Not called yet</small><b>'+d.notCalled.length+'</b><span>new leads, last 7 days</span></a>'
+   +'<a class="sm" href="/admin/dials"><small>Dials today</small><b>'+d.dialsToday+'</b><span>goal '+goal+'</span></a>'
+   +'<a class="sm'+(d.waiting.length?' hot':'')+'" href="/admin/messages"><small>Texts waiting on you</small><b>'+d.waiting.length+'</b><span>lead texted last</span></a>'
+   +'<a class="sm" href="/admin/pipeline"><small>Bookings</small><b>'+d.won+'</b><span>'+d.conv+'% of leads</span></a>'
+   +'<a class="sm" href="/admin/meta"><small>Booked revenue</small><b>'+money(d.value.won)+'</b><span>in this range</span></a>';
+  donut('st',[{n:'Open',v:d.status.open,c:'#4a9be8'},{n:'Won',v:d.status.won,c:'#32cd32'},{n:'Lost',v:d.status.lost,c:'#64748b'}],fmt(d.n));
+  document.getElementById('vl').innerHTML=kp('Open pipeline',money(d.value.open),'')+kp('Won',money(d.value.won),'')+kp('Lost',money(d.value.lost),'')+kp('Average job',d.status.won&&d.value.won?money(d.value.won/d.status.won):'-','');
+  document.getElementById('cv').innerHTML=ring(d.conv,'Won revenue',money(d.value.won));
+  const f=d.funnel,mx=Math.max(1,f[0][1]);document.getElementById('fn').innerHTML=f.map((x,i)=>'<div><span>'+x[0]+'</span><span><i style="width:'+Math.max(2,Math.round(100*x[1]/mx))+'%"></i></span><span class="p">'+x[1]+(i?' &middot; '+pct(x[1],f[i-1][1])+'%':'')+'</span></div>').join('');
+  const tot=d.dist.reduce((a,x)=>a+x.n,0);donut('ds',d.dist.map((x,i)=>({n:x.label,v:x.n,c:COL[i%COL.length],x:x.v?money(x.v):''})),fmt(tot));
+  const li=(arr,fn)=>arr.length?arr.map(fn).join(''):'';
+  document.getElementById('at').innerHTML=li(d.notCalled,l=>'<a href="/admin/dialer?lead='+l.id+'"><b>'+$(l.name||'Lead')+'</b><span>not called &middot; '+mn(l.mins)+'</span></a>')+li(d.due,l=>'<a href="/admin/dialer?lead='+l.id+'"><b>'+$(l.name||'Lead')+'</b><span>'+$(l.what)+' &middot; due '+l.date+'</span></a>')+li(d.waiting,l=>'<a href="/admin/messages#id='+l.id+'"><b>'+$(l.name||'Lead')+'</b><span>text waiting &middot; '+mn(l.mins)+'</span></a>')||'<div class="empty good">Nothing needs attention right now.</div>';
+  document.getElementById('ap').innerHTML=d.appts.length?d.appts.map(a=>'<a href="/admin/pipeline#id='+a.id+'"><b>'+$(a.name||'Lead')+' <small style="color:#8a939e;font-weight:400">'+$(a.service||'')+'</small></b><span>'+sd(a.at)+'</span></a>').join(''):'<div class="empty">No appointments booked ahead.</div>';
+  document.getElementById('nh').innerHTML=d.numbers.length?d.numbers.map(n=>'<div class="nb2"><span class="pl '+n.status+'">'+n.status+'</span><div><b>'+$(n.label)+'</b><div class="note">'+$(n.reason)+'</div></div></div>').join('')+'<p class="note"><a href="/admin/numbers" style="color:#8ec0ff">Open number health</a></p>':'<div class="empty">No numbers recorded yet.</div>';
+  document.getElementById('nt').textContent='Range: '+d.start+' to '+d.today+'. Won means Deposit collected, In shop or Service completed. Value is the job value set on each lead.'}
+async function load(){const d=+(document.querySelector('.rb .on')||{dataset:{d:30}}).dataset.d;const j=await (await fetch('/admin/dashboard/data?days='+d)).json();if(j.success)draw(j)}
+document.querySelectorAll('.rb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.rb button').forEach(x=>x.classList.toggle('on',x===b));load()});
+load();setInterval(()=>{if(!document.hidden)load()},60000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
@@ -3180,7 +3418,7 @@ async function dialerLog(env, b, user) {
   const dur = Math.max(0, Math.min(14400, Math.floor(Number(b.duration)) || 0));
   const mmss = `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}`;
   const stmts = [
-    env.DB.prepare("INSERT INTO dial_calls (lead_id, call_sid, duration, by_user) VALUES (?,?,?,?)").bind(b.lead_id, clean(b.sid, 60), dur, user),
+    env.DB.prepare("INSERT INTO dial_calls (lead_id, call_sid, duration, by_user, from_num) VALUES (?,?,?,?,?)").bind(b.lead_id, clean(b.sid, 60), dur, user, normNum(env.TWILIO_FROM) || null),
     env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.lead_id, cur.stage, cur.stage, dur ? `Called (in-app dialer): ${mmss}` : "Called (in-app dialer): not connected", user),
   ];
   // the result picked after the call decides what happened (a voicemail greeting can run a minute or more), so only a call of 3+ minutes counts as contact on its own
@@ -4597,6 +4835,7 @@ export default {
     ctx.waitUntil(dialSessionReminder(env).catch(e => console.error("dial session error", e && e.message)));
     ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
+    ctx.waitUntil(numberHealthAlert(env).catch(e => console.error("number health error", e && e.message)));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -4619,10 +4858,13 @@ export default {
 
     if (onCrm) {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
-      if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
+      if (p === "/") return adminRoute("/admin/dashboard", request, env);
+      if (p === "/dashboard" || p === "/admin/dashboard") return adminRoute("/admin/dashboard", request, env);
+      if (p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/msgstats" || p === "/admin/msgstats") return adminRoute("/admin/msgstats", request, env);
       if (p === "/dials" || p === "/admin/dials") return adminRoute("/admin/dials", request, env);
+      if (p === "/numbers" || p === "/admin/numbers") return adminRoute("/admin/numbers", request, env);
       if (p === "/meta" || p === "/admin/meta") return adminRoute("/admin/meta", request, env);
       if (p === "/reports" || p === "/admin/reports") return adminRoute("/admin/insights", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
@@ -4640,7 +4882,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -5392,6 +5634,10 @@ async function adminRoute(p, request, env) {
 
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
+  if (p === "/admin/dashboard") return a === OWNER ? dashboardPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/dashboard/data" && request.method === "GET") return a === OWNER ? json(await dashData(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
+  if (p === "/admin/numbers") return a === OWNER ? numbersPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/numbers/check" && request.method === "POST") return a === OWNER ? json({ success: true, results: await twilioNumberCheck(env) }) : json({ success: false }, 403);
   if (p === "/admin/dials") return a === OWNER ? dialsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/meta") return a === OWNER ? metaPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/dials/data" && request.method === "GET") { if (a !== OWNER) return json({ success: false }, 403); const u = new URL(request.url); return json(await dialsData(env, u.searchParams.get("from"), u.searchParams.get("to"))); }
