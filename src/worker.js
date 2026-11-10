@@ -2650,12 +2650,12 @@ function libPick(lib, said, k = 3) {
   for (const { r } of scored) { const key = r.rep_response.slice(0, 50); if (seen.has(key)) continue; seen.add(key); out.push(r); if (out.length >= k) break; }
   return out;
 }
-const OFFER_KEYS = ["rep", "shop", "address", "area", "special", "specialEnd", "tintPrice", "tintDeposit", "tintFloor", "coatPrice", "coatReg", "coatDeposit", "coatYears"];
+const OFFER_KEYS = ["rep", "shop", "address", "area", "special", "specialEnd", "tintPrice", "tintDeposit", "tintFloor", "coatPrice", "coatReg", "coatDeposit", "coatYears", "tintSkip", "coatSkip"];
 async function dialerOfferGet(env) {
   await ensureTable(env.DB);
   const r = await env.DB.prepare("SELECT v FROM dial_settings WHERE k = 'offer'").first();
   let offer = {}; try { offer = r && r.v ? JSON.parse(r.v) : {}; } catch (_) {}
-  return json({ success: true, offer });
+  return json({ success: true, offer, knowledge_default: KNOWLEDGE_DEFAULT });
 }
 async function dialerOfferSave(env, b) {
   await ensureTable(env.DB);
@@ -2664,6 +2664,7 @@ async function dialerOfferSave(env, b) {
   const out = {};
   for (const k of OFFER_KEYS) out[k] = String(o[k] == null ? "" : o[k]).trim().slice(0, 200);
   out.swaps = (Array.isArray(o.swaps) ? o.swaps : []).slice(0, 40).map(x => ({ f: String((x && x.f) || "").slice(0, 200), t: String((x && x.t) || "").slice(0, 400) })).filter(x => x.f);
+  out.knowledge = String(o.knowledge || "").trim().slice(0, 12000);
   out.fixes = (Array.isArray(o.fixes) ? o.fixes : []).slice(0, 80).map(x => ({ f: String((x && x.f) || "").slice(0, 80), t: String((x && x.t) || "").slice(0, 80) })).filter(x => x.f);
   out.terms = (Array.isArray(o.terms) ? o.terms : []).slice(0, 30).map(x => String(x || "").trim().slice(0, 40)).filter(Boolean);
   await env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES ('offer', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(JSON.stringify(out)).run();
@@ -3028,7 +3029,8 @@ const LBL={dep:'deposit',price:'price',reg:'normal price',yrs:'warranty years',s
 const SHORT={'p-expensive':'Too expensive','p-wife':'Wife','p-think':'Think about it','p-text':'Text me','p-schedule':'Schedule','p-calendar':'Calendar','p-shop':'Shopping around','p-catch':'The catch','a-price':'How much?','a-location':'Location','a-booked':'Booked elsewhere','a-scratch':'Scratches','a-wax':'I wax it','followup':'Follow up'};
 function gsvc(l){const s=String(l&&l.service||'');if(/tint/i.test(s))return 'tint';if(/coat|ceramic|correct|polish|detail/i.test(s))return 'coating';return ''}
 async function gLoad(svc){if(!svc||GS[svc]!==undefined)return;GS[svc]=null;try{const j=await (await fetch('/admin/dialer/script?svc='+svc)).json();GS[svc]=j&&j.script?j.script:false}catch(_){GS[svc]=false}}
-async function loadOffer(){try{const j=await (await fetch('/admin/dialer/offer')).json();if(j&&j.success)OF=j.offer||{}}catch(_){}}
+let OFKD='';
+async function loadOffer(){try{const j=await (await fetch('/admin/dialer/offer')).json();if(j&&j.success){OF=j.offer||{};OFKD=j.knowledge_default||''}}catch(_){}}
 const mny=n=>'$'+Number(n).toLocaleString('en-US');
 const numOf=s=>Number(String(s).replace(/[^0-9.]/g,''))||0;
 const firstOf=l=>{const f=String(l&&l.name||'').trim().split(/\\s+/)[0];return f&&!/^\\+?[\\d\\s()-]+$/.test(f)?f:''};
@@ -3040,7 +3042,7 @@ function vv(name,l,svc){
     case 'special':return OF.special||'';
     case 'price':{const v=l&&l.value>0?l.value:numOf(svc==='coating'?OF.coatPrice:OF.tintPrice);return v>0?mny(Math.round(v)):''}
     case 'reg':return numOf(OF.coatReg)>0?mny(numOf(OF.coatReg)):'';
-    case 'dep':{const d=numOf(svc==='coating'?OF.coatDeposit:OF.tintDeposit);return d>0?mny(d):''}
+    case 'dep':{const d=numOf(svc==='coating'?OF.coatDeposit:OF.tintDeposit)||50;return d>0?mny(d):''}
     case 'otd':{const p=vv('price',l,svc),d=vv('dep',l,svc);return p&&d?mny(Math.max(0,numOf(p)-numOf(d))):''}
     case 'yrs':return numOf(OF.coatYears)>0?String(numOf(OF.coatYears)):'';
     case 'floor':return numOf(OF.tintFloor)>0?mny(numOf(OF.tintFloor)):'';
@@ -3077,7 +3079,7 @@ function gAnalyze(who,text){
   m=t.match(/\\b(black|white|silver|gr[ae]y|red|blue|green|gold|orange|yellow|brown|maroon|burgundy|beige|tan|charcoal|pearl)\\b/);if(m)F.color=m[1];
   const sig=JSON.stringify(F);if(sig!==gSig){gSig=sig;gSoon()}gMark(false)}
 let gSig='';
-const gScript=()=>{const l=Q[ix],s=l&&gsvc(l);return s&&GS[s]?GS[s]:null};
+const gScript=()=>{const l=Q[ix],s=l&&gsvc(l),sc=s&&GS[s];if(!sc)return null;const sk=String((s==='coating'?OF.coatSkip:OF.tintSkip)||'').split(/[\\s,]+/).filter(Boolean);if(!sk.length)return sc;const key=s+sk.join();if(sc._k!==key){sc._f=Object.assign({},sc,{steps:sc.steps.filter(x=>sk.indexOf(x.id)<0)});sc._k=key}return sc._f};
 let gT=0,gUserAt=0;function gSoon(){clearTimeout(gT);gT=setTimeout(()=>{const a=document.activeElement;if(a&&a.classList&&a.classList.contains('phin'))return;if(!el('script').hidden)gFull()},250)}
 function gFull(){const r=el('rcol'),top=r?r.scrollTop:0,wy=window.scrollY;drawScript();if(r)r.scrollTop=top;window.scrollTo(0,wy)}
 ['wheel','touchmove'].forEach(ev=>document.addEventListener(ev,()=>{gUserAt=Date.now()},{passive:true}));
@@ -3176,6 +3178,7 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
    +'<details class="gdet"><summary>Offer numbers (optional)</summary><p class="note" style="margin:0 0 8px">Anything left empty shows up in the script as an amber [blank] you can fill in during the call. The lead job value is used as the price when it has one.</p><div class="gform">'
    +fld('o-sp','Special name',o.special,'text','e.g. Spring')+fld('o-end','Special ends',o.specialEnd,'date')+fld('o-tp','Tint price (if the lead has none)',o.tintPrice,'number')+fld('o-td','Tint deposit',o.tintDeposit,'number')+fld('o-tf','Tint lowest price',o.tintFloor,'number')
    +fld('o-cp','Coating special price',o.coatPrice,'number')+fld('o-cr','Coating normal price',o.coatReg,'number')+fld('o-cd','Coating deposit',o.coatDeposit,'number')+fld('o-cy','Coating warranty (years)',o.coatYears,'number')+'</div></details>'
+   +'<details class="gdet"><summary>Shop facts and skipped steps</summary><p class="note" style="margin:0 0 8px">Facts the coach is allowed to state: film, times, deposit, legal limits, plain-English words for new reps. Edit anything that is wrong. Whatever is not here, in the script or in your offer, the coach will not state.</p><div class="gform">'+fld('o-ts','Tint steps to skip (for example s17)',o.tintSkip,'text','')+fld('o-cs','Coating steps to skip (for example s17)',o.coatSkip,'text','')+'</div><textarea id="o-kn" rows="14" style="width:100%">'+$(o.knowledge||OFKD||'')+'</textarea><div class="bar"><button class="btn sm" id="o-kr" type="button">Use the built-in facts again</button></div></details>'
    +'<details class="gdet"><summary>Transcription fixes (optional)</summary><div><label>Words the phone line mishears (one per line: heard => meant), for example: "tent => tint". Common ones are already built in.</label><textarea id="o-fx" rows="4" placeholder="heard => meant">'+$((o.fixes||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div><div><label>Extra words the transcriber should listen for (one per line): car models, names, anything it keeps missing</label><textarea id="o-tm" rows="3">'+$((o.terms||[]).join('\\n'))+'</textarea></div></details>'
    +'<details class="gdet"><summary>Word swaps (optional)</summary><div><label>Word swaps (one per line: find => replace). Use this to change brand names, warranty wording or anything else in the script.</label><textarea id="o-sw" rows="5" placeholder="old word => new word">'+$((o.swaps||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div></details>'
    +'<div class="vm"><b>AI coach</b><span class="note" id="ai-st">Checks that the Anthropic key you added in Cloudflare works.</span><div class="bar"><button class="btn sm" id="ai-t" type="button">Test AI coach</button></div></div>'
@@ -3185,6 +3188,7 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
   d.querySelectorAll('[data-imp]').forEach(inp=>inp.onchange=async()=>{const f=inp.files&&inp.files[0];if(!f)return;let j;try{j=JSON.parse(await f.text())}catch(_){el('ge').textContent='That file is not valid JSON.';return}
     const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:inp.dataset.imp,script:j})});const jj=await r.json().catch(()=>({}));
     if(!jj.success){el('ge').textContent=jj.message||'Could not import.';return}GS[inp.dataset.imp]=j;el('gst-'+inp.dataset.imp).textContent=st(inp.dataset.imp);el('ge').textContent='';gi=0;drawScript();drawBrief(Q[ix])});
+  el('o-kr').onclick=()=>{el('o-kn').value=OFKD};
   const libSt=async()=>{try{const j=await (await fetch('/admin/dialer/library')).json();el('lib-st').textContent=j.count?j.count+' answers loaded ('+(j.byService||[]).map(x=>x.svc+' '+x.n).join(', ')+')':'Nothing loaded yet'}catch(_){el('lib-st').textContent='Could not check'}};libSt();
   el('lib-c').onclick=async()=>{await fetch('/admin/dialer/library',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({clear:true})});libSt()};
   el('lib-f').onchange=async()=>{const f=el('lib-f').files&&el('lib-f').files[0];if(!f)return;const st=el('lib-st');let rows=[];const t=await f.text();
@@ -3198,7 +3202,7 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
     let n=0;for(const [k,sc] of list){const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:k,script:sc})});const jj=await r.json().catch(()=>({}));if(!jj.success){el('g-pm').textContent=jj.message||'Could not import.';return}GS[k]=sc;n++}
     el('g-pm').textContent='Imported '+n+' script'+(n===1?'':'s')+'.';el('g-paste').value='';['tint','coating'].forEach(k=>{const e=el('gst-'+k);if(e)e.textContent=st(k)});gi=0;drawScript();drawBrief(Q[ix])};
   el('gs').onclick=async()=>{const fx=el('o-fx').value.split('\\n').map(x=>{const i=x.indexOf('=>');return i<0?null:{f:x.slice(0,i).trim(),t:x.slice(i+2).trim()}}).filter(x=>x&&x.f),tm=el('o-tm').value.split('\\n').map(x=>x.trim()).filter(Boolean);const sw=el('o-sw').value.split('\\n').map(x=>{const i=x.indexOf('=>');return i<0?null:{f:x.slice(0,i).trim(),t:x.slice(i+2).trim()}}).filter(x=>x&&x.f);
-    const v=id=>el(id).value.trim(),off={rep:v('o-rep'),shop:v('o-shop'),address:v('o-addr'),area:v('o-area'),special:v('o-sp'),specialEnd:v('o-end'),tintPrice:v('o-tp'),tintDeposit:v('o-td'),tintFloor:v('o-tf'),coatPrice:v('o-cp'),coatReg:v('o-cr'),coatDeposit:v('o-cd'),coatYears:v('o-cy'),swaps:sw,fixes:fx,terms:tm};
+    const v=id=>el(id).value.trim(),off={rep:v('o-rep'),shop:v('o-shop'),address:v('o-addr'),area:v('o-area'),special:v('o-sp'),specialEnd:v('o-end'),tintPrice:v('o-tp'),tintDeposit:v('o-td'),tintFloor:v('o-tf'),coatPrice:v('o-cp'),coatReg:v('o-cr'),coatDeposit:v('o-cd'),coatYears:v('o-cy'),tintSkip:v('o-ts'),coatSkip:v('o-cs'),knowledge:el('o-kn').value.trim()===String(OFKD).trim()?'':el('o-kn').value.trim(),swaps:sw,fixes:fx,terms:tm};
     const r=await fetch('/admin/dialer/offer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({offer:off})});const j=await r.json().catch(()=>({}));if(!j.success){el('ge').textContent=j.message||'Could not save.';return}OF=off;d.close();drawScript();drawBrief(Q[ix])}}
 
 // scripts and the missed-you text
@@ -3381,7 +3385,7 @@ function coachVar(name, o, lead, svc) {
   const g = k => (o[k] !== undefined && o[k] !== "" ? o[k] : dflt[k]);
   const n = x => Number(String(x || "").replace(/[^0-9.]/g, "")) || 0, m = x => "$" + Number(x).toLocaleString("en-US");
   const price = () => { const v = lead && lead.value > 0 ? lead.value : n(svc === "coating" ? o.coatPrice : o.tintPrice); return v > 0 ? Math.round(v) : 0; };
-  const dep = () => n(svc === "coating" ? o.coatDeposit : o.tintDeposit);
+  const dep = () => n(svc === "coating" ? o.coatDeposit : o.tintDeposit) || 50;
   switch (name) {
     case "rep": case "shop": case "address": case "area": return g(name) || "";
     case "special": return o.special || "";
@@ -3409,7 +3413,8 @@ function coachScriptText(sc, o, lead, svc) {
     return [ps, li].filter(Boolean).join("\n");
   };
   const out = [];
-  for (const st of sc.steps || []) {
+  const skip = String((svc === "coating" ? o.coatSkip : o.tintSkip) || "").split(/[\s,]+/).filter(Boolean);
+  for (const st of (sc.steps || []).filter(x => !skip.includes(x.id))) {
     out.push(`## STEP ${st.id}${st.n ? " (#" + st.n + ")" : ""} - phase ${st.phase || ""}`);
     out.push((st.main || []).map(node).filter(Boolean).join("\n"));
     if (st.side && st.side.length) out.push("If it comes up here:\n" + st.side.map(node).filter(Boolean).join("\n"));
@@ -3418,10 +3423,53 @@ function coachScriptText(sc, o, lead, svc) {
   for (const pl of sc.plays || []) { out.push(`## PLAYBOOK ${pl.id} - ${pl.title}`); out.push((pl.nodes || []).map(node).filter(Boolean).join("\n")); }
   return out.join("\n");
 }
+const KNOWLEDGE_DEFAULT = `BUSINESS
+- Divine Detailers, 5181 NW 74th Ave, Miami, FL 33166. Open Monday to Saturday, 9:00 AM to 6:00 PM. Closed Sunday. Phone (786) 757-2826. Email info@divinedetailers.com.
+- Services: window tint, ceramic coating, paint correction, paint protection film (PPF) and vinyl wraps. Tint and ceramic coating are marketed separately, so a caller is about one or the other.
+
+BOOKING AND MONEY
+- The deposit is $50 for both tint and ceramic coating, and it is refundable.
+- There are no free add-ons with any service. Never offer free extras.
+
+WINDOW TINT
+- Film: XPEL PRIME XR PLUS, a nano-ceramic window film. It is non-metallic.
+- Time: about 2.5 hours for a tint job, about 4 hours when old tint has to be removed first.
+- Published XPEL figures (the owner has not confirmed exact numbers, so say "up to" and do not quote a specific total-heat number): blocks over 99% of UV; very high infrared (heat) rejection, published as up to roughly 96 to 98 percent depending on the shade.
+- Warranty: backed by XPEL's film warranty (published as a lifetime warranty against bubbling, peeling, fading, cracking and discoloration when installed by an authorized dealer). The owner must confirm the exact terms before the rep promises more than "it is backed by the XPEL warranty and I will go over the details".
+- Benefits of ceramic tint: keeps the car noticeably cooler and the AC works less; blocks over 99% of UV, which protects skin and stops the interior fading and cracking; cuts glare; adds privacy; very clear; does not fade or turn purple the way cheap dyed film can.
+- Signal: ceramic tint is non-metallic, so it does not interfere with cell phone, GPS, radio or Bluetooth signals. Cheap metalized film can, which is not what we install.
+- Windshield: we can tint the windshield. In Florida only a non-reflective strip above the AS-1 line (the small marking near the top of the windshield) is allowed without a medical exemption. The installer will go over the options for the customer's car.
+- Florida limits, general information (the installer confirms the exact vehicle; VLT is how much light gets through, so a higher number is lighter): front side windows at least 28%; rear side windows and rear window on a sedan at least 15%; rear side windows and rear window on an SUV or van as dark as 6%; reflective or mirror-like films have limits too. Medical exemptions exist. If the caller is not sure what shade to pick, we show the shade card at drop-off.
+- After install (general guidance): a little haze or tiny water spots for a few days to a couple of weeks is normal while the film cures. Do not roll the windows down for a few days.
+
+CERAMIC COATING
+- Our ceramic coating comes from Ceramic Coating Inc. Do not quote warranty years unless the OFFER gives them.
+- Time: 24 hours. The car stays with us for a day.
+- What it is: a liquid layer that bonds to the paint's clear coat. Water beads and rolls off, the car washes easier, and the paint looks glossier and deeper. It helps protect against UV, bird droppings, bug acids, tree sap and water spots.
+- What it is not: not scratch-proof. It does not stop rock chips, dings or deep scratches (paint protection film does that). The car still needs washing.
+- Paint correction: polishing that removes swirl marks, light scratches and oxidation. It is done before the coating because a coating locks in whatever is on the paint. Scratches that go through the clear coat cannot be fully polished out.
+- Coating versus wax: wax lasts weeks to a few months; a coating lasts years.
+- Care (general guidance): hand wash with a pH-neutral soap, avoid brush-style automatic car washes, and wait about a week after coating before the first wash.
+
+PAINT PROTECTION FILM (PPF)
+- A clear urethane film applied over the paint. It takes the hit from rock chips and road debris, and light scratches in it can heal with heat.
+
+PLAIN-ENGLISH WORDS FOR NEW REPS
+- VLT: how much light passes through the tint. Higher is lighter. 5% is very dark, 35% is medium, 70% is very light.
+- Infrared (IR): the part of sunlight that creates most of the heat you feel.
+- UV: the sunlight rays that damage skin and fade interiors.
+- AS-1 line: the marking near the top of the windshield.
+- Clear coat: the protective top layer of the paint.
+- Swirl marks: tiny circular scratches in the clear coat, most visible in sunlight.
+- Hydrophobic: repels water.
+- Cure: the time film or coating needs to settle and harden fully.
+
+ALWAYS
+- If a fact is not in the SCRIPT, OFFER or this list, do not state it. Say "good question, let me confirm that and get right back to you".`;
 const COACH_RULES = `You are a real-time call coach whispering to a sales rep at Divine Detailers, a car detailing shop that sells window tint, ceramic coating, paint correction, PPF and wraps. You see the live transcript of a phone call with a lead. The rep is following the shop's call script line by line, and a separate screen already shows them the next script line. Your job is only to step in when the lead leaves the script, and to tell the rep exactly what to say.
 
 Ground rules:
-- Use ONLY facts that appear in the SCRIPT or OFFER below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, say so in "note", set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
+- Use ONLY facts that appear in the SCRIPT, OFFER or SHOP FACTS below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, say so in "note", set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
 - Inside "say", acknowledge what the lead said and add one short real comment taken from the script, in the script's own wording adapted to what they actually said. Answer the question first; do not read the script aloud blindly.
 - Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 35 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
 - After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
@@ -3463,7 +3511,7 @@ async function coachContext(env, leadId, forceSvc) {
   const offer = get("offer") || {}, sc = svc ? get("script_" + svc) : null;
   const facts = lead ? `Lead: ${lead.name || "unknown"}. Service tag: ${lead.service || "unknown"}. Vehicle: ${[lead.year, lead.make, lead.model].filter(Boolean).join(" ") || "unknown"}. Quoted job value: ${lead.value > 0 ? "$" + lead.value : "not set"}.` : "Lead: unknown.";
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
-  const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
+  const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
   const lib = svc ? await env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : [];
   return { system, facts, svc, lib };
 }
