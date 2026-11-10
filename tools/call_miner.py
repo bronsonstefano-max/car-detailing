@@ -1010,18 +1010,19 @@ def cmd_learn(a):
     chunks = [calls[i:i + size] for i in range(0, len(calls), size)]
 
     def ask(user, tokens):
-        """A report that is never empty: a thinking-only or cut-off reply is retried with less thinking and more room."""
-        for effort, mt in ((a.effort, tokens), ("low", tokens * 2), ("low", tokens * 2)):
+        """A report that is never empty or cut off: a thinking-only or truncated reply is retried with less thinking and a bigger budget."""
+        best = ""
+        for effort, mt in ((a.effort, tokens), ("low", tokens * 2), ("low", min(tokens * 4, 32000))):
             text, stop = claude(a.model, effort, system, user, key, max_tokens=mt)
-            if text and len(text.split()) > 150 and stop != "max_tokens":
-                return text
             if text and len(text.split()) > 150:
-                return text
-        return ""
+                best = text
+                if stop != "max_tokens":
+                    return text
+        return best
     parts, bad = [], 0
     for n, ch in enumerate(chunks, 1):
         print("Learning from calls %d-%d of %d..." % ((n - 1) * size + 1, (n - 1) * size + len(ch), len(calls)))
-        text = ask("Digests of %d calls (JSON):\n%s\n\n%s" % (len(ch), json.dumps([digest(c) for c in ch], ensure_ascii=False), LEARN_ASK), 7000)
+        text = ask("Digests of %d calls (JSON):\n%s\n\n%s" % (len(ch), json.dumps([digest(c) for c in ch], ensure_ascii=False), LEARN_ASK), 9000)
         if text:
             parts.append((len(ch), text))
         else:
@@ -1039,7 +1040,7 @@ def cmd_learn(a):
                 nxt.append(grp[0])
                 continue
             print("Merging %d reports..." % len(grp))
-            merged = ask("Below are %d reports, each written from a different batch of calls (%s calls in total). Merge them into ONE report with the same 12 sections. Add the counts up honestly across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(grp), sum(n for n, _ in grp), "\n\n=====\n\n".join(t for _, t in grp)), 9000)
+            merged = ask("Below are %d reports, each written from a different batch of calls (%s calls in total). Merge them into ONE report with the same 12 sections. Add the counts up honestly across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(grp), sum(n for n, _ in grp), "\n\n=====\n\n".join(t for _, t in grp)), 16000)
             nxt.append((sum(n for n, _ in grp), merged or "\n\n".join(t for _, t in grp)))
         parts = nxt
     text = parts[0][1]
