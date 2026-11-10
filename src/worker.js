@@ -33,7 +33,7 @@ const MAX = { default: 300, message: 4000 };
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["aged", "7 day +"], ["lost", "Lost"]];
+const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["aged", "7 day +"], ["interested", "Interested (call back)"], ["deposit", "Deposit pending (follow up)"], ["booked", "Deposit collected"], ["working", "In shop"], ["done", "Service completed"], ["lost", "NO"]];
 const STAGE_KEYS = STAGES.map(x => x[0]);
 const isNewish = st => st === "new" || st === "nocontact"; // still needs its first real conversation
 // What can happen next at each stage: [label, stage it moves the lead to (or null to stay)]
@@ -46,6 +46,8 @@ const FOLLOWUPS = {
   working: [["Work in progress", null], ["Waiting on film or parts", null], ["Customer update sent", null], ["Work finished, ready for pickup", "done"]],
   done: [["Paid in full", null], ["Asked for a review", null], ["Review received", null], ["Wants more work", "contacted"]],
   aged: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Spoke to the customer", "contacted"], ["Wrong number or spam", "lost"]],
+  interested: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Call back booked", null], ["Sent a quote", "quoted"], ["Deposit link sent", "deposit"], ["Not interested", "lost"]],
+  deposit: [["Sent a reminder", null], ["Called about the deposit", null], ["Waiting on the customer", null], ["Deposit paid", "booked"], ["Backed out", "lost"]],
   lost: [["Follow up later", null], ["Customer came back", "contacted"]],
 };
 
@@ -1601,7 +1603,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-cont
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .sum{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:7px 13px}.stat b{display:block;font-size:19px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.g b{color:#32cd32}
 .board{flex:1;display:flex;gap:12px;padding:14px 22px 22px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
-.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
+.col.auto{background:#0a0d11;border-style:dashed}.col h2{flex-wrap:wrap}.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
 .col.over{border-color:#32cd32;background:#0d140f}.col h2{font-size:13px;margin:0;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;text-transform:uppercase;letter-spacing:.7px;color:#c3c8cf}
 .col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-aged h2{color:#ffb86b}.col.s-done h2{color:#7fe07f}
 .cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
@@ -1662,25 +1664,30 @@ ${TPL_JS}
 const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.leads,CFG=D.cfg,board=document.getElementById('board'),dlg=document.getElementById('dlg');
 const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
 const M=window.matchMedia('(max-width:700px)');let cur='new';
-function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="tel:'+$(tel)+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
+function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(STG_PILL[l.stage]?'<span class="pill">'+STG_PILL[l.stage]+'</span> ':'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(tel))+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
 const LIM={};const lim=k=>LIM[k]||40;const moreBtn=(k,n)=>n>lim(k)?'<button type="button" class="chip" data-more="'+k+'" style="margin:8px auto;display:block">Show '+Math.min(60,n-lim(k))+' more ('+(n-lim(k))+' left)</button>':'';
+const OPEN=['new','nocontact','contacted','quoted','aged'],DAYC=[['d1','1-2 days',0,2],['d3','3-6 days',3,6],['d7','7+ days',7,29],['d30','30+ days',30,1e9]],STG_PILL={nocontact:'Not contacted',contacted:'Contacted',quoted:'Quote sent'};
+const ageDays=l=>{const t=Date.parse(String(l.created_at||'').replace(' ','T')+'Z');return isNaN(t)?0:Math.max(0,Math.floor((Date.now()-t)/864e5))};
+const colOf=l=>{if(!OPEN.includes(l.stage))return l.stage;const a=ageDays(l);return (DAYC.find(d=>a>=d[2]&&a<=d[3])||DAYC[0])[0]};
+const COLS=DAYC.map(d=>[d[0],d[1],true]).concat(S.filter(x=>!OPEN.includes(x[0])).map(x=>[x[0],x[1],false]));
 function draw(){
   let open=0,won=0,booked=0;
-  S.forEach(([k])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);if(k==='new'||k==='nocontact')open+=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot});
-  const pipe=L.filter(l=>['new','nocontact','contacted','quoted'].includes(l.stage)).reduce((a,l)=>a+(l.value||0),0);
+  L.forEach(l=>{if(l.stage==='new'||l.stage==='nocontact')open++;if(l.stage==='booked'||l.stage==='working'||l.stage==='done')booked+=(l.value||0);if(l.stage==='done')won+=(l.value||0)});
+  const pipe=L.filter(l=>OPEN.concat(['interested','deposit']).includes(l.stage)).reduce((a,l)=>a+(l.value||0),0);
   document.getElementById('sum').innerHTML='<div class="stat g"><b>'+open+'</b><span>new to contact</span></div><div class="stat"><b>'+money(pipe)+'</b><span>$ in pipeline</span></div><div class="stat"><b>'+money(booked)+'</b><span>booked + done</span></div><div class="stat"><b>'+money(won)+'</b><span>completed</span></div>';
-  const tabs=document.getElementById('tabs');
+  const tabs=document.getElementById('tabs'),inCol=k=>L.filter(l=>colOf(l)===k);
   if(M.matches){
-    tabs.innerHTML=S.map(([k,n])=>'<button class="tab'+(k===cur?' on':'')+'" data-tab="'+k+'">'+n+' <i>'+L.filter(l=>l.stage===k).length+'</i></button>').join('');
-    const ls=L.filter(l=>l.stage===cur),tot=ls.reduce((a,l)=>a+(l.value||0),0),name=(S.find(x=>x[0]===cur)||[0,''])[1];
+    if(!COLS.some(c=>c[0]===cur))cur='d1';
+    tabs.innerHTML=COLS.map(([k,n])=>'<button class="tab'+(k===cur?' on':'')+'" data-tab="'+k+'">'+n+' <i>'+inCol(k).length+'</i></button>').join('');
+    const ls=inCol(cur),tot=ls.reduce((a,l)=>a+(l.value||0),0),name=(COLS.find(x=>x[0]===cur)||[0,''])[1];
     board.innerHTML='<section class="col" data-stage="'+cur+'"><h2>'+name+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+(ls.slice(0,lim(cur)).map(l=>cardHtml(l,true)).join('')||'<div class="empty">Nothing in '+$(name)+' right now</div>')+moreBtn(cur,ls.length)+'</div></section>';
     const on=tabs.querySelector('.tab.on');if(on&&on.scrollIntoView)on.scrollIntoView({inline:'center',block:'nearest'});
     return;
   }
   tabs.innerHTML='';
-  board.innerHTML=S.map(([k,n])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);
-    return '<section class="col s-'+k+'" data-stage="'+k+'"><h2>'+n+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+
-    (ls.slice(0,lim(k)).map(l=>cardHtml(l,false)).join('')||'<div class="empty">Drop leads here</div>')+moreBtn(k,ls.length)+'</div></section>';}).join('');
+  board.innerHTML=COLS.map(([k,n,auto])=>{const ls=inCol(k),tot=ls.reduce((a,l)=>a+(l.value||0),0);
+    return '<section class="col s-'+k+(auto?' auto':'')+'" data-stage="'+k+'"'+(auto?' title="Fills automatically by how long ago the lead came in"':'')+'><h2>'+n+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+
+    (ls.slice(0,lim(k)).map(l=>cardHtml(l,false)).join('')||'<div class="empty">'+(auto?'No leads this age':'Drop leads here')+'</div>')+moreBtn(k,ls.length)+'</div></section>';}).join('');
 }
 M.addEventListener&&M.addEventListener('change',draw);
 board.addEventListener('click',e=>{const m=e.target.closest('[data-more]');if(m){LIM[m.dataset.more]=lim(m.dataset.more)+60;draw()}});
@@ -1716,14 +1723,14 @@ let dragId=null;
 board.addEventListener('dragstart',e=>{const c=e.target.closest('.card');if(!c)return;dragId=+c.dataset.id;c.classList.add('drag');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(dragId))});
 board.addEventListener('dragend',()=>{dragId=null;draw()});
 board.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(!c)return;e.preventDefault();board.querySelectorAll('.col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
-board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){if(st==='booked'){const o=await askBook(l.id);if(o){Object.assign(l,o.lead||{});apply(l,o);if(o.log)l.log=o.log.concat(l.log||[])}draw();return}const o=await save(l.id,{stage:st},'/admin/stage');if(o){apply(l,o);draw();const nx=await askNext(l.name||l.phone||l.email,l.stage,l.id);if(nx){const o2=await save(l.id,{followup:nx.followup,follow_date:nx.follow_date},'/admin/stage');apply(l,o2)}}draw()}else draw()});
+board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(/^d\\d+$/.test(st)){draw();return}if(l&&colOf(l)!==st&&l.stage!==st){if(st==='booked'){const o=await askBook(l.id);if(o){Object.assign(l,o.lead||{});apply(l,o);if(o.log)l.log=o.log.concat(l.log||[])}draw();return}const o=await save(l.id,{stage:st},'/admin/stage');if(o){apply(l,o);draw();const nx=await askNext(l.name||l.phone||l.email,l.stage,l.id);if(nx){const o2=await save(l.id,{followup:nx.followup,follow_date:nx.follow_date},'/admin/stage');apply(l,o2)}}draw()}else draw()});
 board.addEventListener('click',e=>{if(e.target.closest('[data-stop]'))return;const d=e.target.closest('[data-open]');if(d){open(+d.dataset.open);return}const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
 document.addEventListener('click',e=>{const a=e.target.closest('a[href^=\"tel:\"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;markCall(+h.dataset.id,((h.querySelector('h3,b')||{}).textContent||'').trim());try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction','Vinyl Wraps','Exterior Detailing','Other'];
 function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
   const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
   dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
-  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+(l.recording?'<a class="btn rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">&#9654; Listen</a>':'')+'</div>'+
+  '<div class="acts">'+(tel?'<a class="btn call" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(tel))+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+(l.recording?'<a class="btn rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">&#9654; Listen</a>':'')+'</div>'+
   (isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+'</div>':'')+
   infoHtml(l,veh)+
   ed+
@@ -2562,7 +2569,7 @@ async function recordingProxy(env, sid, request) {
   for (const k of ["content-range", "content-length"]) if (r.headers.get(k)) out[k] = r.headers.get(k);
   return new Response(r.body, { status: r.status, headers: out });
 }
-const DIAL_STAGES = ["nocontact", "contacted", "quoted", "aged", "lost"];
+const DIAL_STAGES = ["nocontact", "contacted", "quoted", "aged", "interested", "deposit", "lost"];
 async function dialerQueue(env, url) {
   await ensureTable(env.DB);
   // ?stages=aged,contacted dials everyone in those pipeline stages (any age), least recently tried first. Without it: new leads and follow-ups that are due.
@@ -2573,14 +2580,18 @@ async function dialerQueue(env, url) {
     ? `l.stage IN (${want.map(() => "?").join(",")})`
     : `((l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-14 days')) OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('done','lost','aged')))`;
   const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT 120" : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT 60";
-  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
+  const sel = (w, o) => `SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-1 day')) tries24,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-3 hours')) tries3,
       (SELECT MAX(d.started_at) FROM dial_calls d WHERE d.lead_id = l.id) last_try,
       CASE WHEN l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('new','nocontact') THEN 1 ELSE 0 END cb
     FROM leads l WHERE l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != ''
-      AND ${where}
-    ORDER BY ${order}`).bind(...want).all()).results || [];
+      AND ${w}
+    ORDER BY ${o}`;
+  let rows = (await env.DB.prepare(sel(where, order)).bind(...want).all()).results || [];
+  // ?lead=ID puts one lead (clicked from the pipeline) first, whatever its stage
+  const one = Number(url && url.searchParams.get("lead"));
+  if (Number.isInteger(one) && one > 0) { const r1 = (await env.DB.prepare(sel("l.id = ?", "l.id")).bind(one).all().catch(() => ({ results: [] }))).results || []; if (r1.length) rows = r1.concat(rows.filter(r => r.id !== one)); }
   const ids = rows.map(r => r.id);
   const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
   const texts = ids.length ? (await env.DB.prepare(`SELECT lead_id, direction, body, at FROM messages WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 300`).bind(...ids).all()).results || [] : [];
@@ -2906,7 +2917,7 @@ ${bnav("dialer", tc, true)}
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const el=id=>document.getElementById(id),ET='America/New_York';
-const QF=[['','New leads'],['nocontact','Not contacted'],['contacted','Contacted'],['quoted','Quote sent'],['aged','7 day +'],['lost','Lost']];let QS=[],QC={};try{QS=JSON.parse(localStorage.getItem('dq')||'[]').filter(x=>QF.some(f=>f[0]===x))}catch(_){}
+const QF=[['','New leads'],['nocontact','Not contacted'],['contacted','Contacted'],['quoted','Quote sent'],['aged','7 day +'],['interested','Interested'],['deposit','Deposit pending'],['lost','NO']];let QS=[],QC={};try{QS=JSON.parse(localStorage.getItem('dq')||'[]').filter(x=>QF.some(f=>f[0]===x))}catch(_){}
 let Q=[],ix=0,ST={tint:'',coating:'',missed:''},AU={},dev=null,call=null,tmr=null,t0=0,sid='',state='idle',muted=false,sk='tint',vmArm=null;
 const etHour=()=>+new Date().toLocaleString('en-US',{timeZone:ET,hour:'numeric',hour12:false});
 const inHours=()=>true; // manual dialing works at any hour; only the automatic dialer keeps its calling hours
@@ -3034,7 +3045,8 @@ el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)ret
 function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
 function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')}
-async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):''))).json();Q=q.leads||[];QC=q.counts||{}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
+let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
+async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
 el('qf').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
 const stLab=k=>(QF.find(f=>f[0]===k)||[0,k])[1]||'';
 function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
