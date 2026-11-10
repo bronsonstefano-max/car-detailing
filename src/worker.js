@@ -1372,7 +1372,7 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self)document.documentElement.classList.add("emb")</script>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self)document.documentElement.classList.add("emb")</script>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
@@ -1394,7 +1394,7 @@ function bnav(on, n = 0, owner = false) {
   const moreKeys = ["speed", "rate", "missed", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -4292,8 +4292,13 @@ async function speedRows(env) {
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason, to_stage FROM stage_log ORDER BY id ASC LIMIT 30000").all();
   // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
   // Texts, emails, the Contacted button and stage changes do not stop it.
-  const isCallLog = r => /^(called|call result|auto-dial: calling the lead|left a voicemail|spoke to the customer)/i.test(r || "");
-  const REACHED = /^(call result: answered|spoke to the customer|auto-dial: lead answered)/i, RESULT = /^call result: (.+)/i, ATTEMPT = /^(called|auto-dial: calling the lead)/i;
+  const isCallLog = r => /^called \(in-app dialer\)/i.test(r || "");
+  // only calls placed from the in-app dialer count. Its log lines read "Called (in-app dialer): 3:12" or "...: not connected"
+  const ATTEMPT = /^called \(in-app dialer\)/i, DIALRX = /^called \(in-app dialer\): (?:(\d+):(\d\d)|not connected)/i, minS = contactMinSecs(env);
+  const dsec = g => { const m = DIALRX.exec(g.reason || ""); return m && m[1] != null ? Number(m[1]) * 60 + Number(m[2]) : 0; };
+  const { results: msgs } = await env.DB.prepare("SELECT lead_id, direction, auto, at FROM messages WHERE lead_id IS NOT NULL ORDER BY id ASC LIMIT 80000").all();
+  const msgBy = new Map();
+  for (const m of msgs) { if (!msgBy.has(m.lead_id)) msgBy.set(m.lead_id, []); msgBy.get(m.lead_id).push(m); }
   const byLead = new Map();
   for (const g of logs) { if (!byLead.has(g.lead_id)) byLead.set(g.lead_id, []); byLead.get(g.lead_id).push(g); }
   const first = new Map();
@@ -4305,12 +4310,14 @@ async function speedRows(env) {
   const rows = leads.map(l => {
     let contact = "", by = "", how = "";
     const g = first.get(l.id);
-    if (l.type === "call" && l.answered === 1) { contact = l.created_at; how = "Answered live"; }
-    else if (g) { contact = g.at; by = g.by_user || ""; how = g.reason || ""; }
+    if (g) { const st = new Date(ms(g.at) - dsec(g) * 1000).toISOString().slice(0, 19).replace("T", " "); contact = ms(st) < ms(l.created_at) ? g.at : st; by = g.by_user || ""; how = "Called from the dialer"; }
+    else if (l.type === "call" && l.answered === 1) { contact = l.created_at; how = "Answered live"; }
     const t = etParts(l.created_at);
     const gl = byLead.get(l.id) || [];
-    const reachedLog = gl.find(g => REACHED.test(g.reason || ""));
-    const results = gl.map(g => { const m = RESULT.exec(g.reason || ""); return m ? { by: g.by_user || "", res: m[1] } : null; }).filter(Boolean);
+    const dl = gl.filter(g => ATTEMPT.test(g.reason || "")), reachedLog = dl.find(g => dsec(g) > minS);
+    const results = dl.map(g => ({ by: g.by_user || "", res: dsec(g) > minS ? "Answered" : dsec(g) ? "Short call" : "Not connected" }));
+    const ml = msgBy.get(l.id) || [], bk = gl.find(g => BOOKED.includes(g.to_stage)), cutAt = bk ? ms(bk.at) : Infinity;
+    const callsPre = dl.filter(g => ms(g.at) <= cutAt).length, textsPre = ml.filter(m => m.direction === "out" && ms(m.at) <= cutAt).length;
     const lostLog = [...gl].reverse().find(g => g.to_stage === "lost"), bookedLog = gl.find(g => BOOKED.includes(g.to_stage));
     const so = sourceOf(l);
     return {
@@ -4322,9 +4329,11 @@ async function speedRows(env) {
       service: l.service || "Not set", stage: l.stage, h: t.h, channel: l.utm_medium === "paid_social" ? "meta" : so.ad ? "google" : "", srckey: so.ad ? (l.utm_medium === "paid_social" ? "Meta Ads" : "Google Ads") + (l.utm_campaign ? " \u00b7 " + l.utm_campaign : "") : so.label,
       lost: l.stage === "lost" ? (lostLog && lostLog.reason && lostLog.reason !== "Moved" ? lostLog.reason : "No reason logged") : "",
       booked_days: bookedLog ? Math.max(0, (ms(bookedLog.at) - ms(l.created_at)) / 864e5) : null, qv: l.stage === "quoted" ? (l.value || 0) : 0,
-      outs: gl.filter(g => RESULT.test(g.reason || "")).map(g => ({ h: etParts(g.at).h, ok: /answered/i.test(g.reason || "") })),
-      attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, to_reach: reachedLog ? Math.max(1, gl.slice(0, gl.indexOf(reachedLog) + 1).filter(g => ATTEMPT.test(g.reason || "")).length) : null, missed: gl.filter(g => /^agent missed the auto-dial/i.test(g.reason || "")).length, unrecorded: Math.max(0, gl.filter(g => /^called$/i.test(g.reason || "")).length - Math.max(0, results.length - gl.filter(g => /^called via callrail/i.test(g.reason || "")).length)), reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
-      after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && !["done", "lost"].includes(l.stage),
+      outs: dl.map(g => ({ h: etParts(g.at).h, ok: dsec(g) > minS })),
+      attempts: dl.length, to_reach: reachedLog ? dl.indexOf(reachedLog) + 1 : null, reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
+      calls: dl.length, texts_out: ml.filter(m => m.direction === "out").length, texts_auto: ml.filter(m => m.direction === "out" && m.auto).length, texts_in: ml.filter(m => m.direction === "in").length,
+      touches_pre: callsPre + textsPre, never_called: dl.length === 0, inbound: l.type === "call",
+      after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && l.type !== "call" && !["done", "lost"].includes(l.stage),
     };
   });
   return rows;
@@ -4362,7 +4371,7 @@ ${RANGE_HTML}
 <h2>How fast leads were called (number of leads)</h2><div class="chart" id="c1"></div>
 <h2>By person</h2><div class="who" id="w"></div>
 <h2>Every lead, newest first</h2><div class="list" id="l"></div>
-<p class="note">A lead's clock starts when the form is sent or the call comes in. It stops only when the lead is actually called: the first tap on a Call button, a logged call result (called, left a voicemail, spoke to the customer) or, later, the auto-dial reaching the lead. Texts, emails, the Contacted button and stage changes do not stop it. An answered inbound call counts as instant. Contact rate counts form leads only: after a Call tap the CRM asks whether the lead answered, and a lead counts as reached when someone answered (or the call result is logged as Spoke to the customer). Calls made from a phone without using the CRM buttons are not seen. Business hours are Mon to Sat, 9 AM to 6 PM Eastern.</p>
+<p class="note">A lead's clock starts when the form is sent. It stops when you place the first call from the dialer (the Call buttons in the Dial page and Pipeline both use it). Calls placed any other way, texts, emails and stage changes do not stop it. Leads who phoned you are left out of this page.</p>
 </main>
 <script type="application/json" id="data">${payload}</script>
 <script>
@@ -4374,7 +4383,7 @@ const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):null;
 const cls=s=>s==null?'':s<=300?'fast':s<=3600?'slow':'vslow';
 ${RANGE_JS}
 ${CHART_JS}
-function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null&&r.open),forms=L.filter(r=>r.type==='quote'),calledF=forms.filter(r=>r.secs!=null),reachedF=calledF.filter(r=>r.reached);
+function draw(){const L=pick().filter(r=>!r.inbound),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null&&r.open),forms=L.filter(r=>r.type==='quote'),calledF=forms.filter(r=>r.secs!=null),reachedF=calledF.filter(r=>r.reached);
  const pct=t=>done.length?Math.round(100*secs.filter(x=>x<=t).length/done.length)+'%':'-';
  const now=Date.now(),waits=wait.map(r=>Math.round((now-new Date(r.created).getTime())/1000));
  document.getElementById('k').innerHTML=
@@ -4387,7 +4396,7 @@ function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r
   '<div class="kpi g"><b>'+(calledF.length?Math.round(100*reachedF.length/calledF.length)+'%':'-')+'</b><span>Contact rate: form leads reached &divide; form leads called</span></div>'+
   '<div class="kpi"><b>'+reachedF.length+' of '+calledF.length+'</b><span>Form leads reached (picked up) out of those called</span></div>'+
   '<div class="kpi"><b>'+(calledF.length?(calledF.reduce((a,r)=>a+Math.max(1,r.attempts),0)/calledF.length).toFixed(1):'-')+'</b><span>Calls per form lead</span></div>'+
-  '<div class="kpi '+(L.reduce((a,r)=>a+(r.missed||0),0)?'r':'')+'"><b>'+L.reduce((a,r)=>a+(r.missed||0),0)+'</b><span>Auto-dials the agent missed (see Missed dials)</span></div>';
+  '<div class="kpi"><b>'+L.reduce((a,r)=>a+(r.calls||0),0)+'</b><span>Dialer calls placed</span></div>';
  const BK=[['1 min',-1,60],['1&ndash;5 min',60,300],['5&ndash;15 min',300,900],['15&ndash;30 min',900,1800],['30&ndash;60 min',1800,3600],['1&ndash;2 hr',3600,7200],['2&ndash;4 hr',7200,14400],['4&ndash;24 hr',14400,86400],['24 hr +',86400,Infinity]];
  bars('c1',BK.map((b,i)=>{const n=done.filter(r=>r.secs>b[1]&&r.secs<=b[2]).length;return {l:b[0],v:n,t:n,s:done.length?Math.round(100*n/done.length)+'%':'',c:i<2?'':i<4?'mid':'low'}}).concat([{l:'Not called yet',v:wait.length,t:wait.length,s:'',c:'mute'}]));
  const by={};done.forEach(r=>{const k=r.by||(r.how==='Answered live'?'answered live':'not recorded');(by[k]=by[k]||[]).push(r.secs)});
@@ -4508,43 +4517,6 @@ ${leaks.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Reache
 }
 
 // Owner-only board: every auto-dial where the agent did not answer or did not press 1, and whether the lead was called afterwards
-async function missedPage(env, user) {
-  await ensureTable(env.DB);
-  const tc = await todayCount(env);
-  const miss = (await env.DB.prepare(`SELECT s.lead_id, s.at miss_at, s.by_user, l.name, l.phone, l.service, l.stage,
-      (SELECT MIN(x.at) FROM stage_log x WHERE x.lead_id = s.lead_id AND x.at > s.at AND (x.reason LIKE 'Called%' OR x.reason LIKE 'Call result:%' OR x.reason LIKE 'Left a voicemail%' OR x.reason LIKE 'Spoke to the customer%')) called_at
-    FROM stage_log s JOIN leads l ON l.id = s.lead_id
-    WHERE s.reason LIKE 'Agent missed the auto-dial%' AND COALESCE(l.ip,'') != 'demo' ORDER BY s.at DESC LIMIT 200`).all()).results || [];
-  const tot = (await env.DB.prepare("SELECT COUNT(*) n FROM dial_log d JOIN leads l ON l.id = d.lead_id WHERE d.source = 'auto' AND COALESCE(l.ip,'') != 'demo'").first() || {}).n || 0;
-  const ms = t => Date.parse(String(t).replace(" ", "T") + "Z");
-  const mins = r => r.called_at ? Math.max(0, Math.round((ms(r.called_at) - ms(r.miss_at)) / 60000)) : null;
-  const waiting = miss.filter(r => !r.called_at), later = miss.filter(r => r.called_at);
-  const lag = later.map(mins).sort((a, b) => a - b), med = lag.length ? lag[Math.floor(lag.length / 2)] : null;
-  const row = r => `<tr><td><a href="/admin/pipeline#id=${r.lead_id}">${esc(r.name || prettyPhone(r.phone))}</a><br><span class="note">${esc(prettyPhone(r.phone))}${r.service ? " &middot; " + esc(r.service) : ""}</span></td><td>${esc(when(r.miss_at).abs)}<br><span class="note">${esc(r.by_user || "")}</span></td><td>${r.called_at ? "Called " + mins(r) + " min later" : '<b style="color:#ff6b6b">Not called yet</b>'}</td><td>${esc(stageNameOf(r.stage))}</td></tr>`;
-  const stageNameOf = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
-  const tbl = rs => rs.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Missed at</th><th>What happened next</th><th>Stage</th></tr>${rs.map(row).join("")}</table></div>` : '<p class="note">Nothing here.</p>';
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Missed dials | Divine Detailers</title>
-<style>
-*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
-header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
-h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
-main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:26px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:6px 0 0}.note{color:#7c838d;font-size:12.5px}
-.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:10px 12px;border-bottom:1px solid #1b1f25;vertical-align:top}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}.tb a{color:#32cd32;text-decoration:none;font-weight:600}
-${BNAV_CSS}
-@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}}
-</style></head><body>
-<header><h1>Divine Detailers <b>missed dials</b></h1>${nav("missed", tc, true)}</header>
-${bnav("missed", tc, true)}
-<main>
-<div class="kpis"><div class="kpi"><b>${tot}</b><span>auto-dials placed</span></div><div class="kpi ${miss.length ? "" : "g"}"><b>${miss.length}</b><span>missed by the agent${tot ? " (" + Math.round(miss.length * 100 / tot) + "%)" : ""}</span></div><div class="kpi ${waiting.length ? "" : "g"}"><b>${waiting.length}</b><span>still not called</span></div><div class="kpi"><b>${med === null ? "-" : med + " min"}</b><span>median time to call back</span></div></div>
-<h2>Missed and still not called</h2>${tbl(waiting)}
-<h2>Missed, then called later</h2>${tbl(later)}
-<p class="note">A dial is missed when the agent's phone was rung and nobody answered or pressed 1, so the lead was never called. The lead stays in the normal pipeline so it can still be worked. Only the owner login sees this page.</p>
-</main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-}
-
 async function ratePage(env, user) {
   const rows = await speedRows(env);
   const tc = await todayCount(env);
@@ -4624,6 +4596,8 @@ ${bnav("insights", tc, true)}
 ${RANGE_HTML}
 <div class="kpis" id="k"></div>
 <h2>Lead funnel<small>how many leads make it through each step</small></h2><div class="chart" id="fn"></div>
+<h2>Speed to lead vs closing<small>how fast the first dialer call went out, and how many of those leads booked</small></h2><div class="tbw"><table class="tb" id="spd"></table></div>
+<h2>Follow-up effort<small>calls from the dialer plus texts sent</small></h2><div class="kpis" id="eff"></div><div class="tbw"><table class="tb" id="tch"></table></div>
 <h2>Ad return<small>worked out for you from the leads, booked job values, and the ad spend and job costs entered at the bottom &middot; <a href="/admin/ads" style="color:#32cd32">Upload booked jobs to Google Ads</a></small></h2><div class="kpis" id="ads"></div><div class="tbw"><table class="tb" id="adt"></table></div>
 <h2>Where leads come from</h2><div class="tbw"><table class="tb" id="src"></table></div>
 <h2>Which services bring the money</h2><div class="tbw"><table class="tb" id="svc"></table></div>
@@ -4671,7 +4645,23 @@ function draw(){const L=pick(),S=stats(L),f=bounds()[0],t=bounds()[1];
  bars('hr',hrs.map((n,h)=>({l:lab(h),v:n,t:n||'',c:h>=9&&h<18?'':'mute'})));
  const outs=[].concat(...L.map(r=>r.outs||[])),bt=Array.from({length:24},(_,h)=>{const x=outs.filter(o=>o.h===h);return {h:h,n:x.length,a:x.filter(o=>o.ok).length}});
  const btItems=bt.filter(x=>x.n>0).map(x=>({l:lab(x.h),v:x.n>=3?Math.round(100*x.a/x.n):0,t:x.n>=3?Math.round(100*x.a/x.n)+'%':'-',s:x.a+' of '+x.n,c:x.n>=3?'':'mute',small:x.n<5}));
- document.getElementById('bt').innerHTML=btItems.length?'':'<div class="note" style="padding:14px">No call results logged in this range yet. Answer the popup after tapping Call and this fills in.</div>';if(btItems.length)bars('bt',btItems)}
+ document.getElementById('bt').innerHTML=btItems.length?'':'<div class="note" style="padding:14px">No dialer calls in this range yet.</div>';if(btItems.length)bars('bt',btItems);
+ // speed to lead vs closing: leads grouped by how fast the first dialer call went out
+ const FL=L.filter(r=>!r.inbound),SB=[['Within 5 min',0,300],['5-15 min',300,900],['15-60 min',900,3600],['1-4 hours',3600,14400],['4-24 hours',14400,86400],['Over 24 hours',86400,Infinity]];
+ const sr=SB.map(b=>{const x=FL.filter(r=>r.secs!=null&&r.secs>=b[1]&&(r.secs<b[2]||(b[2]===Infinity&&r.secs>=b[1])));const bk=x.filter(r=>r.booked);return [b[0],x.length,x.filter(r=>r.reached).length,bk.length,pc(bk.length,x.length),money(bk.reduce((a,r)=>a+(r.value||0),0))]});
+ const nc=FL.filter(r=>r.secs==null),ncb=nc.filter(r=>r.booked);sr.push(['Never called',nc.length,0,ncb.length,pc(ncb.length,nc.length),money(ncb.reduce((a,r)=>a+(r.value||0),0))]);
+ tbl('spd',['First dialer call','Leads','Reached','Booked','Booked rate','Revenue'],FL.length?sr:[]);
+ // touchpoints: dialer calls + texts sent
+ const T=r=>(r.calls||0)+(r.texts_out||0),bkd=FL.filter(r=>r.booked),avgT=a=>a.length?(a.reduce((x,r)=>x+T(r),0)/a.length).toFixed(1):'-',withT=FL.filter(r=>(r.texts_out||0)>0);
+ document.getElementById('eff').innerHTML='<div class="kpi g"><b>'+(bkd.length?(bkd.reduce((a,r)=>a+(r.touches_pre||0),0)/bkd.length).toFixed(1):'-')+'</b><span>Touchpoints before a booking (calls + texts, on average)</span></div>'
+  +'<div class="kpi"><b>'+avgT(FL)+'</b><span>Touchpoints per lead, all leads</span></div>'
+  +'<div class="kpi '+(FL.filter(r=>r.never_called).length?'r':'')+'"><b>'+FL.filter(r=>r.never_called).length+'</b><span>Leads never called ('+pc(FL.filter(r=>r.never_called).length,FL.length)+')</span></div>'
+  +'<div class="kpi"><b>'+pc(withT.filter(r=>(r.texts_in||0)>0).length,withT.length)+'</b><span>Texted leads who replied ('+withT.filter(r=>(r.texts_in||0)>0).length+' of '+withT.length+')</span></div>'
+  +'<div class="kpi"><b>'+(FL.filter(r=>r.calls>0).length?(FL.reduce((a,r)=>a+(r.calls||0),0)/FL.filter(r=>r.calls>0).length).toFixed(1):'-')+'</b><span>Dialer calls per lead called</span></div>'
+  +'<div class="kpi"><b>'+FL.reduce((a,r)=>a+(r.texts_out||0),0)+' / '+FL.reduce((a,r)=>a+(r.texts_in||0),0)+'</b><span>Texts sent / replies received</span></div>';
+ const TB=[['0 (none)',0,0],['1',1,1],['2',2,2],['3-4',3,4],['5-7',5,7],['8 or more',8,Infinity]];
+ tbl('tch',['Touchpoints so far','Leads','Booked','Booked rate'],FL.length?TB.map(b=>{const x=FL.filter(r=>T(r)>=b[1]&&T(r)<=b[2]),k=x.filter(r=>r.booked).length;return [b[0],x.length,k,pc(k,x.length)]}):[]);
+}
 function drawSpend(){const ms=[];let d=TODAY.slice(0,7);for(let i=0;i<6;i++){ms.push(d);const dd=dt(d+'-01');dd.setUTCMonth(dd.getUTCMonth()-1);d=ds(dd).slice(0,7)}
  for(const [id,ch] of [['sp','google'],['spm','meta']])document.getElementById(id).innerHTML=ms.map(m=>'<div><label>'+dt(m+'-01').toLocaleDateString('en-US',{timeZone:'UTC',month:'long',year:'numeric'})+'</label><input type="number" min="0" step="1" inputmode="numeric" data-m="'+m+'" data-ch="'+ch+'" value="'+((SP[ch]||{})[m]||'')+'" placeholder="$0"></div>').join('');
  const svc=[...new Set((D.services||[]).concat(R.map(r=>r.service).filter(x=>x&&x!=='Not set')))];
@@ -4873,7 +4863,7 @@ async function adminRoute(p, request, env) {
   }
   if (p === "/admin/ads") return a === OWNER ? adsPage(env, a, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
-  if (p === "/admin/missed") return a === OWNER ? missedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
