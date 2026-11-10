@@ -3189,7 +3189,7 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
     let add=0,skip=0;for(let i=0;i<rows.length;i+=150){st.textContent='Loading '+Math.min(i+150,rows.length)+' of '+rows.length+'...';let j={};try{j=await (await fetch('/admin/dialer/library',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({rows:rows.slice(i,i+150),replace:i===0})})).json()}catch(_){}if(!j.success){st.textContent='Upload stopped. Try again.';return}add+=j.added||0;skip+=j.skipped||0}
     st.textContent='Loaded '+add+' answers'+(skip?' ('+skip+' too short, skipped)':'');libSt()};
   el('ai-t').onclick=async()=>{const st=el('ai-st');st.textContent='Testing...';let j={};try{j=await (await fetch('/admin/coach/aitest')).json()}catch(_){}
-    st.textContent=j.ok?'Working. '+(j.model||'')+' answered.':(j.message||'No answer from the server.')+(j.status?' (status '+j.status+')':'')};
+    st.textContent=j.ok?(j.message||'Working. '+(j.model||'')+' answered.'):(j.message||'No answer from the server.')+(j.status?' (status '+j.status+')':'')};
   el('g-pb').onclick=async()=>{let j;try{j=JSON.parse(el('g-paste').value)}catch(_){el('g-pm').textContent='That does not look like the copied scripts. Copy them again and paste all of it.';return}
     const list=j&&j.bundle?['tint','coating'].filter(k=>j[k]).map(k=>[k,j[k]]):(j&&j.service?[[j.service,j]]:[]);if(!list.length){el('g-pm').textContent='No scripts found in what you pasted.';return}
     let n=0;for(const [k,sc] of list){const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:k,script:sc})});const jj=await r.json().catch(()=>({}));if(!jj.success){el('g-pm').textContent=jj.message||'Could not import.';return}GS[k]=sc;n++}
@@ -3286,17 +3286,18 @@ function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc
 function anchorId(a){a=String(a||'');if(!a)return '';if(/^(gs|gx)-/.test(a))return a;const sc=gScript();if(sc&&sc.plays.some(p=>p.id===a))return 'gx-'+a;return 'gs-'+a}
 // One answer at a time: it stays put while the rep reads it, and the AI version is folded into the same card
 let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0,lastNext='',detTm=0;const DWELL=9000;
-function leadSaid(text,end){leadBuf=(leadBuf+' '+text).trim();clearTimeout(leadTm);if(end)flushLead();else leadTm=setTimeout(flushLead,1600)}
+function leadSaid(text,end){leadBuf=(leadBuf+' '+text).trim();clearTimeout(leadTm);if(end)flushLead();else leadTm=setTimeout(flushLead,900)}
 function flushLead(){clearTimeout(leadTm);const t=leadBuf.trim();leadBuf='';if(!t)return;if(!gScript())objCheck(t);else gDet(t)}
 function sameQ(a,b){const x=words(String(a||'')),y=words(String(b||''));if(!x.length||!y.length)return false;const st=new Set(y),h=x.filter(w=>st.has(w)).length;return h/Math.min(x.length,y.length)>=0.4}
 function showAns(o){const now=Date.now(),key=o.src==='ai'?'ai:'+String(o.q||'').toLowerCase().slice(0,40):String(o.anchor||o.q||'').toLowerCase();
   if(o.src==='ai'&&curAns&&curAns.src!=='ai'&&now-curAns.t<30000&&sameQ(curAns.q,o.q)){curAns.ai=o;drawAns();return}
   if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p)showAns(p)},DWELL-(now-curAns.t)+60);return}
-  if(curAns&&curAns.key===key)return;
+  if(curAns&&curAns.key===key){if(o.src==='ai'){Object.assign(curAns,o);drawAns()}return}
   if(curAns){ansHist.unshift(curAns);ansHist=ansHist.slice(0,4)}
   curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
 function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
-  const pill=a.src==='ai'?'<span class="pill ok">AI answer</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
+  const lat=a.ms&&(a.ms.total||a.ms.say)?' &middot; '+((a.ms.total||a.ms.say)/1000).toFixed(1)+'s':'';
+  const pill=a.src==='ai'?'<span class="pill ok">AI answer'+lat+'</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
   let h='<div class="bar">'+pill+(q?'<span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span>':'')+'</div>';
   if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
   h+='<p class="say">'+$(a.say||'')+'</p>';
@@ -3329,7 +3330,8 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
   if(m.type==='live'){cs('Listening');return}
   if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
-  if(m.type==='answer'){showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note});return}
+  if(m.type==='end'){if(m.who==='lead')flushLead();return}
+  if(m.type==='answer'){showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
@@ -3413,35 +3415,40 @@ const COACH_RULES = `You are a real-time call coach whispering to a sales rep at
 
 Ground rules:
 - Use ONLY facts that appear in the SCRIPT or OFFER below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, say so in "note", set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
-- Follow the ACA framework: Acknowledge (repeat back what they said), Comment (one short real comment, taken from the script), Ask (the next question that builds on their answer). Prefer the script's own wording, adapted to what the lead actually said. Do not read the script aloud blindly; answer the question first.
-- Be brief. "say" is what the rep says out loud: at most 2 short sentences (about 45 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
+- Inside "say", acknowledge what the lead said and add one short real comment taken from the script, in the script's own wording adapted to what they actually said. Answer the question first; do not read the script aloud blindly.
+- Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 35 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
 - After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
 - Stay out of the way. If the lead just answered the rep's last question, gave the information the script was asking for, or made small talk ("yeah", "ok", "good, you?"), return {"answer": false}: the script already covers it. Step in only for a question the script does not directly ask, an objection or worry, new information that changes the plan, an unusual request, or a buying signal.
 - When REAL ANSWERS from past calls are given, they show how this shop's best closers handled the same moment. Use their approach and tone in your own words. Never copy prices, names or claims from them: {amount} and {shop} are blanks, and the OFFER always wins.
 - After you handle it, "ask" is the NEXT SCRIPT LINE given to you, word for word (or the closest natural bridge into it), so the call returns to the script.
 - Closing: the goal of a call is a deposit AND a specific date. When the lead shows a buying signal (agrees to the price, asks about dates, payment or how it works, says it sounds good), do not ask "how does that sound": offer a way to pay (a secure link or the card over the phone) and a specific day. Never accept "I'll call you back" before trying to hold the spot with the deposit; if a callback is still the outcome, set an exact day and time. A lead who only needs time gets a specific follow-up time, not "whenever".
-- "anchor" is the id of the script STEP (like s15) or PLAYBOOK (like p-wife) your answer comes from; "next" is the step id the rep should return to afterwards.
+- "anchor" is the id of the script STEP (like s15) or PLAYBOOK (like p-wife) your answer comes from.
 
-Reply with ONLY one JSON object, no markdown, in this shape:
-{"answer": true, "kind": "question|objection|info", "lead_said": "<=10 word paraphrase", "say": "...", "ack": "...", "comment": "...", "ask": "...", "anchor": "s15", "next": "s07", "needs_eyes": false, "note": ""}`;
+Reply with ONLY one JSON object, no markdown, with the keys in exactly this order (the rep sees "say" the moment it is written, so keep everything else short):
+{"answer": true, "say": "...", "ask": "...", "anchor": "s15", "needs_eyes": false, "note": ""}`;
 // one tiny request so the owner can confirm the key, model and network work without placing a call
 async function coachAiTest(env) {
   if (!coachAi(env)) return json({ ok: false, message: "The ANTHROPIC_API_KEY secret is not set in Cloudflare yet." });
-  const model = env.COACH_MODEL || COACH_MODEL_DEFAULT, ac = new AbortController(), timer = setTimeout(() => ac.abort(), 12000);
+  const model = env.COACH_MODEL || COACH_MODEL_DEFAULT;
   try {
-    const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, { method: "POST", signal: ac.signal,
-      headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model, max_tokens: 40, output_config: { effort: "low" }, messages: [{ role: "user", content: "Reply with the single word OK." }] }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) return json({ ok: false, status: r.status, model, message: String((j.error && j.error.message) || "The request was refused.").slice(0, 300) });
-    return json({ ok: true, model, reply: (j.content || []).filter(b => b.type === "text").map(b => b.text).join("").slice(0, 60) });
-  } catch (e) { return json({ ok: false, model, message: "Could not reach Anthropic from Cloudflare." }); } finally { clearTimeout(timer); }
+    const ctx = await coachContext(env, null, "tint");
+    const user = `${ctx.facts}\n\nRecent transcript:\nREP: Hey Alex, it's the rep from Divine Detailers. How are you doing today?\nLEAD: Good. How much is it for the whole car?\n\nNEXT SCRIPT LINE: "What are you driving?"\n\nThe lead just finished saying: "how much is it for the whole car"\nReturn the JSON.`;
+    const runs = [];
+    for (let i = 0; i < 2; i++) {
+      const r = await coachStream(env, ctx.system, user, null);
+      if (r.error) return json({ ok: false, model, status: r.error, message: r.error === 401 || r.error === 403 ? "Anthropic refused the key." : "The request failed (" + r.error + ")." });
+      const u = r.usage || {};
+      runs.push({ first: r.ms.first, say: r.ms.say, total: r.ms.total, cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0, input: u.input_tokens || 0 });
+    }
+    const sec = n => n == null ? "?" : (n / 1000).toFixed(1) + "s";
+    return json({ ok: true, model, runs, message: `Coach speed: the first words appear in ${sec(runs[1].say)} and the full answer in ${sec(runs[1].total)} (first try ${sec(runs[0].say)} / ${sec(runs[0].total)}). Add about 0.3s for the lead to be recognised as finished.` });
+  } catch (e) { return json({ ok: false, model, message: "Could not reach Anthropic from Cloudflare." }); }
 }
-async function coachContext(env, leadId) {
+async function coachContext(env, leadId, forceSvc) {
   await ensureTable(env.DB);
   const lead = Number.isInteger(leadId) ? await env.DB.prepare("SELECT id, name, service, year, make, model, value, message FROM leads WHERE id = ?").bind(leadId).first() : null;
-  const svc = coachSvc(lead && lead.service);
+  const svc = coachSvc(lead && lead.service) || forceSvc || "";
   const rows = await env.DB.prepare("SELECT k, v FROM dial_settings WHERE k IN ('offer', ?)").bind("script_" + (svc || "none")).all().then(r => r.results || []).catch(() => []);
   const get = k => { const r = rows.find(x => x.k === k); try { return r ? JSON.parse(r.v) : null; } catch (_) { return null; } };
   const offer = get("offer") || {}, sc = svc ? get("script_" + svc) : null;
@@ -3451,30 +3458,53 @@ async function coachContext(env, leadId) {
   const lib = svc ? await env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : [];
   return { system, facts, svc, lib };
 }
-async function coachAnswer(env, ctx, turns, said, pos) {
+// One streamed request to the coach model. onSay fires the moment the "say" line is complete, so the rep can start talking before the rest has been written.
+async function coachStream(env, system, user, onSay) {
+  const t0 = Date.now(), ms = {}, ac = new AbortController(), timer = setTimeout(() => ac.abort(), 12000);
+  try {
+    const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, {
+      method: "POST", signal: ac.signal,
+      headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: env.COACH_MODEL || COACH_MODEL_DEFAULT, max_tokens: 300, stream: true, output_config: { effort: "low" },
+        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] }),
+    });
+    if (!r.ok) return { error: r.status, ms };
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "", text = "", usage = {}, said = false;
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i).split("\n").find(l => l.startsWith("data:")); buf = buf.slice(i + 2);
+        if (!line) continue;
+        let j; try { j = JSON.parse(line.slice(5)); } catch (e) { continue; }
+        if (j.type === "message_start") usage = (j.message && j.message.usage) || {};
+        else if (j.type === "message_delta") usage = { ...usage, ...(j.usage || {}) };
+        else if (j.type === "content_block_delta" && j.delta && j.delta.type === "text_delta") {
+          if (ms.first == null) ms.first = Date.now() - t0;
+          text += j.delta.text;
+          if (/"answer"\s*:\s*false/.test(text)) { ac.abort(); ms.total = Date.now() - t0; return { text: '{"answer":false}', usage, ms }; }
+          if (!said) { const m = /"say"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text); if (m) { said = true; ms.say = Date.now() - t0; let say = m[1]; try { say = JSON.parse('"' + m[1] + '"'); } catch (e) { /* keep raw */ } if (onSay) onSay(say, ms.say); } }
+        }
+      }
+    }
+    ms.total = Date.now() - t0;
+    return { text, usage, ms };
+  } catch (e) { return { error: "failed", ms }; } finally { clearTimeout(timer); }
+}
+async function coachAnswer(env, ctx, turns, said, pos, onSay) {
   const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}: ${t.text}`).join("\n");
   const real = libPick(ctx.lib, said);
   const realText = real.length ? "REAL ANSWERS from past calls to something similar (best closers first):\n" + real.map((r, i) => `${i + 1}. Lead said: "${r.lead_said}"\n   ${r.won ? "Rep (the call booked)" : "Rep"}: "${r.rep_response}"${r.quality && r.quality < 4 && r.better ? `\n   Better answer: "${r.better}"` : ""}`).join("\n") + "\n\n" : "";
   const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"\nReturn the JSON.`;
-  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 9000);
-  try {
-    const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, {
-      method: "POST", signal: ac.signal,
-      headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: env.COACH_MODEL || COACH_MODEL_DEFAULT, max_tokens: 700, output_config: { effort: "low" },
-        system: [{ type: "text", text: ctx.system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] }),
-    });
-    if (!r.ok) return { error: r.status };
-    const j = await r.json();
-    if (j.stop_reason === "refusal") return null;
-    const text = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("");
-    const a = text.indexOf("{"), b = text.lastIndexOf("}");
-    if (a < 0 || b < a) return null;
-    const o = JSON.parse(text.slice(a, b + 1));
-    const c = x => String(x == null ? "" : x).slice(0, 400);
-    return { answer: o.answer !== false, kind: c(o.kind), lead_said: c(o.lead_said), say: c(o.say), ack: c(o.ack), comment: c(o.comment), ask: c(o.ask), anchor: c(o.anchor), next: c(o.next), needs_eyes: !!o.needs_eyes, note: c(o.note) };
-  } catch (e) { return { error: "failed" }; } finally { clearTimeout(timer); }
+  const res = await coachStream(env, ctx.system, user, onSay);
+  if (res.error) return { error: res.error };
+  const text = res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a < 0 || b < a) return null;
+  let o; try { o = JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
+  const c = x => String(x == null ? "" : x).slice(0, 400);
+  return { answer: o.answer !== false, say: c(o.say), ask: c(o.ask), anchor: c(o.anchor), needs_eyes: !!o.needs_eyes, note: c(o.note), ms: res.ms };
 }
 
 async function coachSig(env, sid) {
@@ -3512,7 +3542,7 @@ export class CallRoom {
     ws.addEventListener("close", () => this.finish()); ws.addEventListener("error", () => this.finish());
   }
   onTwilio(m) {
-    if (m.event === "start") { const cp = (m.start && m.start.customParameters) || {}; this.leadId = Number(cp.lead) || this.leadId; this.t0 = Date.now(); this.broadcast({ type: "live" }); return; }
+    if (m.event === "start") { const cp = (m.start && m.start.customParameters) || {}; this.leadId = Number(cp.lead) || this.leadId; this.t0 = Date.now(); this.broadcast({ type: "live" }); this.warm(); return; }
     if (m.event === "stop") { this.finish(); return; }
     if (m.event !== "media" || !m.media || !m.media.payload) return;
     const track = m.media.track === "outbound" ? "outbound" : "inbound"; // outbound = what the rep hears (the lead); inbound = the rep's own voice
@@ -3538,10 +3568,20 @@ export class CallRoom {
       slot.keep = setInterval(() => { try { if (slot.ready) ws.send(JSON.stringify({ type: "KeepAlive" })); } catch (e) { /* closed */ } }, 8000);
     } catch (e) { this.broadcast({ type: "error", message: "Could not reach the transcription service." }); }
   }
+  endOfSpeech(track) {
+    const who = track === "outbound" ? "lead" : "rep";
+    this.broadcast({ type: "end", who });
+    if (who === "lead" && coachAi(this.env) && this.leadBuf.length) this.askCoach();
+  }
+  async warm() {
+    if (this.warmed || !coachAi(this.env) || !this.env.DB) return; this.warmed = true;
+    try { this.ctx = this.ctx || await coachContext(this.env, this.leadId); await coachStream(this.env, this.ctx.system, 'Warm-up only. Reply with {"answer": false}', null); } catch (e) { /* the real request will build it */ }
+  }
   onDg(track, d) {
+    if (d.type === "UtteranceEnd") { this.endOfSpeech(track); return; }
     if (d.type !== "Results") return;
     const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0]; const text = alt && String(alt.transcript || "").trim();
-    if (!text) return;
+    if (!text) { if (d.speech_final) this.endOfSpeech(track); return; }
     const who = track === "outbound" ? "lead" : "rep";
     const final = !!d.is_final, at = Math.round((Date.now() - this.t0) / 1000);
     this.broadcast({ type: "transcript", who, text, final, end: !!d.speech_final, at });
@@ -3557,11 +3597,13 @@ export class CallRoom {
     if (this.ended || said.split(/\s+/).length < 3 || /^(yeah|yes|ok|okay|uh huh|mm+|sure|right|no|nope|thanks|thank you)[.!, ]*$/i.test(said)) return;
     if (this.coachBusy) { this.coachNext = said; return; }
     this.coachBusy = true;
+    const t0 = Date.now();
     try {
       if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos);
+      const ctxMs = Date.now() - t0;
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
       if (out && out.error) this.broadcast({ type: "coach_error" });
-      else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out });
+      else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
     finally { this.coachBusy = false; if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
   }
