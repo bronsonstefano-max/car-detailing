@@ -93,6 +93,8 @@ async function ensureTableRun(db) {
       db.prepare("UPDATE leads SET stage = 'contacted' WHERE contacted = 1"),
     ]);
   }
+  if (!cols.includes("tags")) await db.prepare("ALTER TABLE leads ADD COLUMN tags TEXT NOT NULL DEFAULT ''").run();
+  if (!cols.includes("starred")) await db.prepare("ALTER TABLE leads ADD COLUMN starred INTEGER NOT NULL DEFAULT 0").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS call_notes (call_id TEXT PRIMARY KEY, lead_id INTEGER, direction TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), summary TEXT, transcript TEXT, keys TEXT, tries INTEGER NOT NULL DEFAULT 0, next_try TEXT, done INTEGER NOT NULL DEFAULT 0)").run();
   const dcols = (await db.prepare("PRAGMA table_info(dial_log)").all()).results.map(c => c.name);
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
@@ -1419,7 +1421,12 @@ async function todayCount(env) {
     return r ? r.n : 0;
   } catch { return 0; }
 }
-const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0}.itabs a{color:#9aa1ab;text-decoration:none;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid #232932;background:#0d1116}.itabs a.on{background:#112417;border-color:#1f6a37;color:#32cd32}@media(max-width:700px){.itabs{padding:10px 14px 0}}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+const BNAV_CSS = `/* Divine Detailers design system: dark tokens shared by every page */
+:root{--bg:#07090c;--bg2:#0a0d11;--panel:#0d1116;--panel2:#10151b;--line:#1b2128;--line2:#232b34;--text:#e8eaed;--mut:#8a939e;--dim:#6b727c;--accent:#32cd32;--accent2:#4fdc5a;--accent-bg:#0f2c18;--accent-line:#1f6a37;--warn:#ffb86b;--bad:#ff7a7a;--info:#8ec0ff;--r:14px}
+html{scrollbar-color:#2a323b #0a0d11;scrollbar-width:thin}::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#242c35;border-radius:8px;border:2px solid #0a0d11}::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid #32cd32;outline-offset:2px}::selection{background:#1f6a37;color:#fff}button,a{-webkit-tap-highlight-color:transparent}select,input,textarea{color-scheme:dark}
+header{border-bottom-color:var(--line)!important}
+article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0}.itabs a{color:#9aa1ab;text-decoration:none;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid #232932;background:#0d1116}.itabs a.on{background:#112417;border-color:#1f6a37;color:#32cd32}@media(max-width:700px){.itabs{padding:10px 14px 0}}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(min-width:1024px){
   body{padding-left:228px}
   .navtabs{position:fixed;left:0;top:0;bottom:0;width:228px;z-index:25;display:flex!important;flex-direction:column;flex-wrap:nowrap!important;gap:2px!important;padding:74px 12px 16px;background:#090c10;border-right:1px solid #1d2229;overflow-y:auto}
@@ -1991,7 +1998,7 @@ async function messageThreads(env, url) {
     const rs = (await env.DB.prepare("SELECT id, name, phone, service, stage FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND COALESCE(phone,'') != '' AND (name LIKE ? OR phone LIKE ?) ORDER BY id DESC LIMIT 15").bind(like, "%" + (dg.length >= 3 ? dg : "@@none@@") + "%").all()).results || [];
     return json({ success: true, found: rs });
   }
-  const rs = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.stage,
+  const rs = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.stage, l.starred, l.tags, l.value,
       (SELECT body FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_body,
       (SELECT direction FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_dir,
       (SELECT at FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_at,
@@ -2003,83 +2010,162 @@ async function messageThread(env, url) {
   await ensureTable(env.DB);
   const id = Number(url.searchParams.get("id"));
   if (!Number.isInteger(id)) return json({ success: false }, 400);
-  const lead = await env.DB.prepare("SELECT id, name, phone, service, stage, year, make, model FROM leads WHERE id = ?").bind(id).first();
+  const lead = await env.DB.prepare("SELECT id, name, phone, email, service, stage, year, make, model, value, appt_at, follow_up, follow_up_date, created_at, utm_medium, utm_campaign, tags, starred FROM leads WHERE id = ?").bind(id).first();
   if (!lead) return json({ success: false }, 404);
   await env.DB.prepare("UPDATE messages SET is_read = 1 WHERE lead_id = ? AND direction = 'in' AND is_read = 0").bind(id).run();
-  const ms = (await env.DB.prepare("SELECT id, direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 300").bind(id).all()).results || [];
-  return json({ success: true, lead, on: twilioOn(env), optout: await isOptedOut(env, lead.phone), messages: ms.reverse().map(m => ({ ...m, at: isoUtc(m.at) })) });
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const ms = await q("SELECT id, direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 300", id);
+  // calls (dialer calls matched to their recording), notes, call results and stage moves share one timeline with the texts
+  const calls = await q("SELECT call_sid, started_at, duration, by_user FROM dial_calls WHERE lead_id = ? ORDER BY id DESC LIMIT 60", id);
+  const recs = await q("SELECT call_id, direction, url, duration, at FROM call_recordings WHERE lead_id = ? AND url != '' ORDER BY at DESC LIMIT 60", id);
+  const logs = await q("SELECT from_stage, to_stage, reason, by_user, at FROM stage_log WHERE lead_id = ? ORDER BY id DESC LIMIT 150", id);
+  const t2 = x => Date.parse(String(x).replace(" ", "T") + "Z"), used = new Set(), events = [];
+  for (const c of calls) {
+    let best = -1, bd = 9e15; recs.forEach((r, i) => { if (used.has(i)) return; const d = Math.abs(t2(r.at) - t2(c.started_at)); if (d < bd) { bd = d; best = i; } });
+    const rec = best >= 0 && bd < 900000 ? (used.add(best), recs[best]) : null;
+    events.push({ kind: "call", at: isoUtc(c.started_at), dur: c.duration || 0, by: c.by_user || "", url: rec ? rec.url : "", dir: "out" });
+  }
+  recs.forEach((r, i) => { if (!used.has(i)) events.push({ kind: "call", at: isoUtc(r.at), dur: r.duration || 0, by: "", url: r.url, dir: r.direction === "inbound" ? "in" : "out" }); });
+  for (const g of logs) {
+    const r = g.reason || "";
+    if (/^called \(in-app dialer\)/i.test(r) || /^texted/i.test(r)) continue;
+    if (/^note:/i.test(r)) events.push({ kind: "note", at: isoUtc(g.at), text: r.replace(/^note:\s*/i, ""), by: g.by_user || "" });
+    else if (/^call result:/i.test(r)) events.push({ kind: "result", at: isoUtc(g.at), text: r.replace(/^call result:\s*/i, ""), by: g.by_user || "" });
+    else if (g.to_stage !== g.from_stage) events.push({ kind: "stage", at: isoUtc(g.at), text: "Moved to " + stageName(g.to_stage), by: g.by_user || "" });
+  }
+  const notes = (await callNotes(env, id).catch(() => [])).filter(n => n.summary).slice(0, 3);
+  return json({ success: true, lead: { ...lead, tags: String(lead.tags || "").split(",").filter(Boolean), stage_label: stageName(lead.stage), created_at: isoUtc(lead.created_at) }, on: twilioOn(env), optout: await isOptedOut(env, lead.phone), messages: ms.reverse().map(m => ({ ...m, at: isoUtc(m.at) })), events, notes });
 }
 async function messagesPage(env, user) {
   await ensureTable(env.DB);
   const tc = await todayCount(env), owner = user === OWNER;
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Messages | Divine Detailers</title>
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Conversations | Divine Detailers</title>
 <style>
-*{box-sizing:border-box}html,body{height:100%}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed;display:flex;flex-direction:column}
+*{box-sizing:border-box}html,body{height:100%}body{font:14.5px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed);display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid #1b1f25}
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
-.app{flex:1;min-height:0;display:grid;grid-template-columns:330px 1fr}
-.list{border-right:1px solid #1b1f25;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
-.fl{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid #1b1f25;flex-wrap:wrap}.fl select{flex:1 1 90px;min-width:0;background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:9px;padding:7px 8px;font:inherit;font-size:13px;color-scheme:dark}.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
-.th{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #151a21;color:inherit;font:inherit;padding:12px 14px;cursor:pointer}.th.on{background:#10151b}
-.th b{display:flex;justify-content:space-between;gap:8px}.th small{color:#7c838d;font-weight:400;white-space:nowrap}.th p{margin:3px 0 0;color:#98a0aa;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.un{background:#32cd32;color:#04120a;border-radius:999px;font-size:11px;font-weight:800;padding:1px 7px;margin-left:6px}
-.pane{display:flex;flex-direction:column;min-height:0;min-width:0}
-.ph{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #1b1f25}.ph .t{flex:1;min-width:0}.ph .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ph .t span{color:#7c838d;font-size:13px}
-.bk{display:none;background:#151a21;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer}
-.ph a.c{border:1px solid #2a313a;background:#151a21;color:#e8eaed;text-decoration:none;border-radius:10px;padding:9px 12px;font-weight:700}
-.msgs{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;-webkit-overflow-scrolling:touch}
-.m{max-width:min(78%,520px);padding:9px 12px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}.m.out{align-self:flex-end;background:#32cd32;color:#04120a;border-bottom-right-radius:5px}.m.in{align-self:flex-start;background:#1a2027;border-bottom-left-radius:5px}
-.mt{font-size:11.5px;color:#7c838d;margin:-4px 4px 2px}.mt.out{align-self:flex-end}.mt.in{align-self:flex-start}
+.app{flex:1;min-height:0;display:grid;grid-template-columns:350px minmax(0,1fr) 330px}.app.noinfo{grid-template-columns:350px minmax(0,1fr)}
+.list{border-right:1px solid var(--line,#1b2128);min-height:0;display:flex;flex-direction:column;background:#090c10}
+.lh{padding:14px 16px 6px;display:flex;align-items:center;justify-content:space-between}.lh b{font-size:16px}
+.tb{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:6px 10px 10px;border-bottom:1px solid var(--line,#1b2128)}
+.tb button{background:none;border:0;color:#8a939e;font:inherit;font-size:12.5px;font-weight:650;padding:8px 2px;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}.tb button i{font-style:normal;font-size:11px;min-width:20px;border-radius:999px;background:#151b22;color:#aab0b9;padding:1px 6px}
+.tb button.on{background:#0f2c18;color:#4fdc5a}.tb button.on i{background:#1f6a37;color:#eafbea}.tb button.hot i{background:#2f7bff;color:#fff}
+.sr{padding:10px 10px 0}.sr input{width:100%;background:#0d1217;border:1px solid #1d252e;color:#fff;border-radius:11px;padding:10px 12px;font:inherit;font-size:14px}
+.fl{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line,#1b2128)}.fl select{flex:1 1 0;min-width:0;background:#0d1217;border:1px solid #1d252e;color:#aab0b9;border-radius:9px;padding:6px 8px;font:inherit;font-size:12.5px;color-scheme:dark}
+.tl{overflow-y:auto;flex:1;min-height:0}
+.th{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:2px 11px;align-items:center;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #12171d;color:inherit;font:inherit;padding:12px 14px;cursor:pointer;border-left:3px solid transparent}
+.th:hover{background:#0d1217}.th.on{background:#0f1a14;border-left-color:#32cd32}
+.av{width:40px;height:40px;border-radius:50%;background:linear-gradient(145deg,#1b5d30,#0f3a1f);color:#c9f7c9;font-weight:800;display:grid;place-items:center;font-size:14px;grid-row:1/3}
+.th .nm{display:flex;align-items:center;gap:6px;min-width:0;font-weight:650}.th .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.th .tm{color:#7c838d;font-size:11.5px;white-space:nowrap;text-align:right}
+.th .sn{grid-column:2/3;color:#8f98a3;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.th .rt{grid-column:3;grid-row:2;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.th.unr .nm{color:#fff}.th.unr .sn{color:#cfd6de}.un{background:#2f7bff;color:#fff;border-radius:999px;font-size:11px;font-weight:800;min-width:19px;text-align:center;padding:1px 6px}
+.st{background:none;border:0;color:#4b5560;font-size:16px;cursor:pointer;padding:0;line-height:1}.st.on{color:#ffcc4d}.st:hover{color:#ffcc4d}
+.pane{display:flex;flex-direction:column;min-height:0;min-width:0;background:#0a0d11}
+.ph{display:flex;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line,#1b2128);background:#0b0f13}.ph .t{flex:1;min-width:0}.ph .t b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ph .t span{color:#7c838d;font-size:12.5px}
+.bk{display:none;background:#151a21;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+.ib{border:1px solid #232b34;background:#10151b;color:#cfd6de;text-decoration:none;border-radius:10px;padding:8px 12px;font:inherit;font-size:13.5px;font-weight:650;cursor:pointer;display:inline-flex;align-items:center;gap:6px}.ib:hover{border-color:#34404c;color:#fff}.ib.g{background:#32cd32;border-color:#32cd32;color:#04120a}.ib.on{color:#ffcc4d;border-color:#5a4a1f}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:16px 22px;display:flex;flex-direction:column;gap:7px;-webkit-overflow-scrolling:touch}
+.dv{align-self:center;margin:10px 0 4px;font-size:12px;color:#7c838d;background:#0f141a;border:1px solid #1b2128;border-radius:999px;padding:3px 14px}
+.m{max-width:min(72%,560px);padding:9px 13px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}.m.out{align-self:flex-end;background:#16452a;color:#eafbea;border-bottom-right-radius:5px}.m.in{align-self:flex-start;background:#18202a;border-bottom-left-radius:5px}
+.mt{font-size:11.5px;color:#6f7782;margin:-3px 6px 3px}.mt.out{align-self:flex-end}.mt.in{align-self:flex-start}
+.cc{align-self:center;width:min(92%,520px);background:#0e151b;border:1px solid #1f2b35;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:7px}.cc .h{display:flex;align-items:center;gap:9px;font-weight:650}.cc .h svg{width:18px;height:18px;stroke:#4fdc5a;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.cc small{color:#7c838d;font-weight:400}.cc audio{width:100%;height:36px;color-scheme:dark}
+.ev{align-self:center;font-size:12.5px;color:#9fe29f;background:#0d1c13;border:1px solid #1b3a26;border-radius:999px;padding:4px 13px;display:flex;gap:8px}.ev small{color:#6f7782}.ev.stage{color:#aab0b9;background:#10151b;border-color:#1f2830}
+.nt{align-self:center;width:min(92%,520px);background:#1b1708;border:1px solid #3a3213;border-radius:12px;padding:8px 13px;color:#ecd9a0;font-size:13.5px;white-space:pre-wrap}.nt small{display:block;color:#8a7d4a;margin-bottom:2px}
 .empty{margin:auto;color:#7c838d;text-align:center;padding:20px}
-.cmp{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid #1b1f25;align-items:flex-end}
-.cmp textarea{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:14px;padding:11px 13px;font:inherit;font-size:16px;resize:none;max-height:140px;min-height:44px}
-.cmp button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 18px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp button:disabled{opacity:.4}
-.warn{background:#2a1d0e;color:#ffb86b;padding:10px 14px;font-size:14px;border-bottom:1px solid #3a2a14}.err{color:#ff8a8a;padding:0 14px 6px;font-size:13.5px;min-height:0}
+.cmp{display:flex;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line,#1b2128);align-items:flex-end;background:#0b0f13}
+.cmp textarea{flex:1;min-width:0;background:#0d1217;border:1px solid #1d252e;color:#fff;border-radius:14px;padding:11px 13px;font:inherit;font-size:15px;resize:none;max-height:140px;min-height:44px}
+.cmp button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 20px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp button:disabled{opacity:.4}
+.warn{background:#2a1d0e;color:#ffb86b;padding:10px 16px;font-size:13.5px;border-bottom:1px solid #3a2a14}.err{color:#ff8a8a;padding:0 16px 6px;font-size:13px;min-height:0}
+.info{border-left:1px solid var(--line,#1b2128);overflow-y:auto;min-height:0;background:#090c10;padding:16px;display:flex;flex-direction:column;gap:14px}.info[hidden]{display:none}
+.ic0{display:flex;gap:12px;align-items:center}.ic0 .av{width:52px;height:52px;font-size:18px;grid-row:auto}.ic0 b{display:block;font-size:17px}.ic0 span{color:#7c838d;font-size:12.5px}
+.sec{background:#0d1217;border:1px solid #181f27;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}.sec h4{margin:0;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#7c838d}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:6px 10px;font-size:13.5px}.kv span{color:#7c838d}.kv b{font-weight:600;overflow-wrap:anywhere}.kv a{color:#8ec0ff;text-decoration:none}
+.tg{display:flex;flex-wrap:wrap;gap:6px}.tg span{display:inline-flex;align-items:center;gap:5px;background:#142029;border:1px solid #20323f;color:#b9d7ee;border-radius:999px;padding:3px 6px 3px 11px;font-size:12.5px}.tg span button{background:none;border:0;color:#6f8aa0;cursor:pointer;font-size:14px;padding:0 3px;line-height:1}
+.tg input{background:#0b1015;border:1px dashed #2a3642;color:#fff;border-radius:999px;padding:4px 11px;font:inherit;font-size:12.5px;width:110px}
+.sm{font-size:13px;color:#cfd6de;white-space:pre-wrap}.sm small{display:block;color:#6f7782;margin-bottom:2px}
+.pill2{display:inline-block;background:#0f2c18;color:#4fdc5a;border:1px solid #1f6a37;border-radius:999px;padding:2px 11px;font-size:12px;font-weight:700}
 ${BNAV_CSS}
-@media(max-width:700px){header{padding:10px 14px}h1{font-size:17px}.app{grid-template-columns:1fr}.pane{display:none}.app.open .list{display:none}.app.open .pane{display:flex}.bk{display:block}.m{max-width:86%}}
+@media(max-width:1279px){.app{grid-template-columns:330px minmax(0,1fr)}.info{position:fixed;top:0;right:0;bottom:0;width:min(360px,100vw);z-index:40;box-shadow:-20px 0 60px rgba(0,0,0,.6)}}
+@media(max-width:700px){header{padding:10px 14px}h1{font-size:17px}.app,.app.noinfo{grid-template-columns:1fr}.pane{display:none}.app.open .list{display:none}.app.open .pane{display:flex}.bk{display:block}.m{max-width:86%}.msgs{padding:12px}.th{padding:13px 12px}}
 </style></head><body>
-<header><h1>Divine Detailers <b>messages</b></h1>${nav("messages", tc, owner)}</header>
+<header><h1>Divine Detailers <b>conversations</b></h1>${nav("messages", tc, owner)}</header>
 ${bnav("messages", tc, owner)}
-<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div class="fl" id="fl"></div><div id="tl"></div></div>
-<div class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></div></div>
+<div class="app noinfo" id="app"><aside class="list"><div class="lh"><b>Team inbox</b></div><div class="tb" id="tb"></div><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div class="fl" id="fl"></div><div class="tl" id="tl"></div></aside>
+<section class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></section>
+<aside class="info" id="info" hidden></aside></div>
 <script>
+const IS_OWNER=${owner};
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=document.getElementById('pane'),q=document.getElementById('q');
-let cur=null,on=true,busy=false,lastSig='';
-function ago(iso){const d=new Date(iso),n=Date.now(),s=Math.max(0,(n-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
-function nm(l){return l.name||l.phone||'Lead'}
-let TH=[],FL={sort:'recent',show:'all',svc:'all'};try{Object.assign(FL,JSON.parse(localStorage.getItem('mf')||'{}'))}catch(_){}
+const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=document.getElementById('pane'),q=document.getElementById('q'),info=document.getElementById('info');
+let cur=null,on=true,busy=false,lastSig='',TH=[],TAB='all',FL={sort:'recent',svc:'all'},showInfo=false,D=null;
+try{Object.assign(FL,JSON.parse(localStorage.getItem('mf')||'{}'));TAB=localStorage.getItem('mt')||'all';showInfo=localStorage.getItem('mi')==='1'}catch(_){}
+const nm=l=>l.name||l.phone||'Lead',ini=l=>{const w=String(l.name||'').trim().split(/\\s+/).filter(Boolean);return ((w[0]||'?')[0]+((w[1]||'')[0]||'')).toUpperCase()};
+function ago(iso){const d=new Date(iso),s=Math.max(0,(Date.now()-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});if(s<604800)return d.toLocaleDateString('en-US',{weekday:'short'});return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
 const svcOf=t=>/tint/i.test(t.service||'')?'Window Tint':/coat/i.test(t.service||'')?'Ceramic Coating':(t.service||'Other');
+const TABS=[['unread','Unread'],['all','All'],['recent','Recent'],['starred','Starred']];
+const isRecent=t=>Date.now()-new Date(t.last_at).getTime()<3*864e5;
+function drawTabs(){const n={unread:TH.filter(t=>t.unread>0).length,all:TH.length,recent:TH.filter(isRecent).length,starred:TH.filter(t=>t.starred).length};
+  document.getElementById('tb').innerHTML=TABS.map(x=>'<button type="button" data-t="'+x[0]+'" class="'+(TAB===x[0]?'on':'')+(x[0]==='unread'&&n.unread?' hot':'')+'">'+x[1]+'<i>'+n[x[0]]+'</i></button>').join('')}
 function drawFl(){const sv=[...new Set(TH.map(svcOf))].sort();const opt=(v,l,c)=>'<option value="'+$(v)+'"'+(c===v?' selected':'')+'>'+$(l)+'</option>';
-  document.getElementById('fl').innerHTML='<select data-k="sort" aria-label="Sort">'+[['recent','Newest first'],['oldest','Oldest first'],['unread','Unread first'],['name','Name A-Z']].map(x=>opt(x[0],x[1],FL.sort)).join('')+'</select><select data-k="show" aria-label="Show">'+[['all','All texts'],['unread','Unread'],['read','Read'],['theirs','They texted last'],['mine','I texted last']].map(x=>opt(x[0],x[1],FL.show)).join('')+'</select><select data-k="svc" aria-label="Service">'+opt('all','All services',FL.svc)+sv.map(x=>opt(x,x,FL.svc)).join('')+'</select>'}
+  document.getElementById('fl').innerHTML='<select data-k="sort" aria-label="Sort">'+[['recent','Newest first'],['oldest','Oldest first'],['unread','Unread first'],['name','Name A-Z']].map(x=>opt(x[0],x[1],FL.sort)).join('')+'</select><select data-k="svc" aria-label="Service">'+opt('all','All services',FL.svc)+sv.map(x=>opt(x,x,FL.svc)).join('')+'</select>'}
 function drawList(){let a=TH.slice();
-  if(FL.show==='unread')a=a.filter(t=>t.unread>0);else if(FL.show==='read')a=a.filter(t=>!t.unread);else if(FL.show==='theirs')a=a.filter(t=>t.last_dir==='in');else if(FL.show==='mine')a=a.filter(t=>t.last_dir==='out');
+  if(TAB==='unread')a=a.filter(t=>t.unread>0);else if(TAB==='recent')a=a.filter(isRecent);else if(TAB==='starred')a=a.filter(t=>t.starred);
   if(FL.svc!=='all')a=a.filter(t=>svcOf(t)===FL.svc);
   const T=t=>new Date(t.last_at).getTime()||0;
   if(FL.sort==='oldest')a.sort((x,y)=>T(x)-T(y));else if(FL.sort==='unread')a.sort((x,y)=>(y.unread>0)-(x.unread>0)||T(y)-T(x));else if(FL.sort==='name')a.sort((x,y)=>nm(x).localeCompare(nm(y)));else a.sort((x,y)=>T(y)-T(x));
-  tl.innerHTML=a.length?a.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">'+(TH.length?'No conversations match these filters.':'No texts yet. Search for a lead above to start one.')+'</div>'}
+  drawTabs();
+  tl.innerHTML=a.length?a.map(t=>'<div class="th'+(cur&&cur.id===t.id?' on':'')+(t.unread?' unr':'')+'" data-id="'+t.id+'" role="button" tabindex="0"><span class="av">'+$(ini(t))+'</span><span class="nm"><span>'+$(nm(t))+'</span></span><span class="tm">'+ago(t.last_at)+'</span><span class="sn">'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</span><span class="rt">'+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'<button type="button" class="st'+(t.starred?' on':'')+'" data-star="'+t.id+'" aria-label="Star">'+(t.starred?'&#9733;':'&#9734;')+'</button></span></div>').join(''):'<div class="empty">'+(TH.length?'Nothing here with these filters.':'No texts yet. Search for a lead above to start one.')+'</div>'}
+document.getElementById('tb').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;TAB=b.dataset.t;try{localStorage.setItem('mt',TAB)}catch(_){}drawList()});
 document.getElementById('fl').addEventListener('change',e=>{const k=e.target.dataset.k;if(!k)return;FL[k]=e.target.value;try{localStorage.setItem('mf',JSON.stringify(FL))}catch(_){}drawList()});
-async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;TH=j.threads;if(!document.getElementById('fl').children.length||document.activeElement.closest&&!document.activeElement.closest('#fl'))drawFl();drawList()}catch(_){}}
-async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id+j.messages[j.messages.length-1].status:'')+j.optout;
-  if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;on=j.on;
+async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;TH=j.threads;if(!document.getElementById('fl').children.length||(document.activeElement&&document.activeElement.closest&&!document.activeElement.closest('#fl')))drawFl();drawList()}catch(_){}}
+async function toggleStar(id,val){try{await fetch('/admin/star',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,on:val})})}catch(_){}const t=TH.find(x=>x.id===id);if(t)t.starred=val?1:0;if(D&&D.lead.id===id){D.lead.starred=val?1:0;const b=document.getElementById('stb');if(b){b.classList.toggle('on',!!val);b.innerHTML=(val?'&#9733;':'&#9734;')+' '+(val?'Starred':'Star')}}drawList()}
+const day=d=>{const t=new Date(d),n=new Date(),a=new Date(t.getFullYear(),t.getMonth(),t.getDate()),b=new Date(n.getFullYear(),n.getMonth(),n.getDate()),diff=Math.round((b-a)/864e5);return diff===0?'Today':diff===1?'Yesterday':t.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})};
+const hm=iso=>new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+const mmss=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+const PHONE='<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>';
+function timeline(j){const items=j.messages.map(m=>({k:'m',at:m.at,m:m})).concat(j.events.map(e=>({k:e.kind,at:e.at,e:e})));items.sort((a,b)=>new Date(a.at)-new Date(b.at));
+  let last='',h='';items.forEach(it=>{const dv=day(it.at);if(dv!==last){last=dv;h+='<div class="dv">'+$(dv)+'</div>'}
+    if(it.k==='m'){const m=it.m;h+='<div class="m '+m.direction+'">'+$(m.body)+'</div><div class="mt '+m.direction+'">'+hm(m.at)+(m.direction==='out'?(m.by_user&&!m.auto?' &middot; '+$(m.by_user):'')+(m.auto?' &middot; auto':'')+(m.status==='failed'||m.status==='undelivered'?' &middot; not delivered':m.status==='delivered'?' &middot; delivered':''):'')+'</div>'}
+    else if(it.k==='call'){const e=it.e;h+='<div class="cc"><div class="h">'+PHONE+'<span>'+(e.dir==='in'?'Incoming call':'Call')+(e.dur?' &middot; '+mmss(e.dur):' &middot; not connected')+' <small>'+(e.by?$(e.by)+' &middot; ':'')+hm(e.at)+'</small></span></div>'+(e.url?'<audio controls preload="none" src="'+$(e.url)+'"></audio>':'')+'</div>'}
+    else if(it.k==='result')h+='<div class="ev">Result: '+$(it.e.text)+' <small>'+hm(it.at)+'</small></div>';
+    else if(it.k==='stage')h+='<div class="ev stage">'+$(it.e.text)+' <small>'+hm(it.at)+'</small></div>';
+    else if(it.k==='note')h+='<div class="nt"><small>Note &middot; '+(it.e.by?$(it.e.by)+' &middot; ':'')+hm(it.at)+'</small>'+$(it.e.text)+'</div>'});
+  return h||'<div class="empty">No messages yet. Say hello.</div>'}
+function drawInfo(j){const l=j.lead,car=[l.year,l.make,l.model].filter(Boolean).join(' '),kv=(k,v)=>v?'<span>'+k+'</span><b>'+v+'</b>':'';
+  const ap=l.appt_at?new Date(l.appt_at.replace(' ','T')).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
+  info.innerHTML='<div class="ic0"><span class="av">'+$(ini(l))+'</span><div><b>'+$(nm(l))+'</b><span>'+$(l.phone||'')+'</span></div></div>'
+   +'<div class="sec"><h4>Details</h4><div class="kv">'+kv('Stage','<span class="pill2">'+$(l.stage_label)+'</span>')+kv('Phone',l.phone?'<a href="tel:'+$(l.phone)+'">'+$(l.phone)+'</a>':'')+kv('Email',l.email?'<a href="mailto:'+$(l.email)+'">'+$(l.email)+'</a>':'')+kv('Service',$(l.service||''))+kv('Vehicle',$(car))+kv('Value',l.value?'$'+Number(l.value).toLocaleString('en-US'):'')+kv('Appointment',$(ap))+kv('Follow up',$((l.follow_up||'')+(l.follow_up_date?' '+l.follow_up_date:'')))+kv('Source',$(l.utm_medium==='paid_social'?'Facebook / Meta ads':(l.utm_campaign||'')))+kv('Came in',$(day(l.created_at)))+'</div></div>'
+   +'<div class="sec"><h4>Tags</h4><div class="tg" id="tg">'+l.tags.map(t=>'<span>'+$(t)+'<button type="button" data-rt="'+$(t)+'" aria-label="Remove">&times;</button></span>').join('')+'<input id="tin" placeholder="+ add tag" maxlength="24"></div></div>'
+   +(j.notes&&j.notes.length?'<div class="sec"><h4>Call notes</h4>'+j.notes.map(n=>'<div class="sm"><small>'+$(n.at)+'</small>'+$(n.summary)+'</div>').join('')+'</div>':'')
+   +'<div class="sec"><h4>Actions</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(l.phone||''))+'">Call</a><a class="ib" href="/admin/pipeline#id='+l.id+'">Open lead</a></div></div>';
+  info.hidden=!showInfo;app.classList.toggle('noinfo',!showInfo)}
+info.addEventListener('click',async e=>{const b=e.target.closest('[data-rt]');if(!b||!D)return;D.lead.tags=D.lead.tags.filter(t=>t!==b.dataset.rt);await saveTags();drawInfo(D)});
+info.addEventListener('keydown',async e=>{if(e.target.id!=='tin'||e.key!=='Enter'||!D)return;e.preventDefault();const v=e.target.value.trim();if(!v)return;if(D.lead.tags.indexOf(v)<0)D.lead.tags.push(v);await saveTags();drawInfo(D);const t=document.getElementById('tin');if(t)t.focus()});
+async function saveTags(){try{const r=await fetch('/admin/tags',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:D.lead.id,tags:D.lead.tags})});const j=await r.json();if(j.success)D.lead.tags=j.tags}catch(_){}}
+async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const lm=j.messages.length?j.messages[j.messages.length-1]:{};const sig=j.messages.length+':'+(lm.id||'')+(lm.status||'')+j.optout+':'+j.events.length+':'+j.lead.stage+':'+j.lead.starred+':'+j.lead.tags.join();
+  if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;D=j;on=j.on;
   const box=pane.querySelector('.msgs'),atEnd=!box||box.scrollHeight-box.scrollTop-box.clientHeight<80;const draft=pane.querySelector('textarea')?pane.querySelector('textarea').value:'';
   const car=[j.lead.year,j.lead.make,j.lead.model].filter(Boolean).join(' ');
-  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><a class="c" href="/admin/pipeline#id='+j.lead.id+'">Lead</a><a class="c" href="tel:'+$(j.lead.phone)+'">Call</a></div>'
+  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><span class="av" style="width:40px;height:40px">'+$(ini(j.lead))+'</span><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><button type="button" class="ib'+(j.lead.starred?' on':'')+'" id="stb">'+(j.lead.starred?'&#9733; Starred':'&#9734; Star')+'</button><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+j.lead.id:'tel:'+$(j.lead.phone||''))+'">Call</a><button type="button" class="ib" id="inb">Info</button></div>'
    +(!on?'<div class="warn">Texting is not set up yet. Add the Twilio keys in Cloudflare to send texts from here.</div>':'')+(j.optout?'<div class="warn">This person replied STOP. They cannot be texted.</div>':'')
-   +'<div class="msgs" id="ms">'+(j.messages.length?j.messages.map(m=>'<div class="m '+m.direction+'">'+$(m.body)+'</div><div class="mt '+m.direction+'">'+new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+(m.direction==='out'?(m.auto?' · auto':'')+(m.status==='failed'||m.status==='undelivered'?' · not delivered':m.status==='delivered'?' · delivered':''):'')+'</div>').join(''):'<div class="empty">No messages yet. Say hello.</div>')+'</div><div class="err" id="er"></div>'
-   +'<div class="cmp"><textarea id="tx" rows="1" placeholder="Text message"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
+   +'<div class="msgs" id="ms">'+timeline(j)+'</div><div class="err" id="er"></div>'
+   +'<div class="cmp"><textarea id="tx" rows="1" placeholder="Type a message"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
   const ms=document.getElementById('ms');if(!keep||atEnd)ms.scrollTop=ms.scrollHeight;const tx=document.getElementById('tx');tx.value=draft;
-  document.getElementById('bk').onclick=()=>{app.classList.remove('open');cur=null;history.replaceState(null,'','#');loadList()};
-  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send()}});
+  document.getElementById('bk').onclick=()=>{app.classList.remove('open');cur=null;D=null;history.replaceState(null,'','#');loadList()};
+  document.getElementById('stb').onclick=()=>toggleStar(j.lead.id,!D.lead.starred);
+  document.getElementById('inb').onclick=()=>{showInfo=!showInfo;try{localStorage.setItem('mi',showInfo?'1':'0')}catch(_){}info.hidden=!showInfo;app.classList.toggle('noinfo',!showInfo)};
+  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+  const ti=document.activeElement&&document.activeElement.id==='tin';if(!ti)drawInfo(j);
   app.classList.add('open');if(!keep)history.replaceState(null,'','#id='+id);loadList()}catch(_){}}
 async function send(){if(busy||!cur)return;const tx=document.getElementById('tx'),er=document.getElementById('er'),b=tx.value.trim();if(!b)return;busy=true;document.getElementById('sd').disabled=true;er.textContent='';
   try{const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:cur.id,body:b})});const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.success){er.textContent=j.message||'Could not send. Try again.';busy=false;document.getElementById('sd').disabled=false;return}
     tx.value='';busy=false;lastSig='';await open(cur.id,false)}catch(_){er.textContent='No connection. Try again.';busy=false;document.getElementById('sd').disabled=false}}
-tl.addEventListener('click',e=>{const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)});
-let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<button class="th fd" data-id="'+l.id+'"><b><span>'+$(nm(l))+'</span></b><p>'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</p></button>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
-const hm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hm)open(+hm[1]);
-setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur)open(cur.id,true)},6000);
+tl.addEventListener('click',e=>{const s=e.target.closest('[data-star]');if(s){e.stopPropagation();const id=+s.dataset.star,t=TH.find(x=>x.id===id);toggleStar(id,!(t&&t.starred));return}const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)});
+tl.addEventListener('keydown',e=>{if(e.key==='Enter'){const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)}});
+let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<div class="th fd" data-id="'+l.id+'" role="button" tabindex="0"><span class="av">'+$(ini(l))+'</span><span class="nm"><span>'+$(nm(l))+'</span></span><span class="tm"></span><span class="sn">'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</span></div>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
+const hmm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hmm)open(+hmm[1]);
+setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur&&!(document.activeElement&&document.activeElement.id==='tin'))open(cur.id,true)},6000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
@@ -4218,7 +4304,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -4951,6 +5037,22 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE direction = 'in' AND is_read = 0").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
   if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
+  if (p === "/admin/star" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    await ensureTable(env.DB);
+    await env.DB.prepare("UPDATE leads SET starred = ? WHERE id = ?").bind(b.on ? 1 : 0, b.id).run();
+    return json({ success: true });
+  }
+  if (p === "/admin/tags" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id) || !Array.isArray(b.tags)) return json({ success: false }, 400);
+    await ensureTable(env.DB);
+    const tags = [...new Set(b.tags.map(t => String(t || "").replace(/[,<>]/g, " ").trim().slice(0, 24)).filter(Boolean))].slice(0, 12);
+    await env.DB.prepare("UPDATE leads SET tags = ? WHERE id = ?").bind(tags.join(","), b.id).run();
+    return json({ success: true, tags });
+  }
+
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
