@@ -3282,6 +3282,8 @@ function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc
   // pushback first, then questions
   for(const [id,rx] of OBJ2){if(rx.test(t)){const pid=sc.plays.some(p=>p.id===id)?id:(id==='p-expensive'&&sc.plays.some(p=>p.id==='p-shop')?'p-shop':'');if(!pid||!fresh(pid))continue;
     const lines=sayOf(sc,{plays:[pid]},l,svc);if(!lines.length)continue;showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,2).map(x=>({t:x.t})),anchor:'gx-'+pid});return true}}
+  // asking about a different service than the one this script covers: the script has no answer for it, so leave it to the AI instead of quoting the wrong price
+  if((svc==='tint'?/(coat|coding|paint protection|ppf|wrap|correction|polish)/:/(tint|tent|ppf|paint protection|wrap)/).test(t))return true;
   for(const it of INTENTS){if(!it.rx.test(t))continue;const spec=it[svc];if(!spec||!fresh(it.id))continue;const lines=sayOf(sc,spec,l,svc);if(!lines.length)continue;
     const na=nextAsk(sc,l,svc),anc=(spec.plays&&spec.plays[0])?'gx-'+spec.plays[0]:'gs-'+spec.steps[0];
     showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,4),ask:'',anchor:anc});return true}
