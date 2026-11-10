@@ -848,10 +848,15 @@ async function addLead(request, env) {
   const name = clean(b.name, 120), phone = clean(b.phone, 40), email = clean(b.email, 200);
   if (!name && !phone && !email) return json({ success: false, message: "Add a name, phone or email" }, 422);
   const source = clean(b.source, 60) || "Phone call";
-  await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,make,year,model,message,utm_source,utm_medium,stage,value)
+  const d10 = last10(phone);
+  if (d10.length === 10) { // a customer already in the CRM is reused, never duplicated
+    const hit = ((await env.DB.prepare("SELECT id, phone FROM leads WHERE type != 'newsletter' AND phone LIKE ? ORDER BY id DESC LIMIT 20").bind("%" + d10.slice(-4) + "%").all()).results || []).find(x => last10(x.phone) === d10);
+    if (hit) return json({ success: true, id: hit.id, existing: true });
+  }
+  const ins = await env.DB.prepare(`INSERT INTO leads (type,name,email,phone,service,make,year,model,message,utm_source,utm_medium,stage,value)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(/call/i.test(source) ? "call" : "manual", name, email, phone, clean(b.service, 100), clean(b.make, 60), clean(b.year, 10), clean(b.model, 80), clean(b.notes, 2000), source, "manual", STAGE_KEYS.includes(b.stage) ? b.stage : "new", defaultValue(clean(b.service, 100))).run();
-  return json({ success: true });
+  return json({ success: true, id: ins.meta && ins.meta.last_row_id });
 }
 
 async function handleLead(request, env, ctx) {
@@ -1286,11 +1291,11 @@ const FOLLOW_HTML = `<dialog class="rdlg" id="rdlg"><div class="rb"><h3 id="rt">
 <p id="bkerr" style="color:#ff8a8a;min-height:18px"></p><div class="ra"><button type="button" id="bkx">Cancel</button><button type="button" class="ok" id="bkok">Book it</button></div></div></dialog>`;
 const FOLLOW_JS = `
 const FU=${JSON.stringify(FOLLOWUPS)},STG=Object.fromEntries(${JSON.stringify(STAGES)});
-function askBook(id,label){return new Promise(async res=>{const d=document.getElementById('bkdlg');let l=null,uc=false,pr=[],bst='';
+function askBook(id,label,dt){return new Promise(async res=>{const d=document.getElementById('bkdlg');let l=null,uc=false,pr=[],bst='';
   try{const r=await fetch('/admin/leadinfo?id='+id);const j=await r.json();l=j.lead;uc=!!j.urable;pr=j.products||[];bst=j.best||''}catch(_){}
   if(!l){res(null);return}
   const f=(k,v)=>{document.getElementById('bk'+k).value=v==null?'':v};
-  f('n2',l.name);f('p',l.phone);f('e',l.email);f('s',l.service);f('y',l.year);f('m',l.make);f('d',l.model);f('v',l.value||'');f('t',l.appt_at||'');
+  f('n2',l.name);f('p',l.phone);f('e',l.email);f('s',l.service);f('y',l.year);f('m',l.make);f('d',l.model);f('v',l.value||'');f('t',l.appt_at||dt||'');
   const qw=document.getElementById('bkqw'),qs=document.getElementById('bkq');qw.hidden=!pr.length;
   qs.innerHTML=(bst?'':'<option value="">Pick the Urable service</option>')+pr.map(x=>'<option value="'+x.id+'"'+(x.id===bst?' selected':'')+'>'+String(x.name).replace(/&/g,'&amp;').replace(/</g,'&lt;')+(x.price?' - $'+Math.round(x.price/100):'')+'</option>').join('');
   document.getElementById('bkn').textContent=uc?'Check the details, pick the appointment, and confirm the price. Saving adds this job to the Urable calendar.':'Check the details, pick the appointment, and confirm the price.';
@@ -4999,6 +5004,7 @@ async function calendarPage(env, user) {
   const payload = JSON.stringify({ appts: rows, today: todayStr(), stages: STAGES }).replace(/</g, "\\u003c");
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Calendar | Divine Detailers</title>
 <style>
+${FOLLOW_CSS}.addb{border:0;background:#32cd32;color:#04120a;border-radius:10px;padding:9px 14px;font:inherit;font-weight:800;cursor:pointer;min-height:44px}#nbdlg .rb{gap:10px}#nbr{display:flex;flex-direction:column;gap:6px}#nbr button{text-align:left;border:1px solid #2a313a;background:#12171e;color:#e8eaed;border-radius:10px;padding:10px 12px;font:inherit;cursor:pointer;min-height:44px}#nbr button small{color:#7c838d;display:block}
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
 header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
@@ -5017,10 +5023,16 @@ ${BNAV_CSS}
 <header><h1>Divine Detailers <b>calendar</b></h1>${nav("calendar", tc, true)}</header>
 ${bnav("calendar", tc, true)}
 <main>
-<section><div class="mh"><h2 id="mt"></h2><div class="nv"><button id="pv" type="button" aria-label="Previous month">&lsaquo;</button><button id="tdy" type="button">Today</button><button id="nx" type="button" aria-label="Next month">&rsaquo;</button></div></div>
+<section><div class="mh"><h2 id="mt"></h2><div class="nv"><button id="addbk" class="addb" type="button">+ Add booking</button><button id="pv" type="button" aria-label="Previous month">&lsaquo;</button><button id="tdy" type="button">Today</button><button id="nx" type="button" aria-label="Next month">&rsaquo;</button></div></div>
 <div class="dow"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div><div class="grid" id="g"></div></section>
 <section class="side"><div><h2 id="dh"></h2><div id="dl" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div></div><div><h2>Coming up (next 14 days)</h2><div id="up" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div></div></section>
 </main>
+<dialog class="rdlg" id="nbdlg"><div class="rb"><h3>Add a booking</h3><p>Find the customer, or add a new one. Next you pick the day, time and price.</p>
+<div><label>Search by name or phone</label><input id="nbq" autocomplete="off" placeholder="Start typing"></div><div id="nbr"></div>
+<div><label>Or add a new customer: name</label><input id="nbn" autocomplete="off"></div><div><label>Phone</label><input id="nbp" type="tel" inputmode="tel"></div>
+<p id="nberr" style="color:#ff8a8a;min-height:18px"></p><div class="ra"><button type="button" id="nbx">Cancel</button><button type="button" class="ok" id="nbgo">Continue</button></div></div></dialog>
+${FOLLOW_HTML}
+<script>${FOLLOW_JS}</script>
 <script type="application/json" id="data">${payload}</script>
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -5043,6 +5055,17 @@ document.getElementById('pv').onclick=()=>{M--;if(M<0){M=11;Y--}draw()};document
 document.getElementById('tdy').onclick=()=>{Y=t0[0];M=t0[1]-1;sel=D.today;draw()};draw();
 (async()=>{try{const r=await fetch('/admin/calendar/urable');if(!r.ok)return;const j=await r.json();if(!j.urable)return;const mine=new Set(D.appts.map(a=>a.urable_ref).filter(Boolean));
   (j.items||[]).forEach(u=>{if(mine.has(u.ref))return;const a=Object.assign({src:'urable',id:null},u);const k=String(a.appt_at).slice(0,10);(by[k]=by[k]||[]).push(a)});draw()}catch(_){}})();
+(function(){const d=document.getElementById('nbdlg'),q=document.getElementById('nbq'),r=document.getElementById('nbr'),err=document.getElementById('nberr');let tm0=0,picked=null;
+  function open(){q.value='';r.innerHTML='';document.getElementById('nbn').value='';document.getElementById('nbp').value='';err.textContent='';picked=null;d.showModal()}
+  async function go(id){d.close();const o=await askBook(id,'Booked from the calendar',sel+'T10:00');if(o)location.reload()}
+  document.getElementById('addbk').onclick=open;document.getElementById('nbx').onclick=()=>d.close();
+  q.oninput=()=>{clearTimeout(tm0);const v=q.value.trim();if(v.length<2){r.innerHTML='';return}tm0=setTimeout(async()=>{try{const j=await (await fetch('/admin/calendar/find?q='+encodeURIComponent(v))).json();
+    r.innerHTML=(j.leads||[]).map(l=>'<button type="button" data-i="'+l.id+'"><b>'+$(l.name||l.phone)+'</b><small>'+$(l.phone||'')+(l.service?' &middot; '+$(l.service):'')+'</small></button>').join('')||'<small style="color:#7c838d">No match. Add them below.</small>'}catch(_){}},250)};
+  r.onclick=e=>{const b=e.target.closest('[data-i]');if(b)go(+b.dataset.i)};
+  document.getElementById('nbgo').onclick=async()=>{const n=document.getElementById('nbn').value.trim(),ph=document.getElementById('nbp').value.trim();if(!n||(ph.replace(/\\D/g,'').length<7)){err.textContent='Add a name and a phone number, or pick someone from the search.';return}
+    let j={};try{j=await (await fetch('/admin/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:n,phone:ph,source:'Calendar'})})).json()}catch(_){}
+    if(!j.success||!j.id){err.textContent='Could not add the customer. Try again.';return}go(j.id)};
+})();
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 // ---- Dial sessions: at set times (DIAL_SESSIONS, default 09:30, 13:00, 17:00 Eastern, Monday to Saturday) a push says how many leads are waiting and opens Start calling
@@ -5186,7 +5209,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/users" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/calendar/find" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/users" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -5956,7 +5979,7 @@ function permKeyFor(p) {
   if (p === "/admin/pipeline") return "pipeline";
   if (p === "/admin/today") return "today";
   if (p === "/admin/messages" || p === "/admin/threads" || p === "/admin/thread") return "messages";
-  if (p === "/admin/calendar" || p === "/admin/calendar/urable") return "calendar";
+  if (p === "/admin/calendar" || p === "/admin/calendar/urable" || p === "/admin/calendar/find") return "calendar";
   if (p === "/admin/dashboard" || p === "/admin/dashboard/data") return "dashboard";
   if (["/admin/insights", "/admin/speed", "/admin/rate", "/admin/meta", "/admin/msgstats", "/admin/msgstats/data", "/admin/dials", "/admin/dials/data"].includes(p)) return "reports";
   return null;
@@ -6015,6 +6038,12 @@ async function adminRouteCore(p, request, env, a0) {
   if (p === "/admin/calendar") return a === OWNER ? calendarPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/automations") return a === OWNER ? automationsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/automations/data" && request.method === "GET") return a === OWNER ? automationsData(env) : json({ success: false }, 403);
+  if (p === "/admin/calendar/find" && request.method === "GET") {
+    const q = String(new URL(request.url).searchParams.get("q") || "").trim().slice(0, 40), dg = q.replace(/\D/g, "");
+    if (q.length < 2) return json({ success: true, leads: [] });
+    const { results } = await env.DB.prepare("SELECT id, name, phone, service, stage FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND (name LIKE ? OR (? != '' AND phone LIKE ?)) ORDER BY id DESC LIMIT 8").bind("%" + q + "%", dg.length >= 3 ? dg : "", "%" + dg + "%").all();
+    return json({ success: true, leads: results || [] });
+  }
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
   if (p === "/admin/coach/aitest") return a === OWNER ? coachAiTest(env) : json({ success: false }, 403);
