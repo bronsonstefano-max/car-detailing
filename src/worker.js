@@ -3071,7 +3071,7 @@ function gAnalyze(who,text){
   if(/(swirl|scratch|dull|oxidi|restore|new again|shine|shiny|gloss|polish|buff)/.test(t))add('restore');
   if(/(protect|brand new|new car|just bought|just got|keep it new|bird|sap|rain)/.test(t))add('protect');
   if(/(easier to wash|easy to wash|wash it|washing|maintenance|clean it)/.test(t))add('wash');
-  let m=t.match(/(\\d{1,2})\\s?(%|percent)/);if(m)F.shade=m[1]+'%';
+  const NW={five:5,ten:10,fifteen:15,twenty:20,thirty:30,'thirty five':35,'thirty-five':35,thirtyfive:35,forty:40,fifty:50,seventy:70,'seventy five':75,ninety:90};let m=t.match(/(\\d{1,2})\\s?(%|percent)/);if(m)F.shade=m[1]+'%';else{m=t.match(/\\b(thirty[ -]?five|seventy[ -]?five|five|ten|fifteen|twenty|thirty|forty|fifty|seventy|ninety)\\s?(%|percent)/);if(m)F.shade=NW[m[1].replace(/[ -]/g,' ').replace('thirty five','thirty five')]+'%'}
   m=t.match(/(sides? (and|&) (the )?(back|rear)|whole car|all (the )?windows|windshield|front (two |2 )?windows|just the front)/);if(m)F.windows=m[1].replace(/\\band\\b/,'&');
   m=gi>=5?t.match(/\\b(asap|right away|today|tomorrow|this week|next week|this weekend|the weekend|couple (of )?weeks?|few days)\\b/):null;if(m)F.time=m[1];
   m=t.match(/\\b(black|white|silver|gr[ae]y|red|blue|green|gold|orange|yellow|brown|maroon|burgundy|beige|tan|charcoal|pearl)\\b/);if(m)F.color=m[1];
@@ -3277,7 +3277,8 @@ function sayOf(sc,spec,l,svc){const lines=[];(spec.plays||[]).forEach(id=>{const
 function openDisc(sc){return sc.steps.map((st,i)=>({st,i})).filter(o=>o.st.phase==='discovery'&&o.st.n&&!COV[o.st.id]&&o.i!==gi)}
 function nextStep(sc){let i=sc.steps.findIndex((st,k)=>k>gi&&st.n&&!COV[st.id]);if(i<0)i=sc.steps.findIndex(st=>st.n&&!COV[st.id]);return i}
 function nextAsk(sc,l,svc){const od=openDisc(sc),i=od.length?od[0].i:nextStep(sc),s=sc.steps[i];if(!s)return null;const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);return p?{t:gplain(p.t,l,svc),id:s.id}:null}
-function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc=gsvc(l),t=String(text||'').toLowerCase();
+const isQ=t=>/\\?|^\\s*(what|how|why|where|when|who|do|does|did|can|could|is|are|will|would)\\b/i.test(String(t||''));
+function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;if(!coachAiOn&&isQ(text))markRedo();const svc=gsvc(l),t=String(text||'').toLowerCase();
   const fresh=id=>{const n=Date.now();if(lastAns[id]&&n-lastAns[id]<20000)return false;lastAns[id]=n;return true};
   // pushback first, then questions
   for(const [id,rx] of OBJ2){if(rx.test(t)){const pid=sc.plays.some(p=>p.id===id)?id:(id==='p-expensive'&&sc.plays.some(p=>p.id==='p-shop')?'p-shop':'');if(!pid||!fresh(pid))continue;
@@ -3300,7 +3301,7 @@ function showAns(o){const now=Date.now(),key=o.src==='ai'?'ai:'+String(o.q||'').
   if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){o.qat=now;pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p&&Date.now()-p.qat<9000)showAns(p)},DWELL-(now-curAns.t)+60);return}
   if(curAns&&curAns.key===key&&now-curAns.t<30000){if(o.src==='ai'){Object.assign(curAns,o);drawAns()}return}
   if(curAns){ansHist.unshift(curAns);ansHist=ansHist.slice(0,4)}
-  markRedo();curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
+  curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
 function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   const lat=a.ms&&(a.ms.total||a.ms.say)?' &middot; '+((a.ms.total||a.ms.say)/1000).toFixed(1)+'s':'';
   const pill=a.src==='ai'?'<span class="pill ok">AI answer'+lat+'</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
@@ -3337,7 +3338,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='live'){cs('Listening');return}
   if(m.type==='transcript'){addLine(m.who,m.text,m.final,m.low);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
-  if(m.type==='answer'){showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
+  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
@@ -3431,9 +3432,10 @@ Ground rules:
 - After you handle it, "ask" is the NEXT SCRIPT LINE given to you, word for word (or the closest natural bridge into it), so the call returns to the script.
 - Closing: the goal of a call is a deposit AND a specific date. When the lead shows a buying signal (agrees to the price, asks about dates, payment or how it works, says it sounds good), do not ask "how does that sound": offer a way to pay (a secure link or the card over the phone) and a specific day. Never accept "I'll call you back" before trying to hold the spot with the deposit; if a callback is still the outcome, set an exact day and time. A lead who only needs time gets a specific follow-up time, not "whenever".
 - "anchor" is the id of the script STEP (like s15) or PLAYBOOK (like p-wife) your answer comes from.
+- "answered": true if the lead's last words also answered the rep's last question (or gave the information that script step was after). false ONLY if the lead dodged or ignored that question and the rep still needs the information (for example the rep asked what windows and the lead asked about price). An objection, "I need to think about it", or a question about something else that does not need that information is true: never make the rep ask the same question twice.
 
 Reply with ONLY one JSON object, no markdown, with the keys in exactly this order (the rep sees "say" the moment it is written, so keep everything else short):
-{"answer": true, "say": "...", "ask": "...", "anchor": "s15", "needs_eyes": false, "note": ""}`;
+{"answer": true, "say": "...", "ask": "...", "anchor": "s15", "needs_eyes": false, "note": "", "answered": true}`;
 // one tiny request so the owner can confirm the key, model and network work without placing a call
 async function coachAiTest(env) {
   if (!coachAi(env)) return json({ ok: false, message: "The ANTHROPIC_API_KEY secret is not set in Cloudflare yet." });
@@ -3511,7 +3513,7 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   if (a < 0 || b < a) return null;
   let o; try { o = JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
   const c = x => String(x == null ? "" : x).slice(0, 400);
-  return { answer: o.answer !== false, say: c(o.say), ask: c(o.ask), anchor: c(o.anchor), needs_eyes: !!o.needs_eyes, note: c(o.note), ms: res.ms };
+  return { answer: o.answer !== false, say: c(o.say), ask: c(o.ask), anchor: c(o.anchor), needs_eyes: !!o.needs_eyes, note: c(o.note), answered: o.answered !== false, ms: res.ms };
 }
 
 async function coachSig(env, sid) {
