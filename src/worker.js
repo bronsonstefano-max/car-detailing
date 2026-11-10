@@ -4635,6 +4635,9 @@ Ground rules:
 - When the lead says they do not know about the product ("I don't know anything", "not really", "no idea", "never heard of it", "what is that"), always step in: this is not a normal answer. "say" is a warm one-breath reassurance plus a plain-English explanation of the product in at most two short sentences (what it is and the main benefit: protection, gloss, easier washing for a coating; heat, privacy, UV for tint), using only wording and facts from the SCRIPT, OFFER or SHOP FACTS, with no numbers or claims that are not there. "ask" is then the NEXT SCRIPT LINE so the call keeps moving. Set "answered" true.
 - Your answer is the main thing the rep reads, so step in on ANYTHING that does not simply move the call forward: any question (even one the script covers), confusion or a request to repeat ("hello?", "what?", "wait, what is that?"), "I don't know", an objection or worry, a comparison, an off-topic remark or story, a joke, a complaint, new information that changes the plan, an unusual request, or a buying signal. When unsure, answer. Return {"answer": false} only when the lead plainly gave the information the rep just asked for, or said a bare "yeah", "ok", "good, you?".
 - Price questions ("how much", "what does it cost"): do not state a dollar amount the first time it is asked, unless the call is already at the script's price step. Acknowledge, say that with the special it is a lot less than the normal price, and say the price depends on when they would like to book, then ask when they would like to get it done. Example: "Great question, with the special it's a lot less than our normal price. The price depends on when you'd like to book, so what day were you thinking?" Give the exact number only when the lead asks again, presses for it, or the call has reached the script's price step. Use only the amounts in the OFFER.
+- "I'm not interested" / "no thanks" / "I don't need it": never give up and never argue. Acknowledge it warmly, then ask one soft curious question to find the real reason ("Totally fair. Was it the price, or just not sure it's right for the car?"), using any matching PLAYBOOK from the script. Do not stack the pitch.
+- "I thought it was free" (or any surprise about cost): acknowledge the mix-up without blame, say what the special actually is using only wording from the SCRIPT or OFFER (the special is a lower price, not free), and ask whether they would still like to hear what it includes.
+- "Just shopping around" or comparing prices: respect it ("Smart, you should compare"), and ask what they are comparing or what matters most (quality, warranty, price), then use only the script's own points about why the shop is different. Do not quote a number on the first ask.
 - Always follow the shop's A.C.A. method in every answer: ACKNOWLEDGE what the lead said in a few words ("Yeah, black shows them the most"), COMMENT with one short remark from the script that fits what they actually said, then ASK one question. The acknowledge and comment go in "say", the question goes in "ask". Never skip the acknowledgment, never stack two questions, never fire questions back to back.
 - A lead saying they have swirl marks, light scratches, dull spots or chips is a normal discovery answer: acknowledge it, comment briefly (for example that coating plus correction brings the gloss back), and ask the next question. Use the "not scratch proof" explanation only when the lead mentions deep scratches or asks whether the coating stops or prevents scratches.
 - Every answer has the same shape: first a short natural reply to exactly what the lead said, then "ask": the next question from the script that fits where the call really is. The NEXT SCRIPT LINE you are given is only a hint of where the rep is and can be wrong: read the transcript, never repeat a question the lead already answered, and pick the right next question yourself.
@@ -4706,7 +4709,7 @@ async function coachStream(env, system, user, onSay, opts) {
         else if (j.type === "content_block_delta" && j.delta && j.delta.type === "text_delta") {
           if (ms.first == null) ms.first = Date.now() - t0;
           text += j.delta.text;
-          if (!opts && /"answer"\s*:\s*false/.test(text)) { ac.abort(); ms.total = Date.now() - t0; return { text: '{"answer":false}', usage, ms }; }
+          if ((!opts || opts.abortFalse === true) && /"answer"\s*:\s*false/.test(text)) { ac.abort(); ms.total = Date.now() - t0; return { text: '{"answer":false}', usage, ms }; }
           if (!said) { const m = /"say"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text); if (m) { said = true; ms.say = Date.now() - t0; let say = m[1]; try { say = JSON.parse('"' + m[1] + '"'); } catch (e) { /* keep raw */ } if (onSay) onSay(say, ms.say); } }
         }
       }
@@ -4721,11 +4724,20 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const realText = real.length ? "REAL ANSWERS from past calls to something similar (best closers first):\n" + real.map((r, i) => `${i + 1}. Lead said: "${r.lead_said}"\n   ${r.won ? "Rep (the call booked)" : "Rep"}: "${r.rep_response}"${r.quality && r.quality < 4 && r.better ? `\n   Better answer: "${r.better}"` : ""}`).join("\n") + "\n\n" : "";
   const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
-  const res = await coachStream(env, ctx.system, user, onSay);
+  // objections, worries and price or "what is it" questions always get an answer: the model must not decide to stay quiet on these
+  const forced = /(not interested|no thanks|no thank you|don'?t (want|need)|not (looking|ready)|free\b|shopping|shop around|just looking|too (much|expensive|pricey)|how much|price|cost|think about|wife|husband|girlfriend|scam|catch|what('s| is)|don'?t know|no idea|never heard|why|expensive|cheaper|competitor|another shop|other shop|quote)/i.test(said);
+  const userMsg = forced ? user + "\nThis is an objection, worry or question: you MUST answer it (answer: true). Never return answer false here." : user;
+  const res = await coachStream(env, ctx.system, userMsg, onSay, { max: 600, abortFalse: !forced });
   if (res.error) return { error: res.error };
   const text = res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
-  if (a < 0 || b < a) return null;
-  let o; try { o = JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
+  if (a < 0) return null;
+  let o;
+  try { o = JSON.parse(text.slice(a, b + 1)); }
+  catch (e) { // cut off mid-answer: keep what was written rather than showing nothing
+    const grab = k => { const m = new RegExp('"' + k + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"').exec(text); return m ? m[1].replace(/\\"/g, '"') : ""; };
+    o = { answer: true, say: grab("say"), ask: grab("ask"), anchor: grab("anchor") };
+    if (!o.say) return null;
+  }
   const c = x => String(x == null ? "" : x).slice(0, 400);
   return { answer: o.answer !== false, say: c(o.say), ask: c(o.ask), anchor: c(o.anchor), needs_eyes: !!o.needs_eyes, note: c(o.note), answered: o.answered !== false, ms: res.ms };
 }
