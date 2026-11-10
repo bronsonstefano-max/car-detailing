@@ -2962,7 +2962,7 @@ function drawLead(){const l=Q[ix];const box=el('lead');
    +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
    +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
    +'<div class="bar"><a class="btn sm" href="/admin/pipeline#id='+l.id+'" style="text-decoration:none;display:inline-flex;align-items:center">Open lead / book</a></div>';
-  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};gOpenPh=''}
+  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};lastSaid=null;gOpenPh=''}
   sk=svcOf(l);{const sv=gsvc(l);if(sv&&GS[sv]===undefined)gLoad(sv).then(()=>{if(Q[ix]===l){drawScript();drawBrief(l)}})}
   drawScript();drawBrief(l);drawCtl()}
 function drawCtl(){setMode();drawQ();syncCb();const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
@@ -2990,7 +2990,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};lastSaid=null;gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
@@ -3071,7 +3071,7 @@ function gAnalyze(who,text){
   if(/(easier to wash|easy to wash|wash it|washing|maintenance|clean it)/.test(t))add('wash');
   let m=t.match(/(\\d{1,2})\\s?(%|percent)/);if(m)F.shade=m[1]+'%';
   m=t.match(/(sides? (and|&) (the )?(back|rear)|whole car|all (the )?windows|windshield|front (two |2 )?windows|just the front)/);if(m)F.windows=m[1].replace(/\\band\\b/,'&');
-  m=t.match(/\\b(asap|right away|today|tomorrow|this week|next week|this weekend|the weekend|couple (of )?weeks?|few days)\\b/);if(m)F.time=m[1];
+  m=gi>=5?t.match(/\\b(asap|right away|today|tomorrow|this week|next week|this weekend|the weekend|couple (of )?weeks?|few days)\\b/):null;if(m)F.time=m[1];
   m=t.match(/\\b(black|white|silver|gr[ae]y|red|blue|green|gold|orange|yellow|brown|maroon|burgundy|beige|tan|charcoal|pearl)\\b/);if(m)F.color=m[1];
   const sig=JSON.stringify(F);if(sig!==gSig){gSig=sig;gSoon()}gMark(false)}
 let gSig='';
@@ -3093,18 +3093,18 @@ const OBJRX=[['p-expensive',/(too (much|expensive)|expensive|that.?s a lot|can.?
 function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||'').toLowerCase();for(const [id,rx] of OBJRX){if(rx.test(t)&&sc.plays.some(p=>p.id===id||(id==='p-expensive'&&p.id==='p-shop'))){gHot=sc.plays.some(p=>p.id===id)?id:'p-shop';gHotAt=Date.now();gMark(false);return}}}
 // follow the rep: when what they just said matches the next step, move to it
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
-function gLines(sc,l,svc){const out=[];sc.steps.forEach((s,si)=>{if(!s.n)return;(s.main||[]).forEach(n=>{if(n.k!=='say')return;(n.ps||[]).forEach((p,pi)=>{if(p.t&&!p.note)out.push({si:si,sid:s.id,k:s.id+'.'+out.length,t:gplain(p.t,l,svc)})})})});return out}
-function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<3)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
-  L.forEach((x,j)=>{const set=new Set(words(x.t));if(set.size<3)return;const hit=w.filter(y=>set.has(y)).length,r=hit/Math.min(set.size,Math.max(w.length,3));if(hit>=3&&r>=0.5&&r>bs){bs=r;best=j}});
-  if(best>=0){const m=L[best];L.forEach((x,j)=>{if(x.si===m.si&&j<=best)SAID[x.k]=1});if(L.filter(x=>x.si===m.si).every(x=>SAID[x.k]))COV[m.sid]=1;const mv=m.si!==gi;if(mv)gi=m.si;gMark(mv)}}
+function gLines(sc,l,svc){const out=[];sc.steps.forEach((s,si)=>{if(!s.n)return;(s.main||[]).forEach(n=>{if(n.k!=='say')return;(n.ps||[]).forEach((p,pi)=>{if(p.t&&!p.note&&!/^if\\b/i.test(p.sub||''))out.push({si:si,sid:s.id,k:s.id+'.'+out.length,t:gplain(p.t,l,svc)})})})});return out}
+function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<2)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
+  L.forEach((x,j)=>{const set=new Set(words(x.t));if(set.size<2)return;const hit=w.filter(y=>set.has(y)).length,need=Math.min(3,set.size),r=hit/Math.min(set.size,Math.max(w.length,2));if(hit>=need&&r>=0.5&&r>bs){bs=r;best=j}});
+  if(best>=0){const m=L[best];lastSaid={k:m.k,sid:m.sid,t:m.t,at:Date.now()};L.forEach((x,j)=>{if(x.si===m.si&&j<=best)SAID[x.k]=1});if(L.filter(x=>x.si===m.si).every(x=>SAID[x.k]))COV[m.sid]=1;const mv=m.si!==gi;if(mv)gi=m.si;gMark(mv)}}
 // the line the rep should say next: the first line, at or after the current step, that has not been said or already covered by what the lead told us
 function gNextLine(){const sc=gScript(),l=Q[ix];if(!sc||!l)return null;const svc=gsvc(l),L=gLines(sc,l,svc),open=L.filter(x=>!SAID[x.k]&&!COV[x.sid]);if(!open.length)return{done:true};return open.find(x=>x.si>=gi)||open[0]}
 function sendPos(nl){const t=nl&&nl.t?nl.t:'';if(t===lastPos||!cws||cws.readyState!==1)return;lastPos=t;try{const sc=gScript(),s=nl&&sc?sc.steps[nl.si]:null;cws.send(JSON.stringify({type:'pos',next:t,step:s?s.n+' '+topicOf(gsvc(Q[ix]),s):''}))}catch(_){}}
 const TOPIC={tint:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle',s07:'Windows',s08:'Current tint',s09:'Main goal',s10:'Darkness',s11:'Other shops',s12:'Recap',s13:'Process',s14:'Questions',s15:'Why us',s16:'Questions',s17:'Timing',s18:'Price',s19:'Book the day',s20:'Contact info',s21:'Deposit',s22:'Referral',s23:'Wrap up'},
  coating:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle & color',s07:'Paint condition',s08:'What they know',s09:'Storage & washing',s10:'How long keeping',s11:'Past coatings',s12:'Recap',s13:'The prep',s14:'Questions',s15:'The coating',s16:'Questions',s17:'Free add ons',s18:'Timing',s19:'Price',s20:'Book the day',s21:'Contact info',s22:'Deposit',s23:'Wrap up'}};
-let COV={},gOpenPh='',SAID={},lastPos='';
+let COV={},gOpenPh='',SAID={},lastPos='',lastSaid=null;
 const topicOf=(svc,s)=>(TOPIC[svc]&&TOPIC[svc][s.id])||s.tag||s.id;
-function gCov(){const l=Q[ix],svc=gsvc(l),F=FACTS,m=COV;if(!svc)return;if(vehOf(l))m.s06=1;
+function gCov(m){m=m||COV;const l=Q[ix],svc=gsvc(l),F=FACTS;if(!svc)return;if(vehOf(l))m.s06=1;
   if(svc==='tint'){if(F.windows)m.s07=1;if(F.goals.length)m.s09=1;if(F.shade)m.s10=1;if(F.time)m.s17=1}
   else{if(F.goals.length)m.s07=1;if(F.time)m.s18=1}}
 function gSugIdx(sc){return sc.steps.findIndex(s=>s.n&&!COV[s.id])}
@@ -3285,16 +3285,17 @@ function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc
   return true}
 function anchorId(a){a=String(a||'');if(!a)return '';if(/^(gs|gx)-/.test(a))return a;const sc=gScript();if(sc&&sc.plays.some(p=>p.id===a))return 'gx-'+a;return 'gs-'+a}
 // One answer at a time: it stays put while the rep reads it, and the AI version is folded into the same card
-let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0,lastNext='',detTm=0;const DWELL=9000;
+let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0,lastNext='',detTm=0;const DWELL=5000;
 function leadSaid(text,end){leadBuf=(leadBuf+' '+text).trim();clearTimeout(leadTm);if(end)flushLead();else leadTm=setTimeout(flushLead,900)}
 function flushLead(){clearTimeout(leadTm);const t=leadBuf.trim();leadBuf='';if(!t)return;if(!gScript())objCheck(t);else gDet(t)}
 function sameQ(a,b){const x=words(String(a||'')),y=words(String(b||''));if(!x.length||!y.length)return false;const st=new Set(y),h=x.filter(w=>st.has(w)).length;return h/Math.min(x.length,y.length)>=0.4}
+function markRedo(){const ls=lastSaid;if(!ls||Date.now()-ls.at>20000||!/\\?\\s*$/.test(ls.t))return;const tmp={};gCov(tmp);if(tmp[ls.sid])return;delete SAID[ls.k];delete COV[ls.sid]}
 function showAns(o){const now=Date.now(),key=o.src==='ai'?'ai:'+String(o.q||'').toLowerCase().slice(0,40):String(o.anchor||o.q||'').toLowerCase();
   if(o.src==='ai'&&curAns&&curAns.src!=='ai'&&now-curAns.t<30000&&sameQ(curAns.q,o.q)){curAns.ai=o;drawAns();return}
   if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p)showAns(p)},DWELL-(now-curAns.t)+60);return}
   if(curAns&&curAns.key===key){if(o.src==='ai'){Object.assign(curAns,o);drawAns()}return}
   if(curAns){ansHist.unshift(curAns);ansHist=ansHist.slice(0,4)}
-  curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
+  markRedo();curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
 function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   const lat=a.ms&&(a.ms.total||a.ms.say)?' &middot; '+((a.ms.total||a.ms.say)/1000).toFixed(1)+'s':'';
   const pill=a.src==='ai'?'<span class="pill ok">AI answer'+lat+'</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
@@ -3322,8 +3323,8 @@ el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!
 function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];if(!sc||!l||state!=='live'){box.hidden=true;return}
   const svc=gsvc(l),nl=gNextLine(),det=!!(curAns&&!curAns.used&&Date.now()-curAns.t<40000),od=openDisc(sc);let h='';
   if(nl&&nl.done)h='<span class="gl">Script complete</span><span class="gq big">Before you hang up: deposit taken and a date set? If not, offer the payment link and a specific day. If they need a callback, set an exact day and time.</span>';
-  else if(nl){const s=sc.steps[nl.si],nt=[].concat.apply([],(s.main||[]).map(n=>(n.ps||[]).filter(p=>p.note).map(p=>gplain(p.note,l,svc))))[0];lastNext=nl.t;
-    h='<span class="gl">'+(det?'Then back to the script':'Say this next')+'</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b><span class="gq big">'+$(nl.t)+'</span>'+(nt&&!det?'<span class="gtip"><b>Coach</b> '+$(nt)+'</span>':'')
+  else if(nl){const s=sc.steps[nl.si],cond=[].concat.apply([],(s.main||[]).map(n=>(n.ps||[]).filter(p=>p.t&&!p.note&&/^if\\b/i.test(p.sub||'')).map(p=>({sub:p.sub,t:gplain(p.t,l,svc)})))),nt=[].concat.apply([],(s.main||[]).map(n=>(n.ps||[]).filter(p=>p.note).map(p=>gplain(p.note,l,svc))))[0];lastNext=nl.t;
+    h='<span class="gl">'+(det?'Then back to the script':'Say this next')+'</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b><span class="gq big">'+$(nl.t)+'</span>'+(nt&&!det?'<span class="gtip"><b>Coach</b> '+$(nt)+'</span>':'')+(!det?cond.map(c=>'<span class="gtip"><b>'+$(c.sub)+'</b> '+$(c.t)+'</span>').join(''):'')
      +'<span class="gb"><button type="button" class="btn sm g" data-said="1">Said it</button><button type="button" class="btn sm" data-skip="'+$(s.id)+'">Skip step</button><button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button></span>'}
   if(od.length&&!det)h+='<span class="gl" style="flex-basis:100%">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('');
   box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
@@ -3335,7 +3336,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
-function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>2500){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
 let known=new Set(),defTitle=document.title;place();mq.addEventListener&&mq.addEventListener('change',place);
