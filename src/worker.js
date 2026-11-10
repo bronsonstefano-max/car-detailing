@@ -140,6 +140,7 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS dial_calls_lead ON dial_calls (lead_id, started_at)"),
     db.prepare("CREATE TABLE IF NOT EXISTS dial_audio (kind TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL, token TEXT NOT NULL, updated_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS dial_settings (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')"),
+    db.prepare("CREATE TABLE IF NOT EXISTS practice_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), svc TEXT, level TEXT, kind TEXT, overall REAL, outcome TEXT, score TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS call_library (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT, svc TEXT, topic TEXT, objection TEXT, kind TEXT, stage TEXT, lead_said TEXT NOT NULL, rep_response TEXT NOT NULL, better TEXT, quality REAL, priority REAL, won INTEGER, reaction TEXT)"),
     db.prepare("CREATE INDEX IF NOT EXISTS call_library_svc ON call_library (svc, priority)"),
     db.prepare("CREATE TABLE IF NOT EXISTS call_transcripts (call_sid TEXT PRIMARY KEY, lead_id INTEGER, turns TEXT, signals TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), ended_at TEXT)"),
@@ -2776,7 +2777,7 @@ dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{ma
 #cards{display:flex;flex-direction:column;gap:10px;min-width:0}.cw{display:flex;flex-direction:column;gap:10px}
 main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex-direction:column;gap:14px;min-width:0}.callrow,.callbar,.cctl{display:flex;flex-direction:column;gap:10px;min-width:0}
 .cwho,.rail .rs,.q .it .av,.q .it .bd,.q .it.done,.shb,.shl{display:none}.q .it .tx{display:block}
-.gnx{flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px;border-left:4px solid #32cd32}.gnx .gq.big{flex:none;font-size:21px;font-weight:700;color:#fff;line-height:1.35}.gnx.det{background:#0e1318;border-color:#2a313a;border-left-color:#2a313a}.gnx.det .gq.big{font-size:16px;font-weight:600;color:#cfd3d9}.gnx.det .gl{color:#8b929c}.gtip{font-size:13.5px;color:#aeb4bd}.gtip b{color:#32cd32;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin-right:6px}.gb{display:flex;gap:8px;flex-wrap:wrap}.qf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.qf button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}.qf button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.ln.low{opacity:.7;font-style:italic}.ln.low::after{content:' (unclear)';color:#ffb86b;font-size:11px}.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
+.gnx{flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px;border-left:4px solid #32cd32}.gnx .gq.big{flex:none;font-size:21px;font-weight:700;color:#fff;line-height:1.35}.gnx.det{background:#0e1318;border-color:#2a313a;border-left-color:#2a313a}.gnx.det .gq.big{font-size:16px;font-weight:600;color:#cfd3d9}.gnx.det .gl{color:#8b929c}.gtip{font-size:13.5px;color:#aeb4bd}.gtip b{color:#32cd32;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin-right:6px}.gb{display:flex;gap:8px;flex-wrap:wrap}.pbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#0b1a10;border:1px solid #1f5a2a;border-radius:12px;padding:8px 10px}.pbar input[type=text]{flex:1 1 220px;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}.pbar #pmic.on{background:#c0392b;border-color:#c0392b;color:#fff}.pch{display:flex;gap:8px;flex-wrap:wrap}.pch button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600}.pch button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.rb .psc{display:flex;flex-direction:column;gap:6px;border:0;padding:0;background:none}.rb .psc .row{display:flex;flex-direction:row;gap:10px;align-items:center;font-size:14px;border:0;padding:0;background:none;min-height:0}.rb .psc .row b{width:96px;color:#aeb4bd;font-weight:600}.rb .psc .bar2{flex:1;height:8px;background:#1a2028;border:0;padding:0;border-radius:99px;overflow:hidden}.rb .psc .bar2 i{display:block;height:100%;background:#32cd32}.pfix{border:1px solid #2a313a;border-radius:10px;padding:10px 12px;font-size:14px;display:flex;flex-direction:column;gap:4px}.pfix .b{color:#7fe07f;font-weight:600}.qf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.qf button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}.qf button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.ln.low{opacity:.7;font-style:italic}.ln.low::after{content:' (unclear)';color:#ffb86b;font-size:11px}.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
 .cl{display:flex;flex-direction:column;gap:10px;min-width:0}.gnx,.gnx>*{text-align:left}
 #trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
@@ -2862,13 +2863,13 @@ ${BNAV_CSS}
 ${bnav("dialer", tc, true)}
 <main id="mainv" class="m-idle">
 <div id="setup" class="ban" hidden></div>
-<div class="bar" id="topbar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span id="nextline" class="nl"></span><span style="flex:1"></span><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="gcb" type="button">Guided scripts</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
+<div class="bar" id="topbar"><span id="st" class="pill">Loading</span><span id="hrs" class="note"></span><span id="nextline" class="nl"></span><span style="flex:1"></span><button class="btn sm" id="prb" type="button">Practice</button><button class="btn sm" id="vmb" type="button">Voicemails</button><button class="btn sm" id="gcb" type="button">Guided scripts</button><button class="btn sm" id="scb" type="button">Edit scripts</button></div>
 <div id="newb" class="newb" hidden></div>
 <div class="center">
 <section id="brief" class="brief"></section>
 <div class="callrow" id="callrow"><div id="lead" class="lead"></div>
 <div class="callbar" id="callbar"><div class="cwho" id="cwho"></div><div class="cctl"><div id="ctl" class="ctl"></div><div id="kp" class="kp" hidden></div></div></div></div>
-<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span id="aip" class="pill ok" hidden>AI on</span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div class="cw"><div class="cl"><div id="cards"></div><div id="gnx" class="gnx" hidden></div><div id="hist" class="hist"></div></div><div id="trn" class="tr"></div></div></div>
+<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span id="aip" class="pill ok" hidden>AI on</span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div id="pbar" class="pbar" hidden><input id="pin" type="text" autocomplete="off" placeholder="Type what you say, then press Enter, or tap the mic"><button class="btn g" id="psend" type="button">Send</button><button class="btn" id="pmic" type="button">Mic</button><label class="note"><input type="checkbox" id="pspk" checked> Hear the caller</label></div><div class="cw"><div class="cl"><div id="cards"></div><div id="gnx" class="gnx" hidden></div><div id="hist" class="hist"></div></div><div id="trn" class="tr"></div></div></div>
 <div id="after" class="panel" hidden>
 <h3>How did it go?</h3>
 <div class="outs" id="outs"></div>
@@ -2881,7 +2882,7 @@ ${bnav("dialer", tc, true)}
 <div class="rcol" id="rcol"><div class="panel"><div class="bar"><div class="tabs" id="mtabs"><button type="button" data-m="script" class="on">Script</button><button type="button" data-m="info">Lead info</button></div><span style="flex:1"></span><div class="tabs" id="stabs"><button type="button" data-k="tint">Tint</button><button type="button" data-k="coating">Coating</button></div></div><div id="script" class="script"></div><div id="info" class="inf" hidden></div></div></div>
 <aside class="rail panel q"><h3 style="margin:0">Up next</h3><div class="qf" id="qf" role="group" aria-label="Who to dial"></div><div class="rs" id="rs"></div><div id="q"></div></aside>
 </main>
-<dialog id="vdlg"></dialog><dialog id="sdlg"></dialog><dialog id="gdlg"></dialog>
+<dialog id="vdlg"></dialog><dialog id="sdlg"></dialog><dialog id="gdlg"></dialog><dialog id="prdlg"></dialog>
 <script src="/assets/twilio-voice.min.js"></script>
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2969,6 +2970,7 @@ function drawLead(){const l=Q[ix];const box=el('lead');
   sk=svcOf(l);{const sv=gsvc(l);if(sv&&GS[sv]===undefined)gLoad(sv).then(()=>{if(Q[ix]===l){drawScript();drawBrief(l)}})}
   drawScript();drawBrief(l);drawCtl()}
 function drawCtl(){setMode();drawQ();syncCb();const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
+  if(practiceOn&&state==='live'){c.innerHTML='<span class="timer" id="tm">0:00</span><span class="rec" style="color:#ffb86b">PRACTICE</span><button class="btn r call" id="hb" type="button">End practice</button>';kp.hidden=true;el('hb').onclick=endPractice;return}
   const noDev=!dev;
   if(state==='idle'||state==='ended'){c.innerHTML='<button class="btn g call" id="cb" type="button"'+(noDev||!inHours()?' disabled':'')+'><i class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></i>'+(state==='ended'?'Call again':'Call '+$(pretty(l.phone)))+'</button>';kp.hidden=true;el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
     const b=el('cb');if(b)b.onclick=dial;return}
@@ -3253,9 +3255,9 @@ const OBJ=[
 let cws=null,coachOn=false,lastCard={},wR=0,wL=0;
 function cs(t){const e=el('cst');e.textContent=t;e.className='note'+(t==='Listening'?' on':'')}
 function share(){const n=wR+wL;if(n<12){el('shb').hidden=true;el('shl').textContent='';return}const r=Math.round(wR*100/n);el('shb').hidden=false;el('shi').style.width=r+'%';const l=el('shl');l.textContent='You '+r+'% \u00b7 Lead '+(100-r)+'%'+(r>60?' \u2014 let them talk':'');l.className='shl'+(r>60?' hi':'')}
-async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled;coachAiOn=!!j.ai}catch(_){}}
-function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';curAns=null;ansHist=[];pend=null;leadBuf='';lastPos='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
-  try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){cs('Transcript unavailable');return}
+async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled;coachAiOn=!!j.ai;coachPracticeOn=!!j.practice}catch(_){}}
+function coachStart(sid,po){coachStop();if(!(coachOn||po)||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';curAns=null;ansHist=[];pend=null;leadBuf='';lastPos='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
+  try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid+(po?'&practice=1&svc='+po.svc+'&level='+po.level:''))}catch(_){cs('Transcript unavailable');return}
   cws.onopen=()=>{lastPos='';cs('Listening');el('aip').hidden=!coachAiOn;el('aip').textContent='AI on';gNext()};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
   cws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}coachMsg(m)}}
 function coachStop(){if(cws){try{cws.close()}catch(_){}cws=null}}
@@ -3340,7 +3342,10 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
   box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
   if(m.type==='live'){cs('Listening');return}
-  if(m.type==='transcript'){addLine(m.who,m.text,m.final,m.low);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
+  if(m.type==='transcript'){addLine(m.who,m.text,m.final,m.low);if(m.speak&&practiceOn&&el('pspk')&&el('pspk').checked&&window.speechSynthesis){try{const u=new SpeechSynthesisUtterance(m.text);u.rate=1.05;speechSynthesis.speak(u)}catch(_){}}if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
+  if(m.type==='practice_ready'){const l=Q[ix];if(l&&l.practice){Object.assign(l,m.lead);INFO[0]={lead:l,facts:{attempts:0,talkSecs:0,connected:0},notes:[],calls:[],texts:[],activity:[]};drawLead();drawScript();drawBrief(l);drawQ()}return}
+  if(m.type==='practice_score'){practiceFinish(m.score,m.persona);return}
+  if(m.type==='practice_error'){setSt(m.message||'Practice problem','bad');return}
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
   if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
@@ -3349,6 +3354,49 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
 function addLine(who,text,final,low){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&n>=4)pend=null;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial')+(low?' low':'');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
+// ---- practice call: an AI plays the customer ----
+let practiceOn=false,prSvc='tint',prLevel='typical',prRec=null,prSaid=false,coachPracticeOn=false;
+const prSend=t=>{t=String(t||'').trim();if(!t||!cws||cws.readyState!==1)return;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}cws.send(JSON.stringify({type:'practice_say',text:t}))};
+async function prMenu(){if(state==='live'||state==='connecting')return;const d=el('prdlg');let runs=[];try{runs=(await (await fetch('/admin/dialer/practice')).json()).runs||[]}catch(_){}
+  const avg=runs.length?(runs.reduce((a,r)=>a+(Number(r.overall)||0),0)/runs.length).toFixed(1):'';
+  d.innerHTML='<div class="rb"><h3>Practice call</h3><p class="note" style="margin:0">An AI plays a customer. You type or talk as the rep, the coach helps you exactly like a real call, and you get a score and exact lines to fix at the end. Nothing goes to a real lead.</p>'
+   +'<div><label>Service</label><div class="pch" id="pr-s"><button type="button" data-v="tint" class="on">Window tint</button><button type="button" data-v="coating">Ceramic coating</button></div></div>'
+   +'<div><label>How hard</label><div class="pch" id="pr-l"><button type="button" data-v="easy">Easy</button><button type="button" data-v="typical" class="on">Typical</button><button type="button" data-v="tough">Tough</button></div></div>'
+   +(coachPracticeOn?'':'<div class="err">Practice needs the Anthropic key to be working. Press Test AI coach in Guided scripts.</div>')
+   +(runs.length?'<div><label>Recent practice'+(avg?' (average '+avg+' of 5)':'')+'</label>'+runs.map(r=>'<div class="note">'+$(new Date(r.at).toLocaleDateString('en-US',{month:'short',day:'numeric'}))+' &middot; '+$(r.svc==='tint'?'Tint':'Coating')+' &middot; '+$(r.level)+' &middot; '+$(r.kind||'')+' &middot; <b>'+$(r.overall)+'/5</b> &middot; '+$(r.outcome||'')+'</div>').join('')+'</div>':'')
+   +'<div class="bar" style="justify-content:flex-end"><button class="btn" id="pr-x" type="button">Close</button><button class="btn g" id="pr-go" type="button"'+(coachPracticeOn?'':' disabled')+'>Start practice</button></div></div>';
+  d.showModal();el('pr-x').onclick=()=>d.close();
+  d.querySelectorAll('.pch').forEach(g=>g.onclick=e=>{const b=e.target.closest('button');if(!b)return;g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b))});
+  el('pr-go').onclick=()=>{startPractice(d.querySelector('#pr-s .on').dataset.v,d.querySelector('#pr-l .on').dataset.v)}}
+function startPractice(svc,level){if(state==='live'||state==='connecting')return;el('prdlg').close();
+  practiceOn=true;prSvc=svc;prLevel=level;prSaid=false;const pl={id:0,practice:true,name:'Practice caller',phone:'',service:svc==='tint'?'Window Tint':'Ceramic Coating',year:'',make:'',model:'',stage:'new',created_at:new Date().toISOString(),message:''};
+  Q.splice(ix,0,pl);INFO[0]={lead:pl,facts:{attempts:0,talkSecs:0,connected:0},notes:[],calls:[],texts:[],activity:[]};
+  sid='PR'+Array.from(crypto.getRandomValues(new Uint8Array(12))).map(x=>('0'+x.toString(16)).slice(-2)).join('');state='live';t0=Date.now();muted=false;el('after').hidden=true;setSt('Practice','warn');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};lastSaid=null;gOpenPh='';
+  drawLead();drawScript();drawQ();coachStart(sid,{svc:svc,level:level});clearInterval(tmr);tmr=setInterval(tick,500);drawCtl();el('pbar').hidden=false;setTimeout(()=>{const i=el('pin');if(i)i.focus()},400)}
+function endPractice(){if(!practiceOn||prSaid)return;prSaid=true;const sc=gScript(),l=Q[ix],cov=sc&&l?sc.steps.filter(s=>COV[s.id]).map(s=>s.n+' '+topicOf(gsvc(l),s)):[];
+  try{cws.send(JSON.stringify({type:'practice_end',covered:cov}))}catch(_){}
+  const h=el('hb');if(h){h.disabled=true;h.textContent='Scoring...'}el('cst').textContent='Scoring your call...';setTimeout(()=>{if(practiceOn)practiceFinish(null,null)},45000)}
+function practiceFinish(score,persona){if(!practiceOn)return;practiceOn=false;prSaid=false;if(prRec){try{prRec.stop()}catch(_){}prRec=null}try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}
+  coachStop();clearInterval(tmr);t0=0;Q=Q.filter(x=>!x.practice);if(ix>=Q.length)ix=Math.max(0,Q.length-1);state='idle';el('pbar').hidden=true;el('coach').hidden=true;setSt('Ready','ok');drawLead();drawScript();drawCtl();drawQ();prScore(score,persona)}
+function prScore(sc,pe){const d=el('prdlg');const bar=(k,v)=>'<div class="row"><b>'+k+'</b><div class="bar2"><i style="width:'+Math.max(0,Math.min(5,Number(v)||0))*20+'%"></i></div><span>'+(Number(v)||0)+'/5</span></div>';
+  if(!sc){d.innerHTML='<div class="rb"><h3>Practice finished</h3><p class="note">The score did not come back this time. Try another practice call.</p><div class="bar" style="justify-content:flex-end"><button class="btn" id="pr-x" type="button">Close</button><button class="btn g" id="pr-again" type="button">Practice again</button></div></div>'}
+  else{const S=sc.scores||{},oc={win:'Booked with a deposit',callback:'Callback (not a win)',lost:'Lost'}[sc.outcome]||sc.outcome||'';
+   d.innerHTML='<div class="rb"><h3>Your score: '+$(Number(sc.overall)||0)+' out of 5</h3><p class="note" style="margin:0"><b>'+$(oc)+'</b> &middot; deposit asked: '+(sc.deposit_asked?'yes':'no')+' &middot; day set: '+(sc.date_set?'yes':'no')+'</p><p style="margin:0">'+$(sc.summary||'')+'</p>'
+    +'<div class="psc">'+bar('Rapport',S.rapport)+bar('Discovery',S.discovery)+bar('Pitch',S.pitch)+bar('Objections',S.objections)+bar('Close',S.close)+bar('Control',S.control)+'</div>'
+    +((sc.went_well||[]).length?'<div><label>What went well</label>'+(sc.went_well||[]).map(x=>'<div class="note">&bull; '+$(x)+'</div>').join('')+'</div>':'')
+    +((sc.fix||[]).length?'<div><label>Fix these</label>'+(sc.fix||[]).map(f=>'<div class="pfix"><span class="note">Customer: &ldquo;'+$(f.moment||'')+'&rdquo;</span><span>You said: '+$(f.you_said||'')+'</span><span class="b">Say instead: '+$(f.better||'')+'</span></div>').join('')+'</div>':'')
+    +((sc.missed_steps||[]).length?'<div><label>Script steps you skipped</label><div class="note">'+$((sc.missed_steps||[]).join(', '))+'</div></div>':'')
+    +(sc.next_practice?'<div><label>Work on next</label><div>'+$(sc.next_practice)+'</div></div>':'')
+    +(pe?'<div class="note">The caller was: <b>'+$(pe.kind)+'</b> ('+$(pe.level)+'). '+$(pe.how)+'</div>':'')
+    +'<div class="bar" style="justify-content:flex-end"><button class="btn" id="pr-x" type="button">Close</button><button class="btn g" id="pr-again" type="button">Practice again</button></div></div>'}
+  d.showModal();d.scrollTop=0;const rb=d.querySelector('.rb');if(rb)rb.scrollTop=0;el('pr-x').onclick=()=>d.close();el('pr-again').onclick=()=>{d.close();prMenu()}}
+el('prb').onclick=prMenu;
+el('psend').onclick=()=>{prSend(el('pin').value);el('pin').value='';el('pin').focus()};
+el('pin').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();el('psend').click()}});
+el('pmic').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){setSt('Voice input works in Chrome or Edge. Type instead.','warn');return}
+  if(prRec){const r0=prRec;prRec=null;try{r0.stop()}catch(_){}el('pmic').classList.remove('on');return}
+  const r=new SR();r.continuous=true;r.interimResults=false;r.lang='en-US';r.onresult=e=>{if(window.speechSynthesis&&speechSynthesis.speaking)return;for(let i=e.resultIndex;i<e.results.length;i++)if(e.results[i].isFinal)prSend(e.results[i][0].transcript)};
+  r.onend=()=>{if(prRec===r&&practiceOn)try{r.start()}catch(_){}};prRec=r;try{r.start()}catch(_){}el('pmic').classList.add('on')};
 let known=new Set(),defTitle=document.title;place();mq.addEventListener&&mq.addEventListener('change',place);
 function beep(){try{const C=window.AudioContext||window.webkitAudioContext,c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(_){}}
 async function poll(){let q;try{q=await (await fetch('/admin/dialer/queue')).json()}catch(_){return}if(!q||!q.leads)return;
@@ -3502,9 +3550,9 @@ async function coachAiTest(env) {
     return json({ ok: true, model, runs, message: `Coach speed: the first words appear in ${sec(runs[1].say)} and the full answer in ${sec(runs[1].total)} (first try ${sec(runs[0].say)} / ${sec(runs[0].total)}). Add about 0.3s for the lead to be recognised as finished.` });
   } catch (e) { return json({ ok: false, model, message: "Could not reach Anthropic from Cloudflare." }); }
 }
-async function coachContext(env, leadId, forceSvc) {
+async function coachContext(env, leadId, forceSvc, fakeLead) {
   await ensureTable(env.DB);
-  const lead = Number.isInteger(leadId) ? await env.DB.prepare("SELECT id, name, service, year, make, model, value, message FROM leads WHERE id = ?").bind(leadId).first() : null;
+  const lead = fakeLead || Number.isInteger(leadId) ? await env.DB.prepare("SELECT id, name, service, year, make, model, value, message FROM leads WHERE id = ?").bind(leadId).first() : null;
   const svc = coachSvc(lead && lead.service) || forceSvc || "";
   const rows = await env.DB.prepare("SELECT k, v FROM dial_settings WHERE k IN ('offer', ?)").bind("script_" + (svc || "none")).all().then(r => r.results || []).catch(() => []);
   const get = k => { const r = rows.find(x => x.k === k); try { return r ? JSON.parse(r.v) : null; } catch (_) { return null; } };
@@ -3513,16 +3561,17 @@ async function coachContext(env, leadId, forceSvc) {
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
   const lib = svc ? await env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : [];
-  return { system, facts, svc, lib };
+  return { system, facts, svc, lib, body: system.slice(COACH_RULES.length) };
 }
 // One streamed request to the coach model. onSay fires the moment the "say" line is complete, so the rep can start talking before the rest has been written.
-async function coachStream(env, system, user, onSay) {
-  const t0 = Date.now(), ms = {}, ac = new AbortController(), timer = setTimeout(() => ac.abort(), 12000);
+async function coachStream(env, system, user, onSay, opts) {
+  const o = opts || {};
+  const t0 = Date.now(), ms = {}, ac = new AbortController(), timer = setTimeout(() => ac.abort(), o.timeout || 12000);
   try {
     const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, {
       method: "POST", signal: ac.signal,
       headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: env.COACH_MODEL || COACH_MODEL_DEFAULT, max_tokens: 300, stream: true, output_config: { effort: "low" },
+      body: JSON.stringify({ model: env.COACH_MODEL || COACH_MODEL_DEFAULT, max_tokens: o.max || 300, stream: true, output_config: { effort: o.effort || "low" },
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] }),
     });
     if (!r.ok) return { error: r.status, ms };
@@ -3540,7 +3589,7 @@ async function coachStream(env, system, user, onSay) {
         else if (j.type === "content_block_delta" && j.delta && j.delta.type === "text_delta") {
           if (ms.first == null) ms.first = Date.now() - t0;
           text += j.delta.text;
-          if (/"answer"\s*:\s*false/.test(text)) { ac.abort(); ms.total = Date.now() - t0; return { text: '{"answer":false}', usage, ms }; }
+          if (!opts && /"answer"\s*:\s*false/.test(text)) { ac.abort(); ms.total = Date.now() - t0; return { text: '{"answer":false}', usage, ms }; }
           if (!said) { const m = /"say"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text); if (m) { said = true; ms.say = Date.now() - t0; let say = m[1]; try { say = JSON.parse('"' + m[1] + '"'); } catch (e) { /* keep raw */ } if (onSay) onSay(say, ms.say); } }
         }
       }
@@ -3581,6 +3630,46 @@ const BUILTIN_FIXES = [
 const fixHeard = (text, extra) => { let t = String(text || ""); for (const [re, to] of BUILTIN_FIXES) t = t.replace(re, to); for (const [re, to] of (extra || [])) t = t.replace(re, to); return t; };
 const esc2 = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ulaw = b => { b = ~b & 0xff; const s = (((b & 0x0f) << 3) + 0x84) << ((b >> 4) & 7); return (b & 0x80) ? -(s - 0x84) : s - 0x84; };
+// ---- Practice calls: an AI plays a customer, the rep practices on the same coach screen, then gets scored. Owner only.
+const PR_NAMES = ["Alex", "Jordan", "Marcus", "Daniela", "Chris", "Priya", "Mike", "Sofia", "Dre", "Jenna", "Luis", "Tamara", "Kevin", "Nicole", "Andre", "Rachel"];
+const PR_CARS = { tint: [["2023", "Tesla", "Model Y"], ["2021", "Honda", "Accord"], ["2022", "Toyota", "Camry"], ["2020", "BMW", "X5"], ["2019", "Ford", "F-150"], ["2024", "Hyundai", "Tucson"], ["2018", "Dodge", "Charger"], ["2022", "Kia", "Telluride"]],
+  coating: [["2024", "BMW", "M4"], ["2023", "Porsche", "Macan"], ["2022", "Tesla", "Model 3"], ["2021", "Mercedes", "C300"], ["2024", "Toyota", "Tacoma"], ["2023", "Lexus", "RX 350"]] };
+const PR_TYPES = {
+  easy: [["Warm and ready", "You filled out the ad form, you are interested and fairly ready to book this week. You are friendly, answer simply, and ask one question about price. If the rep builds a little value and asks for a deposit and a specific day, you agree."],
+    ["Curious first-timer", "You have never had it done before and have a few basic questions (how long it takes, how long it lasts, whether it affects anything). You are polite and open. You book if the rep explains clearly and asks for a deposit with a specific day."]],
+  typical: [["Price shopper", "You care mostly about price. You have a quote from another shop. You push on price twice. You only book if the rep shows real value (the film or product, the warranty, the install quality) and asks for the deposit with a specific day."],
+    ["Needs to ask a partner", "Your spouse or partner has a say in money. You like it but say you need to talk to them. You only agree to a deposit if the rep offers a refundable deposit to hold a spot and sets a specific callback time."],
+    ["Vague browser", "You answer in short, vague sentences ('I don't know', 'maybe'), are not sure what you want, and need the rep to lead with good questions. You book only if the rep guides you to a clear next step."]],
+  tough: [["Rushed and distracted", "You are in the middle of something and want to get off the phone. You give short answers, interrupt, and say 'can you just text me the price'. You only engage if the rep is quick, respectful and gets to a clear next step fast."],
+    ["Skeptical after a bad experience", "A previous job went badly (bubbles, peeling, overpromised). You distrust shops, ask hard questions about warranty and proof, and say 'everyone says that'. You open up only if the rep is honest, specific and does not overpromise."],
+    ["Lowballer who demands a discount", "You ask for a discount on everything, mention a cheaper quote, ask if cash is cheaper, and threaten to go elsewhere. You never get a discount unless you are offered one by the rep; you book if the rep holds the price, shows value without caving, and asks for the deposit."],
+    ["Avoids commitment", "You say 'I'll think about it and call you back' as soon as price is mentioned. You only commit to a deposit if the rep offers a refundable deposit with a specific day and handles the hesitation calmly."],
+    ["Technical interrogator", "You ask many technical questions (legal limits, heat, signal, curing time, warranty details, what exactly it is, whether it prevents scratches). You test whether the rep knows the product. You book if the answers are clear and honest."]],
+};
+function makePersona(svc, level) {
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const [year, make, model] = pick(PR_CARS[svc]), [kind, how] = pick(PR_TYPES[level]);
+  return { svc, level, name: pick(PR_NAMES), year, make, model, kind, how, quote: svc === "tint" ? pick([225, 250, 275, 300, 325]) : pick([550, 650, 750, 850]),
+    speak: level === "tough" ? pick(["Short and a bit curt.", "Casual, drops filler words.", "Slightly impatient."]) : pick(["Casual and friendly.", "Polite and brief.", "Chatty."]), phone: "(305) 555-01" + String(10 + Math.floor(Math.random() * 89)) };
+}
+const callerSystem = p => `You are role-playing a customer on a phone call with a car detailing shop's salesperson, for sales training. Stay in character at all times.
+You are ${p.name}. You drive a ${p.year} ${p.make} ${p.model}. You filled out an online ad form about ${p.svc === "tint" ? "window tint" : "ceramic coating"}.
+Your situation and personality: ${p.how}
+How you speak: ${p.speak}
+If it comes up, another shop quoted you about $${p.quote}. Only mention it when it is relevant.
+Rules:
+- Speak like a real person on a phone: short (usually one or two sentences), natural, a little imperfect. Never say you are an AI and never mention training.
+- You know only what a normal customer knows. Do not volunteer information the rep has not asked about; answer what is asked.
+- Do not make it easy. Raise objections naturally, in your own words, one at a time. You may ask things the shop's script would not cover.
+- Decide realistically. If the rep handles you well (listens, answers honestly, builds value, deals with your objection without caving or lying, and asks for a deposit and a specific day), agree to book and pay the deposit. If the rep is pushy, vague, wrong or ignores you, stay resistant or end the call.
+- React to whatever price, deposit or details the rep states as a real customer would.
+- When the call has clearly ended (you booked and agreed to pay, you declined, or you hung up), set "end" to true and say a short goodbye.
+Reply with ONLY JSON: {"say": "...", "end": false}`;
+const SCORE_RULES = `You are a sales trainer scoring a PRACTICE phone call made by a beginner at a car detailing shop. The shop's SCRIPT, OFFER and SHOP FACTS are given below. Be honest and specific; a typical beginner call scores 2 or 3. Quote the rep's own words.
+Return ONLY JSON in this shape:
+{"outcome": "win|callback|lost", "deposit_asked": true, "date_set": false, "overall": 3, "scores": {"rapport": 3, "discovery": 3, "pitch": 3, "objections": 3, "close": 3, "control": 3}, "summary": "two sentences", "went_well": ["..."], "fix": [{"moment": "what the customer said", "you_said": "what the rep said", "better": "the exact line to say instead"}], "missed_steps": ["script steps not covered"], "next_practice": "the one thing to work on next"}
+Rules: a win is a deposit asked and accepted AND a specific day set; a callback or "I'll think about it" is not a win. "better" lines must use only facts from the SCRIPT, OFFER or SHOP FACTS. At most 4 items in fix and 4 in went_well. Scores are 1 to 5.`;
+
 export class CallRoom {
   constructor(state, env) {
     this.env = env; this.browsers = new Set(); this.turns = []; this.dg = {}; this.pending = { inbound: [], outbound: [] };
@@ -3594,14 +3683,18 @@ export class CallRoom {
     const path = new URL(request.url).pathname;
     const pair = new WebSocketPair(); const [client, server] = Object.values(pair);
     server.accept();
-    if (path.startsWith("/api/twilio/stream/")) { this.sid = path.split("/")[4] || ""; this.attachTwilio(server); } else this.attachBrowser(server);
+    if (path.startsWith("/api/twilio/stream/")) { this.sid = path.split("/")[4] || ""; this.attachTwilio(server); } else {
+      this.attachBrowser(server);
+      const q = new URL(request.url).searchParams;
+      if (q.get("practice") === "1" && !this.practice) this.startPractice({ svc: q.get("svc"), level: q.get("level") });
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
   broadcast(msg) { const t = JSON.stringify(msg); for (const b of this.browsers) { try { b.send(t); } catch (e) { this.browsers.delete(b); } } }
   attachBrowser(ws) {
     this.browsers.add(ws);
     try { ws.send(JSON.stringify({ type: "hello", turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
-    ws.addEventListener("message", ev => { try { const m = JSON.parse(ev.data); if (m && m.type === "pos") this.pos = { next: String(m.next || "").slice(0, 400), step: String(m.step || "").slice(0, 80) }; } catch (e) { /* ignore */ } });
+    ws.addEventListener("message", ev => { try { const m = JSON.parse(ev.data); if (m && m.type === "pos") this.pos = { next: String(m.next || "").slice(0, 400), step: String(m.step || "").slice(0, 80) }; else if (m && m.type === "practice_say") this.onPracticeSay(m.text); else if (m && m.type === "practice_end") this.scorePractice(m.covered); } catch (e) { /* ignore */ } });
     ws.addEventListener("close", () => this.browsers.delete(ws)); ws.addEventListener("error", () => this.browsers.delete(ws));
   }
   attachTwilio(ws) {
@@ -3644,6 +3737,61 @@ export class CallRoom {
       for (const f of this.pending[track].splice(0)) ws.send(f);
       slot.keep = setInterval(() => { try { if (slot.ready) ws.send(JSON.stringify({ type: "KeepAlive" })); } catch (e) { /* closed */ } }, 8000);
     } catch (e) { this.broadcast({ type: "error", message: "Could not reach the transcription service." }); }
+  }
+  async startPractice(q) {
+    const svc = q.svc === "coating" ? "coating" : "tint", level = ["easy", "typical", "tough"].includes(q.level) ? q.level : "typical";
+    const persona = makePersona(svc, level); this.practice = { svc, level, persona, done: false, scored: false }; this.t0 = Date.now();
+    const lead = { name: persona.name, service: svc === "tint" ? "Window Tint" : "Ceramic Coating", year: persona.year, make: persona.make, model: persona.model, value: 0, message: "" };
+    try { this.ctx = await coachContext(this.env, null, svc, lead); } catch (e) { this.broadcast({ type: "practice_error", message: "Could not load the script." }); return; }
+    this.broadcast({ type: "practice_ready", level, lead: { id: 0, practice: true, name: persona.name + " (practice)", phone: persona.phone, service: lead.service, year: persona.year, make: persona.make, model: persona.model, stage: "new", created_at: new Date().toISOString(), message: "Ad form: " + lead.service } });
+    setTimeout(() => this.practiceLead("Hello?"), 1500);
+  }
+  practiceLead(text) {
+    const at = Math.round((Date.now() - this.t0) / 1000);
+    this.turns.push({ who: "lead", text, at });
+    this.broadcast({ type: "transcript", who: "lead", text, final: true, end: true, at, speak: true });
+    if (coachAi(this.env)) { this.leadBuf.push(text); this.askCoach(); }
+  }
+  async onPracticeSay(text) {
+    const pr = this.practice; text = String(text || "").trim().slice(0, 600);
+    if (!pr || pr.done || !text) return;
+    const at = Math.round((Date.now() - this.t0) / 1000);
+    this.turns.push({ who: "rep", text, at });
+    this.broadcast({ type: "transcript", who: "rep", text: fixHeard(text), final: true, end: true, at });
+    if (!this.callerBusy) await this.callerReply();
+  }
+  async callerReply() {
+    const pr = this.practice; if (!pr || pr.done) return;
+    this.callerBusy = true;
+    try {
+      const convo = this.turns.slice(-24).map(t => `${t.who === "lead" ? "CUSTOMER" : "REP"}: ${t.text}`).join("\n");
+      const res = await coachStream(this.env, callerSystem(pr.persona), `Conversation so far:\n${convo}\n\nReply as the customer. JSON only.`, null, { max: 220, timeout: 12000 });
+      let o = null;
+      if (!res.error) { const a = (res.text || "").indexOf("{"), b = (res.text || "").lastIndexOf("}"); try { o = JSON.parse(res.text.slice(a, b + 1)); } catch (e) { /* retry below */ } }
+      if (!o || !o.say) { this.broadcast({ type: "practice_error", message: "The practice caller did not answer. Say that again." }); return; }
+      await new Promise(r => setTimeout(r, 500 + Math.random() * 700));
+      this.practiceLead(String(o.say).slice(0, 400));
+      if (o.end) { pr.done = true; setTimeout(() => this.scorePractice(this.lastCovered), 2500); }
+    } finally {
+      this.callerBusy = false;
+      const last = this.turns[this.turns.length - 1];
+      if (pr && !pr.done && last && last.who === "rep") this.callerReply();
+    }
+  }
+  async scorePractice(covered) {
+    const pr = this.practice; if (!pr || pr.scored) return;
+    if (Array.isArray(covered)) this.lastCovered = covered;
+    pr.scored = true; pr.done = true;
+    const p = pr.persona, convo = this.turns.map(t => `${t.who === "lead" ? "CUSTOMER" : "REP"}: ${t.text}`).join("\n");
+    const user = `The customer was a "${p.kind}" (${pr.level}). The brief the customer played: ${p.how}\nScript steps the rep covered on screen: ${(this.lastCovered || []).join(", ") || "unknown"}\n\nTranscript:\n${convo || "(the rep said nothing)"}\n\nReturn the JSON.`;
+    let score = null;
+    try {
+      const res = await coachStream(this.env, SCORE_RULES + (this.ctx ? this.ctx.body : ""), user, null, { max: 1800, effort: "medium", timeout: 40000 });
+      if (!res.error) { const a = (res.text || "").indexOf("{"), b = (res.text || "").lastIndexOf("}"); try { score = JSON.parse(res.text.slice(a, b + 1)); } catch (e) { /* none */ } }
+    } catch (e) { /* none */ }
+    if (!score) { this.broadcast({ type: "practice_score", score: null, persona: { kind: p.kind, how: p.how, level: pr.level } }); return; }
+    try { await this.env.DB.prepare("INSERT INTO practice_runs (svc, level, kind, overall, outcome, score) VALUES (?,?,?,?,?,?)").bind(pr.svc, pr.level, p.kind, Number(score.overall) || 0, String(score.outcome || ""), JSON.stringify(score).slice(0, 8000)).run(); } catch (e) { /* history is a nice-to-have */ }
+    this.broadcast({ type: "practice_score", score, persona: { kind: p.kind, how: p.how, level: pr.level } });
   }
   endOfSpeech(track) {
     const who = track === "outbound" ? "lead" : "rep";
@@ -3917,7 +4065,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -4580,11 +4728,12 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/calendar/urable" && request.method === "GET") return a === OWNER ? json({ success: true, ...(await urableCalendar(env)) }) : json({ success: false }, 403);
   if (p === "/admin/automation" && request.method === "POST") { if (a !== OWNER) return json({ success: false }, 403); return saveAutomation(env, await request.json().catch(() => ({}))); }
   if (p === "/admin/coach/aitest") return a === OWNER ? coachAiTest(env) : json({ success: false }, 403);
-  if (p === "/admin/coach/status") return a === OWNER ? json({ enabled: coachEnabled(env), ai: coachAi(env) }) : json({ success: false }, 403);
+  if (p === "/admin/coach/status") return a === OWNER ? json({ enabled: coachEnabled(env), ai: coachAi(env), practice: !!(env.COACH && coachAi(env)) }) : json({ success: false }, 403);
   if (p === "/admin/coach/ws") {
     const sid = new URL(request.url).searchParams.get("sid") || "";
     if (a !== OWNER) return new Response("Forbidden", { status: 403 });
-    if (!coachEnabled(env) || request.headers.get("upgrade") !== "websocket" || !/^CA[0-9a-f]{32}$/.test(sid)) return new Response("Not available", { status: 404 });
+    const practice = /^PR[0-9a-f]{24}$/.test(sid);
+    if (request.headers.get("upgrade") !== "websocket" || !env.COACH || (practice ? !coachAi(env) : (!coachEnabled(env) || !/^CA[0-9a-f]{32}$/.test(sid)))) return new Response("Not available", { status: 404 });
     return env.COACH.get(env.COACH.idFromName(sid)).fetch(request);
   }
   if (p === "/admin/dialer") return a === OWNER ? dialerPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
@@ -4600,6 +4749,7 @@ async function adminRoute(p, request, env) {
     if (p === "/admin/dialer/lead" && request.method === "GET") return dialerLead(env, Number(new URL(request.url).searchParams.get("id")));
     if (p === "/admin/dialer/script" && request.method === "GET") return dialerScriptGet(env, new URL(request.url).searchParams.get("svc") || "");
     if (p === "/admin/dialer/script" && request.method === "POST") return dialerScriptSave(env, await request.json().catch(() => ({})));
+    if (p === "/admin/dialer/practice" && request.method === "GET") { await ensureTable(env.DB); const r = await env.DB.prepare("SELECT id, at, svc, level, kind, overall, outcome FROM practice_runs ORDER BY id DESC LIMIT 12").all().then(x => x.results || []).catch(() => []); return json({ success: true, runs: r.map(x => ({ ...x, at: isoUtc(x.at) })) }); }
     if (p === "/admin/dialer/library" && request.method === "GET") return dialerLibrary(env, null);
     if (p === "/admin/dialer/library" && request.method === "POST") return dialerLibrary(env, await request.json().catch(() => ({})));
     if (p === "/admin/dialer/offer" && request.method === "GET") return dialerOfferGet(env);
