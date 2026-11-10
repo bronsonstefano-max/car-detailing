@@ -2577,7 +2577,23 @@ async function twilioNumberCheck(env) {
       const j = await r.json().catch(() => ({})), sid = j.incoming_phone_numbers && j.incoming_phone_numbers[0] && j.incoming_phone_numbers[0].sid;
       if (!sid) { out.push({ num, ok: false, message: "Twilio does not list this number on the account." }); continue; }
       const v = await fetch(`${env.TWILIO_VOICE_INTEGRITY_BASE || "https://voiceintegrity.twilio.com"}/v1/PhoneNumbers/${sid}`, { headers: auth, signal: AbortSignal.timeout(8000) });
-      if (!v.ok) { out.push({ num, ok: false, message: v.status === 404 ? "No Voice Integrity registration for this number yet. Turn it on in Twilio (Trust Hub > Voice Integrity)." : "Twilio answered " + v.status + "." }); continue; }
+      if (!v.ok) {
+        if (v.status !== 404) { out.push({ num, ok: false, message: "Twilio answered " + v.status + "." }); continue; }
+        // a registration can be approved without this number being added to it: look through the Trust Hub registrations to say which
+        const th = env.TWILIO_TRUSTHUB_BASE || "https://trusthub.twilio.com";
+        const tp = await fetch(`${th}/v1/TrustProducts?PageSize=50`, { headers: auth, signal: AbortSignal.timeout(8000) }).then(r => r.json()).catch(() => ({}));
+        let found = null, approved = "";
+        for (const t of tp.results || tp.trust_products || []) {
+          const ea = await fetch(`${th}/v1/TrustProducts/${t.sid}/EntityAssignments?PageSize=100`, { headers: auth, signal: AbortSignal.timeout(8000) }).then(r => r.json()).catch(() => ({}));
+          if ((ea.results || ea.entity_assignments || []).some(e => e.object_sid === sid)) { found = t; break; }
+          if (/approved/i.test(t.status || "") && !approved) approved = t.friendly_name || t.sid;
+        }
+        if (found && /approved/i.test(found.status || "")) out.push({ num, ok: true, data: `Registered with "${found.friendly_name || found.sid}" (approved). Twilio does not report a spam label for it.` });
+        else if (found) out.push({ num, ok: false, message: `Added to "${found.friendly_name || found.sid}", but that registration is ${found.status || "not approved yet"}.` });
+        else if (approved) out.push({ num, ok: false, message: `The registration "${approved}" is approved, but this number is not added to it yet. In Twilio open Voice Trust > Voice Integrity and add this number to the registration.` });
+        else out.push({ num, ok: false, message: "No approved Voice Integrity registration found. Create one in Twilio (Voice Trust > Voice Integrity)." });
+        continue;
+      }
       const d = await v.json().catch(() => ({})); out.push({ num, ok: true, data: JSON.stringify(d).slice(0, 600) });
     } catch (e) { out.push({ num, ok: false, message: "Could not reach Twilio." }); }
   }
