@@ -3047,12 +3047,12 @@ function vv(name,l,svc){
   switch(name){
     case 'rep':return ofv('rep')||'';case 'shop':return ofv('shop')||'';case 'address':return ofv('address')||'';case 'area':return ofv('area')||'';
     case 'special':return OF.special||'';
-    case 'price':{const v=l&&l.value>0?l.value:numOf(svc==='coating'?OF.coatPrice:OF.tintPrice);return v>0?mny(Math.round(v)):''}
+    case 'price':{const v=l&&l.value>0?l.value:numOf(svc==='coating'?OF.coatPrice:(OF.tintPrice||299));return v>0?mny(Math.round(v)):''}
     case 'reg':return numOf(OF.coatReg)>0?mny(numOf(OF.coatReg)):'';
     case 'dep':{const d=numOf(svc==='coating'?OF.coatDeposit:OF.tintDeposit)||50;return d>0?mny(d):''}
     case 'otd':{const p=vv('price',l,svc),d=vv('dep',l,svc);return p&&d?mny(Math.max(0,numOf(p)-numOf(d))):''}
-    case 'yrs':return numOf(OF.coatYears)>0?String(numOf(OF.coatYears)):'';
-    case 'floor':return numOf(OF.tintFloor)>0?mny(numOf(OF.tintFloor)):'';
+    case 'yrs':return String(numOf(OF.coatYears)||5);
+    case 'floor':return mny(numOf(OF.tintFloor)||274);
     case 'days':{if(!OF.specialEnd)return '';const e=new Date(OF.specialEnd+'T00:00:00'),t=new Date();t.setHours(0,0,0,0);const d=Math.round((e-t)/864e5);return d>=0?String(d):''}
   }return ''}
 // what the coach has picked up from the conversation, in the rep's own words from the script examples
@@ -3446,7 +3446,7 @@ function coachVar(name, o, lead, svc) {
   const dflt = { shop: "Divine Detailers", address: "5181 NW 74th Ave, Miami, FL 33166", area: "Miami", rep: "Bronson" };
   const g = k => (o[k] !== undefined && o[k] !== "" ? o[k] : dflt[k]);
   const n = x => Number(String(x || "").replace(/[^0-9.]/g, "")) || 0, m = x => "$" + Number(x).toLocaleString("en-US");
-  const price = () => { const v = lead && lead.value > 0 ? lead.value : n(svc === "coating" ? o.coatPrice : o.tintPrice); return v > 0 ? Math.round(v) : 0; };
+  const price = () => { const v = lead && lead.value > 0 ? lead.value : n(svc === "coating" ? o.coatPrice : (o.tintPrice || 299)); return v > 0 ? Math.round(v) : 0; };
   const dep = () => n(svc === "coating" ? o.coatDeposit : o.tintDeposit) || 50;
   switch (name) {
     case "rep": case "shop": case "address": case "area": return g(name) || "";
@@ -3455,8 +3455,8 @@ function coachVar(name, o, lead, svc) {
     case "reg": return n(o.coatReg) ? m(n(o.coatReg)) : "";
     case "dep": return dep() ? m(dep()) : "";
     case "otd": return price() && dep() ? m(Math.max(0, price() - dep())) : "";
-    case "yrs": return n(o.coatYears) ? String(n(o.coatYears)) : "";
-    case "floor": return n(o.tintFloor) ? m(n(o.tintFloor)) : "";
+    case "yrs": return String(n(o.coatYears) || 5);
+    case "floor": return m(n(o.tintFloor) || 274);
     case "days": { if (!o.specialEnd) return ""; const d = Math.round((Date.parse(o.specialEnd + "T00:00:00Z") - Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z")) / 864e5); return d >= 0 ? String(d) : ""; }
   }
   return "";
@@ -3489,6 +3489,9 @@ const KNOWLEDGE_DEFAULT = `BUSINESS
 - Divine Detailers, 5181 NW 74th Ave, Miami, FL 33166. Open Monday to Saturday, 9:00 AM to 6:00 PM. Closed Sunday. Phone (786) 757-2826. Email info@divinedetailers.com.
 - Services: window tint, ceramic coating, paint correction, paint protection film (PPF) and vinyl wraps. Tint and ceramic coating are marketed separately, so a caller is about one or the other.
 
+PRICES (typical, from recent calls; the lead's own quote and the OFFER override these, and the special changes often)
+- Sides and rear on a sedan: $299 special. SUV: about $349 to $399. Minivan or truck: about $499. Windshield add-on: $179. Visor strip: $99. Old tint removal is quoted by vehicle: say the installer will confirm the exact removal cost.
+
 BOOKING AND MONEY
 - The deposit is $50 for both tint and ceramic coating, and it is refundable.
 - There are no free add-ons with any service. Never offer free extras.
@@ -3497,15 +3500,18 @@ WINDOW TINT
 - Film: XPEL PRIME XR PLUS, a nano-ceramic window film. It is non-metallic.
 - Time: about 2.5 hours for a tint job, about 4 hours when old tint has to be removed first.
 - Published XPEL figures (the owner has not confirmed exact numbers, so say "up to" and do not quote a specific total-heat number): blocks over 99% of UV; very high infrared (heat) rejection, published as up to roughly 96 to 98 percent depending on the shade.
-- Warranty: backed by XPEL's film warranty (published as a lifetime warranty against bubbling, peeling, fading, cracking and discoloration when installed by an authorized dealer). The owner must confirm the exact terms before the rep promises more than "it is backed by the XPEL warranty and I will go over the details".
+- Warranty: the tint comes with a lifetime warranty. It covers film defects such as bubbling, peeling and fading. For any other warranty detail, say the installer will go over it.
+- Quality check: every window is checked under a very bright light before the car goes back to the customer.
 - Benefits of ceramic tint: keeps the car noticeably cooler and the AC works less; blocks over 99% of UV, which protects skin and stops the interior fading and cracking; cuts glare; adds privacy; very clear; does not fade or turn purple the way cheap dyed film can.
 - Signal: ceramic tint is non-metallic, so it does not interfere with cell phone, GPS, radio or Bluetooth signals. Cheap metalized film can, which is not what we install.
-- Windshield: we can tint the windshield. In Florida only a non-reflective strip above the AS-1 line (the small marking near the top of the windshield) is allowed without a medical exemption. The installer will go over the options for the customer's car.
+- Windshield: we do tint the windshield. In Florida only a non-reflective strip above the AS-1 line (the small marking near the top of the windshield) is allowed without a medical exemption.
+- Shade: the customer chooses the shade, including darker film. Always tell them the Florida limits briefly so a ticket never surprises them, and never say a shade is legal when it is not. If they are unsure, we show the shade card at drop-off.
 - Florida limits, general information (the installer confirms the exact vehicle; VLT is how much light gets through, so a higher number is lighter): front side windows at least 28%; rear side windows and rear window on a sedan at least 15%; rear side windows and rear window on an SUV or van as dark as 6%; reflective or mirror-like films have limits too. Medical exemptions exist. If the caller is not sure what shade to pick, we show the shade card at drop-off.
 - After install (general guidance): a little haze or tiny water spots for a few days to a couple of weeks is normal while the film cures. Do not roll the windows down for a few days.
 
 CERAMIC COATING
-- Our ceramic coating comes from Ceramic Coating Inc. Do not quote warranty years unless the OFFER gives them.
+- Our ceramic coating comes from Ceramic Coating Inc. Right now we offer the 5-year coating warranty only. Do not mention any other length.
+- Paint correction is included with the ceramic coating.
 - Time: 24 hours. The car stays with us for a day.
 - What it is: a liquid layer that bonds to the paint's clear coat. Water beads and rolls off, the car washes easier, and the paint looks glossier and deeper. It helps protect against UV, bird droppings, bug acids, tree sap and water spots.
 - What it is not: not scratch-proof. It does not stop rock chips, dings or deep scratches (paint protection film does that). The car still needs washing.
