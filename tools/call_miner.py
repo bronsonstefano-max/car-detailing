@@ -164,12 +164,25 @@ def sh(args, stdin=None):
     return p.returncode, p.stdout, p.stderr
 
 
+class Fatal(Exception):
+    """Out of credit, bad key, or no permission: retrying cannot help, so the whole run stops."""
+
+
+STOP = threading.Event()
+FATAL_RX = re.compile(r"credit balance|billing|invalid x-api-key|authentication|permission|insufficient|unauthorized|quota|payment|invalid api key|invalid credentials|not enough credits|forbidden", re.I)
+
+
 def retry(fn, tries=6):
     last = None
     for i in range(tries):
+        if STOP.is_set():
+            raise Fatal("stopped")
         try:
             return fn()
         except Exception as e:  # noqa
+            if FATAL_RX.search(str(e)):
+                STOP.set()
+                raise Fatal(str(e))
             last = e
             time.sleep(3 * (2 ** i))   # waits 3, 6, 12, 24, 48 seconds: enough for a rate limit to clear
     raise last
@@ -284,12 +297,16 @@ def cmd_transcribe(a):
                 counts["done"] += 1
             say("[%d/%d] transcribed %s (%d lines)" % (n, len(todo), os.path.basename(f), text.count("\n") + 1))
         except Exception as e:
+            if isinstance(e, Fatal) and str(e) == "stopped":
+                return
             with LOCK:
                 counts["fail"] += 1
             say("[%d/%d] FAILED %s: %s" % (n, len(todo), os.path.basename(f), e))
             log_err(a.out, f, e)
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
         list(ex.map(lambda t: work(t[0], t[1]), list(enumerate(todo, 1))))
+    if STOP.is_set():
+        sys.exit("\nSTOPPED: Deepgram refused the request (out of credit, bad key or no permission). Add credit or fix the key, then run the same command again; finished calls are kept and skipped.")
     print("Transcription: %d new, %d already done, %d duplicate recordings skipped, %d failed" % (counts["done"], skipped, dups, counts["fail"]))
 
 
@@ -486,12 +503,16 @@ def cmd_mine(a):
                 n, len(todo), base[:24], canon_agent(m.get("agent_name")), m.get("client_name"), m.get("service"), (data.get("outcome") or {}).get("result"),
                 (data.get("scores") or {}).get("overall"), len(data.get("moments") or []), len((data.get("script") or {}).get("deviations") or [])))
         except Exception as e:
+            if isinstance(e, Fatal) and str(e) == "stopped":
+                return
             with LOCK:
                 counts["fail"] += 1
             say("[%d/%d] FAILED %s: %s" % (n, len(todo), base[:30], e))
             log_err(a.out, f, e)
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
         list(ex.map(lambda t: work(t[0], t[1]), list(enumerate(todo, 1))))
+    if STOP.is_set():
+        sys.exit("\nSTOPPED: Anthropic refused the request (out of credit, bad key or no permission). Add credit in console.anthropic.com > Billing, then run the same command again; finished calls are kept and skipped. %d calls were done." % counts["done"])
     print("Analysis: %d new, %d already done, %d failed" % (counts["done"], skipped, counts["fail"]))
 
 
