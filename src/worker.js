@@ -3754,7 +3754,8 @@ export class CallRoom {
       if (!ws) { this.broadcast({ type: "error", message: "The transcription service refused the connection." }); return; }
       ws.accept(); slot.ws = ws; slot.ready = true;
       ws.addEventListener("message", ev => { try { this.onDg(track, JSON.parse(typeof ev.data === "string" ? ev.data : "")); } catch (e) { /* not json */ } });
-      ws.addEventListener("close", () => { slot.ready = false; });
+      // if Deepgram drops the connection mid-call, forget it so the next audio frame opens a fresh one (the audio in between is buffered)
+      ws.addEventListener("close", () => { slot.ready = false; clearInterval(slot.keep); if (this.dg[track] === slot && !this.ended) this.dg[track] = null; });
       for (const f of this.pending[track].splice(0)) ws.send(f);
       slot.keep = setInterval(() => { try { if (slot.ready) ws.send(JSON.stringify({ type: "KeepAlive" })); } catch (e) { /* closed */ } }, 8000);
     } catch (e) { this.broadcast({ type: "error", message: "Could not reach the transcription service." }); }
