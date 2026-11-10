@@ -140,6 +140,8 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS dial_calls_lead ON dial_calls (lead_id, started_at)"),
     db.prepare("CREATE TABLE IF NOT EXISTS dial_audio (kind TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL, token TEXT NOT NULL, updated_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS dial_settings (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')"),
+    db.prepare("CREATE TABLE IF NOT EXISTS call_library (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT, svc TEXT, topic TEXT, objection TEXT, kind TEXT, stage TEXT, lead_said TEXT NOT NULL, rep_response TEXT NOT NULL, better TEXT, quality REAL, priority REAL, won INTEGER, reaction TEXT)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS call_library_svc ON call_library (svc, priority)"),
     db.prepare("CREATE TABLE IF NOT EXISTS call_transcripts (call_sid TEXT PRIMARY KEY, lead_id INTEGER, turns TEXT, signals TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), ended_at TEXT)"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
@@ -2623,6 +2625,31 @@ async function dialerScriptSave(env, b) {
   await env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind("script_" + b.svc, txt).run();
   return json({ success: true });
 }
+// ---- Call library: the best real answers from analyzed past calls. The AI coach looks up the closest ones for what the lead just said. Owner only.
+const libMask = t => String(t || "").replace(/jack.?s auto customs|jax auto customs/gi, "{shop}").replace(/\$\s?\d[\d,.]*/g, "{amount}").replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "{email}").replace(/(?<!\w)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)/g, "{phone}").slice(0, 600);
+const libSvc = x => { const v = String(x || ""); return /tint/i.test(v) ? "tint" : /coat|ceramic|correct|polish|detail/i.test(v) ? "coating" : "other"; };
+async function dialerLibrary(env, b) {
+  await ensureTable(env.DB);
+  if (b && b.clear) { await env.DB.prepare("DELETE FROM call_library").run(); return json({ success: true, count: 0 }); }
+  if (b && Array.isArray(b.rows)) {
+    if (b.replace) await env.DB.prepare("DELETE FROM call_library").run();
+    const rows = b.rows.slice(0, 300).map(r => ({ src: String(r.id || "").slice(0, 40), svc: libSvc(r.service), topic: String(r.topic || "").slice(0, 40), objection: String(r.objection || "").slice(0, 40), kind: String(r.customer_type || r.kind || "").slice(0, 20),
+      stage: String(r.stage || r.phase || "").slice(0, 20), lead: libMask(r.lead_said_masked || r.lead_said), rep: libMask(r.rep_response_masked || r.rep_response), better: libMask(r.better_answer), quality: Number(r.quality) || 0, priority: Number(r.priority) || 0, won: r.won ? 1 : 0, reaction: String(r.reaction || "").slice(0, 10) }))
+      .filter(r => r.lead.split(/\s+/).length >= 3 && r.rep.split(/\s+/).length >= 6);
+    for (let i = 0; i < rows.length; i += 40) await env.DB.batch(rows.slice(i, i + 40).map(r => env.DB.prepare("INSERT INTO call_library (src, svc, topic, objection, kind, stage, lead_said, rep_response, better, quality, priority, won, reaction) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(r.src, r.svc, r.topic, r.objection, r.kind, r.stage, r.lead, r.rep, r.better, r.quality, r.priority, r.won, r.reaction)));
+    return json({ success: true, added: rows.length, skipped: b.rows.length - rows.length });
+  }
+  const t = await env.DB.prepare("SELECT svc, COUNT(*) n, SUM(won) w FROM call_library GROUP BY svc").all().then(r => r.results || []).catch(() => []);
+  return json({ success: true, count: t.reduce((a, x) => a + x.n, 0), byService: t });
+}
+const libTok = s => [...new Set(String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 3 && !["that", "this", "with", "have", "what", "your", "about", "just", "they", "them", "there", "would", "could", "from", "like", "know", "were", "been", "then", "yeah"].includes(w)))];
+function libPick(lib, said, k = 3) {
+  const a = libTok(said); if (!a.length || !lib || !lib.length) return [];
+  const sa = new Set(a), seen = new Set(), out = [];
+  const scored = lib.map(r => { const b = r.tok || (r.tok = libTok(r.lead_said)); if (!b.length) return null; const hit = b.filter(w => sa.has(w)).length, ov = hit / Math.sqrt(a.length * b.length); return ov >= 0.25 ? { r, s: ov * (0.6 + 0.08 * (r.priority || 0)) } : null; }).filter(Boolean).sort((x, y) => y.s - x.s);
+  for (const { r } of scored) { const key = r.rep_response.slice(0, 50); if (seen.has(key)) continue; seen.add(key); out.push(r); if (out.length >= k) break; }
+  return out;
+}
 const OFFER_KEYS = ["rep", "shop", "address", "area", "special", "specialEnd", "tintPrice", "tintDeposit", "tintFloor", "coatPrice", "coatReg", "coatDeposit", "coatYears"];
 async function dialerOfferGet(env) {
   await ensureTable(env.DB);
@@ -2746,8 +2773,8 @@ dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{ma
 #cards{display:flex;flex-direction:column;gap:10px;min-width:0}.cw{display:flex;flex-direction:column;gap:10px}
 main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex-direction:column;gap:14px;min-width:0}.callrow,.callbar,.cctl{display:flex;flex-direction:column;gap:10px;min-width:0}
 .cwho,.rail .rs,.q .it .av,.q .it .bd,.q .it.done,.shb,.shl{display:none}.q .it .tx{display:block}
-.qf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.qf button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}.qf button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
-#cards:empty::before{content:"Objection help shows up here the moment the lead pushes back.";color:#6d747e;font-size:14px;border:1px dashed #2a313a;border-radius:12px;padding:18px;text-align:center}
+.gnx{flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px;border-left:4px solid #32cd32}.gnx .gq.big{flex:none;font-size:21px;font-weight:700;color:#fff;line-height:1.35}.gnx.det{background:#0e1318;border-color:#2a313a;border-left-color:#2a313a}.gnx.det .gq.big{font-size:16px;font-weight:600;color:#cfd3d9}.gnx.det .gl{color:#8b929c}.gtip{font-size:13.5px;color:#aeb4bd}.gtip b{color:#32cd32;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin-right:6px}.gb{display:flex;gap:8px;flex-wrap:wrap}.qf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.qf button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}.qf button.on{background:#32cd32;border-color:#32cd32;color:#04130a}.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
+.cl{display:flex;flex-direction:column;gap:10px;min-width:0}.gnx,.gnx>*{text-align:left}
 #trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
 .ic{display:inline-block;width:18px;height:18px;vertical-align:-4px;margin-right:6px}.ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -2838,7 +2865,7 @@ ${bnav("dialer", tc, true)}
 <section id="brief" class="brief"></section>
 <div class="callrow" id="callrow"><div id="lead" class="lead"></div>
 <div class="callbar" id="callbar"><div class="cwho" id="cwho"></div><div class="cctl"><div id="ctl" class="ctl"></div><div id="kp" class="kp" hidden></div></div></div></div>
-<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span id="aip" class="pill ok" hidden>AI on</span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div id="gnx" class="gnx" hidden></div><div class="cw"><div id="cards"></div><div id="trn" class="tr"></div></div></div>
+<div id="coach" class="panel" hidden><div class="bar"><h3 style="margin:0">Live coach</h3><span id="cst" class="note"></span><span id="aip" class="pill ok" hidden>AI on</span><span style="flex:1"></span><span class="shl" id="shl"></span></div><div class="shb" id="shb" hidden><i id="shi"></i></div><div class="cw"><div class="cl"><div id="cards"></div><div id="gnx" class="gnx" hidden></div><div id="hist" class="hist"></div></div><div id="trn" class="tr"></div></div></div>
 <div id="after" class="panel" hidden>
 <h3>How did it go?</h3>
 <div class="outs" id="outs"></div>
@@ -2935,7 +2962,7 @@ function drawLead(){const l=Q[ix];const box=el('lead');
    +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
    +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
    +'<div class="bar"><a class="btn sm" href="/admin/pipeline#id='+l.id+'" style="text-decoration:none;display:inline-flex;align-items:center">Open lead / book</a></div>';
-  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};gOpenPh=''}
+  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};gOpenPh=''}
   sk=svcOf(l);{const sv=gsvc(l);if(sv&&GS[sv]===undefined)gLoad(sv).then(()=>{if(Q[ix]===l){drawScript();drawBrief(l)}})}
   drawScript();drawBrief(l);drawCtl()}
 function drawCtl(){setMode();drawQ();syncCb();const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
@@ -2963,7 +2990,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
@@ -3056,7 +3083,7 @@ function gFull(){const r=el('rcol'),top=r?r.scrollTop:0,wy=window.scrollY;drawSc
 function gScrollTo(e){if(!e)return;const r=el('rcol'),bar=document.querySelector('#script .gbar'),bh=(bar?bar.offsetHeight:0)+6,t=e.getBoundingClientRect();
   if(r&&getComputedStyle(r).overflowY==='auto'&&r.scrollHeight>r.clientHeight+2)r.scrollTo({top:r.scrollTop+t.top-r.getBoundingClientRect().top-bh,behavior:'smooth'});
   else window.scrollTo({top:window.scrollY+t.top-bh,behavior:'smooth'})}
-function gMark(scroll){gNext();const sc=gScript();if(!sc||el('script').hidden)return;gCov();
+function gMark(scroll){if(gScript()&&Q[ix])gCov();gNext();const sc=gScript();if(!sc||el('script').hidden)return;
   sc.steps.forEach((s,i)=>{const e=document.getElementById('gs-'+s.id);if(!e)return;e.classList.toggle('cur',i===gi);e.classList.toggle('done',!!COV[s.id])});
   document.querySelectorAll('#script .gobjs button').forEach(b=>b.classList.toggle('hot',b.dataset.p===gHot&&Date.now()-gHotAt<45000));
   const ph=sc.steps[gi]&&sc.steps[gi].phase;document.querySelectorAll('#script .gline [data-a]').forEach(b=>b.classList.toggle('here',b.dataset.a==='gp-'+ph));
@@ -3066,12 +3093,16 @@ const OBJRX=[['p-expensive',/(too (much|expensive)|expensive|that.?s a lot|can.?
 function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||'').toLowerCase();for(const [id,rx] of OBJRX){if(rx.test(t)&&sc.plays.some(p=>p.id===id||(id==='p-expensive'&&p.id==='p-shop'))){gHot=sc.plays.some(p=>p.id===id)?id:'p-shop';gHotAt=Date.now();gMark(false);return}}}
 // follow the rep: when what they just said matches the next step, move to it
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
-function gFollow(text){const sc=gScript();if(!sc)return;const w=words(text);if(w.length<4)return;let best=-1,bs=0;
-  sc.steps.forEach((s,i)=>{const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps[0]&&s.main[0].ps[0].t;if(!p||!s.n)return;const set=new Set(words(p)),hit=w.filter(x=>set.has(x)).length,r=hit/Math.min(w.length,14);if(hit>=4&&r>=0.5&&r>bs){bs=r;best=i}});
-  if(best>=0){COV[sc.steps[best].id]=1;const mv=best!==gi;if(mv)gi=best;gMark(mv)}}
+function gLines(sc,l,svc){const out=[];sc.steps.forEach((s,si)=>{if(!s.n)return;(s.main||[]).forEach(n=>{if(n.k!=='say')return;(n.ps||[]).forEach((p,pi)=>{if(p.t&&!p.note)out.push({si:si,sid:s.id,k:s.id+'.'+out.length,t:gplain(p.t,l,svc)})})})});return out}
+function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<3)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
+  L.forEach((x,j)=>{const set=new Set(words(x.t));if(set.size<3)return;const hit=w.filter(y=>set.has(y)).length,r=hit/Math.min(set.size,Math.max(w.length,3));if(hit>=3&&r>=0.5&&r>bs){bs=r;best=j}});
+  if(best>=0){const m=L[best];L.forEach((x,j)=>{if(x.si===m.si&&j<=best)SAID[x.k]=1});if(L.filter(x=>x.si===m.si).every(x=>SAID[x.k]))COV[m.sid]=1;const mv=m.si!==gi;if(mv)gi=m.si;gMark(mv)}}
+// the line the rep should say next: the first line, at or after the current step, that has not been said or already covered by what the lead told us
+function gNextLine(){const sc=gScript(),l=Q[ix];if(!sc||!l)return null;const svc=gsvc(l),L=gLines(sc,l,svc),open=L.filter(x=>!SAID[x.k]&&!COV[x.sid]);if(!open.length)return{done:true};return open.find(x=>x.si>=gi)||open[0]}
+function sendPos(nl){const t=nl&&nl.t?nl.t:'';if(t===lastPos||!cws||cws.readyState!==1)return;lastPos=t;try{const sc=gScript(),s=nl&&sc?sc.steps[nl.si]:null;cws.send(JSON.stringify({type:'pos',next:t,step:s?s.n+' '+topicOf(gsvc(Q[ix]),s):''}))}catch(_){}}
 const TOPIC={tint:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle',s07:'Windows',s08:'Current tint',s09:'Main goal',s10:'Darkness',s11:'Other shops',s12:'Recap',s13:'Process',s14:'Questions',s15:'Why us',s16:'Questions',s17:'Timing',s18:'Price',s19:'Book the day',s20:'Contact info',s21:'Deposit',s22:'Referral',s23:'Wrap up'},
  coating:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle & color',s07:'Paint condition',s08:'What they know',s09:'Storage & washing',s10:'How long keeping',s11:'Past coatings',s12:'Recap',s13:'The prep',s14:'Questions',s15:'The coating',s16:'Questions',s17:'Free add ons',s18:'Timing',s19:'Price',s20:'Book the day',s21:'Contact info',s22:'Deposit',s23:'Wrap up'}};
-let COV={},gOpenPh='';
+let COV={},gOpenPh='',SAID={},lastPos='';
 const topicOf=(svc,s)=>(TOPIC[svc]&&TOPIC[svc][s.id])||s.tag||s.id;
 function gCov(){const l=Q[ix],svc=gsvc(l),F=FACTS,m=COV;if(!svc)return;if(vehOf(l))m.s06=1;
   if(svc==='tint'){if(F.windows)m.s07=1;if(F.goals.length)m.s09=1;if(F.shade)m.s10=1;if(F.time)m.s17=1}
@@ -3145,11 +3176,18 @@ async function gSetup(){await loadOffer();const d=el('gdlg'),o=OF,st=k=>GS[k]?'I
    +fld('o-cp','Coating special price',o.coatPrice,'number')+fld('o-cr','Coating normal price',o.coatReg,'number')+fld('o-cd','Coating deposit',o.coatDeposit,'number')+fld('o-cy','Coating warranty (years)',o.coatYears,'number')+'</div></details>'
    +'<details class="gdet"><summary>Word swaps (optional)</summary><div><label>Word swaps (one per line: find => replace). Use this to change brand names, warranty wording or anything else in the script.</label><textarea id="o-sw" rows="5" placeholder="old word => new word">'+$((o.swaps||[]).map(p=>p.f+' => '+p.t).join('\\n'))+'</textarea></div></details>'
    +'<div class="vm"><b>AI coach</b><span class="note" id="ai-st">Checks that the Anthropic key you added in Cloudflare works.</span><div class="bar"><button class="btn sm" id="ai-t" type="button">Test AI coach</button></div></div>'
+   +'<div class="vm"><b>Call library</b><span class="note" id="lib-st">Checking...</span><span class="note">Load response_library.jsonl from your analyzed calls. The AI coach then looks up how your best closers handled the same moment.</span><input type="file" accept=".jsonl,.json,.txt" id="lib-f" class="note"><div class="bar"><button class="btn sm" id="lib-c" type="button">Clear library</button></div></div>'
    +'<div class="err" id="ge"></div><div class="bar" style="justify-content:flex-end"><button class="btn" id="gx" type="button">Close</button><button class="btn g" id="gs" type="button">Save</button></div></div>';
   d.showModal();el('gx').onclick=()=>d.close();
   d.querySelectorAll('[data-imp]').forEach(inp=>inp.onchange=async()=>{const f=inp.files&&inp.files[0];if(!f)return;let j;try{j=JSON.parse(await f.text())}catch(_){el('ge').textContent='That file is not valid JSON.';return}
     const r=await fetch('/admin/dialer/script',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({svc:inp.dataset.imp,script:j})});const jj=await r.json().catch(()=>({}));
     if(!jj.success){el('ge').textContent=jj.message||'Could not import.';return}GS[inp.dataset.imp]=j;el('gst-'+inp.dataset.imp).textContent=st(inp.dataset.imp);el('ge').textContent='';gi=0;drawScript();drawBrief(Q[ix])});
+  const libSt=async()=>{try{const j=await (await fetch('/admin/dialer/library')).json();el('lib-st').textContent=j.count?j.count+' answers loaded ('+(j.byService||[]).map(x=>x.svc+' '+x.n).join(', ')+')':'Nothing loaded yet'}catch(_){el('lib-st').textContent='Could not check'}};libSt();
+  el('lib-c').onclick=async()=>{await fetch('/admin/dialer/library',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({clear:true})});libSt()};
+  el('lib-f').onchange=async()=>{const f=el('lib-f').files&&el('lib-f').files[0];if(!f)return;const st=el('lib-st');let rows=[];const t=await f.text();
+    try{rows=t.trim()[0]==='['?JSON.parse(t):t.split(/\\r?\\n/).filter(x=>x.trim()).map(x=>JSON.parse(x))}catch(_){st.textContent='That file is not a response library (expected one JSON per line).';return}
+    let add=0,skip=0;for(let i=0;i<rows.length;i+=150){st.textContent='Loading '+Math.min(i+150,rows.length)+' of '+rows.length+'...';let j={};try{j=await (await fetch('/admin/dialer/library',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({rows:rows.slice(i,i+150),replace:i===0})})).json()}catch(_){}if(!j.success){st.textContent='Upload stopped. Try again.';return}add+=j.added||0;skip+=j.skipped||0}
+    st.textContent='Loaded '+add+' answers'+(skip?' ('+skip+' too short, skipped)':'');libSt()};
   el('ai-t').onclick=async()=>{const st=el('ai-st');st.textContent='Testing...';let j={};try{j=await (await fetch('/admin/coach/aitest')).json()}catch(_){}
     st.textContent=j.ok?'Working. '+(j.model||'')+' answered.':(j.message||'No answer from the server.')+(j.status?' (status '+j.status+')':'')};
   el('g-pb').onclick=async()=>{let j;try{j=JSON.parse(el('g-paste').value)}catch(_){el('g-pm').textContent='That does not look like the copied scripts. Copy them again and paste all of it.';return}
@@ -3209,9 +3247,9 @@ let cws=null,coachOn=false,lastCard={},wR=0,wL=0;
 function cs(t){const e=el('cst');e.textContent=t;e.className='note'+(t==='Listening'?' on':'')}
 function share(){const n=wR+wL;if(n<12){el('shb').hidden=true;el('shl').textContent='';return}const r=Math.round(wR*100/n);el('shb').hidden=false;el('shi').style.width=r+'%';const l=el('shl');l.textContent='You '+r+'% \u00b7 Lead '+(100-r)+'%'+(r>60?' \u2014 let them talk':'');l.className='shl'+(r>60?' hi':'')}
 async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled;coachAiOn=!!j.ai}catch(_){}}
-function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';curAns=null;ansHist=[];pend=null;leadBuf='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
+function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';curAns=null;ansHist=[];pend=null;leadBuf='';lastPos='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
   try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){cs('Transcript unavailable');return}
-  cws.onopen=()=>{cs('Listening');el('aip').hidden=!coachAiOn;el('aip').textContent='AI on';gNext()};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
+  cws.onopen=()=>{lastPos='';cs('Listening');el('aip').hidden=!coachAiOn;el('aip').textContent='AI on';gNext()};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
   cws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}coachMsg(m)}}
 function coachStop(){if(cws){try{cws.close()}catch(_){}cws=null}}
 // ---- answers: what the lead asked, answered from your script (instant) and by the AI coach (a moment later) ----
@@ -3243,11 +3281,11 @@ function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc
     const lines=sayOf(sc,{plays:[pid]},l,svc);if(!lines.length)continue;showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,2).map(x=>({t:x.t})),anchor:'gx-'+pid});return true}}
   for(const it of INTENTS){if(!it.rx.test(t))continue;const spec=it[svc];if(!spec||!fresh(it.id))continue;const lines=sayOf(sc,spec,l,svc);if(!lines.length)continue;
     const na=nextAsk(sc,l,svc),anc=(spec.plays&&spec.plays[0])?'gx-'+spec.plays[0]:'gs-'+spec.steps[0];
-    showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,4),ask:na?na.t:'',anchor:anc});return true}
+    showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,4),ask:'',anchor:anc});return true}
   return true}
 function anchorId(a){a=String(a||'');if(!a)return '';if(/^(gs|gx)-/.test(a))return a;const sc=gScript();if(sc&&sc.plays.some(p=>p.id===a))return 'gx-'+a;return 'gs-'+a}
 // One answer at a time: it stays put while the rep reads it, and the AI version is folded into the same card
-let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0;const DWELL=9000;
+let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0,lastNext='',detTm=0;const DWELL=9000;
 function leadSaid(text,end){leadBuf=(leadBuf+' '+text).trim();clearTimeout(leadTm);if(end)flushLead();else leadTm=setTimeout(flushLead,1600)}
 function flushLead(){clearTimeout(leadTm);const t=leadBuf.trim();leadBuf='';if(!t)return;if(!gScript())objCheck(t);else gDet(t)}
 function sameQ(a,b){const x=words(String(a||'')),y=words(String(b||''));if(!x.length||!y.length)return false;const st=new Set(y),h=x.filter(w=>st.has(w)).length;return h/Math.min(x.length,y.length)>=0.4}
@@ -3262,26 +3300,32 @@ function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   let h='<div class="bar">'+pill+(q?'<span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span>':'')+'</div>';
   if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
   h+='<p class="say">'+$(a.say||'')+'</p>';
-  if(a.ask)h+='<div class="aca"><div><span>THEN ASK</span><p class="ask">'+$(a.ask)+'</p></div></div>';
+  if(a.ask&&!sameQ(a.ask,lastNext))h+='<div class="aca"><div><span>ASK</span><p class="ask">'+$(a.ask)+'</p></div></div>';
   const more=(a.lines&&a.lines.length?'<div class="alines">'+a.lines.map(x=>'<div>'+(x.h?'<b>'+$(x.h)+'</b>':'')+$(x.t)+'</div>').join('')+'</div>':'')+((a.ack||a.comment)&&a.src==='ai'?'<div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(a.ack||'')+'</p></div><div><span>COMMENT</span><p>'+$(a.comment||'')+'</p></div></div>':'');
   if(more)h+='<details class="more" data-k="m"'+(a.openM?' open':'')+'><summary>More wording</summary>'+more+'</details>';
   if(ai)h+='<details class="more tai" data-k="a"'+(a.openA?' open':'')+'><summary>AI version for this lead</summary><p class="say sm">'+$(ai.say||'')+'</p>'+(ai.ask?'<p class="ask sm">&rarr; '+$(ai.ask)+'</p>':'')+(ai.needs_eyes?'<div class="warnb">Not in your script. Confirm before you state it.</div>':'')+'</details>';
   h+='<div class="bar">'+(a.anchor?'<button type="button" class="btn sm" data-open="'+$(anchorId(a.anchor))+'">Open in script</button>':'')+'<button type="button" class="btn sm" data-x="1">Dismiss</button></div>';
   return h}
-function drawAns(){const box=el('cards');if(!box)return;
-  if(!curAns&&!ansHist.length){box.innerHTML='';return}
+function drawAns(){const box=el('cards');if(!box)return;clearTimeout(detTm);if(curAns)detTm=setTimeout(gNext,40500);
+  el('hist').innerHTML=ansHist.length?'<span>Earlier</span>'+ansHist.map((h,i)=>'<button type="button" data-h="'+i+'">'+$(String(h.q||h.label||'answer').slice(0,34))+'</button>').join(''):'';
+  if(!curAns){box.innerHTML='';gNext();return}
   box.innerHTML=(curAns?'<div class="card2 ans'+(curAns.src==='ai'?'':' det')+(curAns.used?' used':'')+'">'+ansHtml(curAns)+'</div>':'')
-   +(ansHist.length?'<div class="hist"><span>Earlier</span>'+ansHist.map((h,i)=>'<button type="button" data-h="'+i+'">'+$(String(h.q||h.label||'answer').slice(0,34))+'</button>').join('')+'</div>':'')}
+   +'';gNext()}
 el('cards').addEventListener('toggle',e=>{const d=e.target;if(!curAns||!d||!d.dataset)return;if(d.dataset.k==='m')curAns.openM=d.open;if(d.dataset.k==='a')curAns.openA=d.open},true);
-el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.x){curAns=null;pend=null;drawAns();return}
+el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.said){const nl=gNextLine();if(nl&&!nl.done){const sc=gScript(),L=gLines(sc,Q[ix],gsvc(Q[ix]));SAID[nl.k]=1;if(L.filter(x=>x.si===nl.si).every(x=>SAID[x.k]))COV[nl.sid]=1;gi=nl.si;gMark(false)}return}
+  if(b.dataset.skip){COV[b.dataset.skip]=1;gMark(false);return}
+  if(b.dataset.x){curAns=null;pend=null;drawAns();return}
   if(b.dataset.h){const h=ansHist.splice(Number(b.dataset.h),1)[0];if(h){if(curAns)ansHist.unshift(curAns);curAns=h;curAns.t=Date.now()-DWELL;drawAns()}return}
   if(b.dataset.open){if(mt!=='script')setMain('script');const id=b.dataset.open;setTimeout(()=>{const sc=gScript();const st=id.indexOf('gs-')===0?sc&&sc.steps.findIndex(s=>'gs-'+s.id===id):-1;if(st>=0){gi=st;gMark(false)}gGo(id)},60)}});
 // the next thing still to cover, so the call keeps its shape when the lead leads
 function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];if(!sc||!l||state!=='live'){box.hidden=true;return}
-  const svc=gsvc(l),i=nextStep(sc),s=sc.steps[i],od=openDisc(sc);if(!s&&!od.length){box.hidden=true;return}
-  let h='';if(s){const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);h+='<span class="gl">Next</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b>'+(p?'<span class="gq">'+$(gplain(p.t,l,svc))+'</span>':'')+'<button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button>'}
-  if(od.length)h+='<span class="gl" style="flex-basis:100%">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('');
-  box.hidden=false;box.innerHTML=h}
+  const svc=gsvc(l),nl=gNextLine(),det=!!(curAns&&!curAns.used&&Date.now()-curAns.t<40000),od=openDisc(sc);let h='';
+  if(nl&&nl.done)h='<span class="gl">Script complete</span><span class="gq big">Before you hang up: deposit taken and a date set? If not, offer the payment link and a specific day. If they need a callback, set an exact day and time.</span>';
+  else if(nl){const s=sc.steps[nl.si],nt=[].concat.apply([],(s.main||[]).map(n=>(n.ps||[]).filter(p=>p.note).map(p=>gplain(p.note,l,svc))))[0];lastNext=nl.t;
+    h='<span class="gl">'+(det?'Then back to the script':'Say this next')+'</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b><span class="gq big">'+$(nl.t)+'</span>'+(nt&&!det?'<span class="gtip"><b>Coach</b> '+$(nt)+'</span>':'')
+     +'<span class="gb"><button type="button" class="btn sm g" data-said="1">Said it</button><button type="button" class="btn sm" data-skip="'+$(s.id)+'">Skip step</button><button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button></span>'}
+  if(od.length&&!det)h+='<span class="gl" style="flex-basis:100%">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('');
+  box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
   if(m.type==='live'){cs('Listening');return}
   if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
@@ -3365,7 +3409,7 @@ function coachScriptText(sc, o, lead, svc) {
   for (const pl of sc.plays || []) { out.push(`## PLAYBOOK ${pl.id} - ${pl.title}`); out.push((pl.nodes || []).map(node).filter(Boolean).join("\n")); }
   return out.join("\n");
 }
-const COACH_RULES = `You are a real-time call coach whispering to a sales rep (Bronson) at Divine Detailers, a car detailing shop in Miami that sells window tint, ceramic coating, paint correction, PPF and wraps. You see the live transcript of a phone call with a lead. Your job: when the lead says something that needs a response, tell the rep exactly what to say next.
+const COACH_RULES = `You are a real-time call coach whispering to a sales rep at Divine Detailers, a car detailing shop that sells window tint, ceramic coating, paint correction, PPF and wraps. You see the live transcript of a phone call with a lead. The rep is following the shop's call script line by line, and a separate screen already shows them the next script line. Your job is only to step in when the lead leaves the script, and to tell the rep exactly what to say.
 
 Ground rules:
 - Use ONLY facts that appear in the SCRIPT or OFFER below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, say so in "note", set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
@@ -3373,7 +3417,10 @@ Ground rules:
 - Be brief. "say" is what the rep says out loud: at most 2 short sentences (about 45 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
 - After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
-- If the lead's last turn needs no response from the coach (small talk, "yeah", "ok", something already handled), return {"answer": false}.
+- Stay out of the way. If the lead just answered the rep's last question, gave the information the script was asking for, or made small talk ("yeah", "ok", "good, you?"), return {"answer": false}: the script already covers it. Step in only for a question the script does not directly ask, an objection or worry, new information that changes the plan, an unusual request, or a buying signal.
+- When REAL ANSWERS from past calls are given, they show how this shop's best closers handled the same moment. Use their approach and tone in your own words. Never copy prices, names or claims from them: {amount} and {shop} are blanks, and the OFFER always wins.
+- After you handle it, "ask" is the NEXT SCRIPT LINE given to you, word for word (or the closest natural bridge into it), so the call returns to the script.
+- Closing: the goal of a call is a deposit AND a specific date. When the lead shows a buying signal (agrees to the price, asks about dates, payment or how it works, says it sounds good), do not ask "how does that sound": offer a way to pay (a secure link or the card over the phone) and a specific day. Never accept "I'll call you back" before trying to hold the spot with the deposit; if a callback is still the outcome, set an exact day and time. A lead who only needs time gets a specific follow-up time, not "whenever".
 - "anchor" is the id of the script STEP (like s15) or PLAYBOOK (like p-wife) your answer comes from; "next" is the step id the rep should return to afterwards.
 
 Reply with ONLY one JSON object, no markdown, in this shape:
@@ -3401,11 +3448,15 @@ async function coachContext(env, leadId) {
   const facts = lead ? `Lead: ${lead.name || "unknown"}. Service tag: ${lead.service || "unknown"}. Vehicle: ${[lead.year, lead.make, lead.model].filter(Boolean).join(" ") || "unknown"}. Quoted job value: ${lead.value > 0 ? "$" + lead.value : "not set"}.` : "Lead: unknown.";
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
-  return { system, facts, svc };
+  const lib = svc ? await env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : [];
+  return { system, facts, svc, lib };
 }
-async function coachAnswer(env, ctx, turns, said) {
+async function coachAnswer(env, ctx, turns, said, pos) {
   const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}: ${t.text}`).join("\n");
-  const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\nThe lead just finished saying: "${said}"\nReturn the JSON.`;
+  const real = libPick(ctx.lib, said);
+  const realText = real.length ? "REAL ANSWERS from past calls to something similar (best closers first):\n" + real.map((r, i) => `${i + 1}. Lead said: "${r.lead_said}"\n   ${r.won ? "Rep (the call booked)" : "Rep"}: "${r.rep_response}"${r.quality && r.quality < 4 && r.better ? `\n   Better answer: "${r.better}"` : ""}`).join("\n") + "\n\n" : "";
+  const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
+  const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"\nReturn the JSON.`;
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 9000);
   try {
     const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, {
@@ -3452,6 +3503,7 @@ export class CallRoom {
   attachBrowser(ws) {
     this.browsers.add(ws);
     try { ws.send(JSON.stringify({ type: "hello", turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
+    ws.addEventListener("message", ev => { try { const m = JSON.parse(ev.data); if (m && m.type === "pos") this.pos = { next: String(m.next || "").slice(0, 400), step: String(m.step || "").slice(0, 80) }; } catch (e) { /* ignore */ } });
     ws.addEventListener("close", () => this.browsers.delete(ws)); ws.addEventListener("error", () => this.browsers.delete(ws));
   }
   attachTwilio(ws) {
@@ -3507,7 +3559,7 @@ export class CallRoom {
     this.coachBusy = true;
     try {
       if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said);
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos);
       if (out && out.error) this.broadcast({ type: "coach_error" });
       else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
@@ -3745,7 +3797,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -4428,6 +4480,8 @@ async function adminRoute(p, request, env) {
     if (p === "/admin/dialer/lead" && request.method === "GET") return dialerLead(env, Number(new URL(request.url).searchParams.get("id")));
     if (p === "/admin/dialer/script" && request.method === "GET") return dialerScriptGet(env, new URL(request.url).searchParams.get("svc") || "");
     if (p === "/admin/dialer/script" && request.method === "POST") return dialerScriptSave(env, await request.json().catch(() => ({})));
+    if (p === "/admin/dialer/library" && request.method === "GET") return dialerLibrary(env, null);
+    if (p === "/admin/dialer/library" && request.method === "POST") return dialerLibrary(env, await request.json().catch(() => ({})));
     if (p === "/admin/dialer/offer" && request.method === "GET") return dialerOfferGet(env);
     if (p === "/admin/dialer/offer" && request.method === "POST") return dialerOfferSave(env, await request.json().catch(() => ({})));
     if (p === "/admin/dialer/note" && request.method === "POST") return dialerNote(env, await request.json().catch(() => ({})), a);
