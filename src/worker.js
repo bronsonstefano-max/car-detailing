@@ -33,7 +33,7 @@ const MAX = { default: 300, message: 4000 };
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["booked", "Booked"], ["working", "In the shop"], ["done", "Completed"], ["aged", "7 day +"], ["lost", "Lost"]];
+const STAGES = [["new", "New lead"], ["nocontact", "Not contacted"], ["contacted", "Contacted"], ["quoted", "Quote sent"], ["aged", "7 day +"], ["interested", "Interested (call back)"], ["deposit", "Deposit pending (follow up)"], ["booked", "Deposit collected"], ["working", "In shop"], ["done", "Service completed"], ["lost", "NO"]];
 const STAGE_KEYS = STAGES.map(x => x[0]);
 const isNewish = st => st === "new" || st === "nocontact"; // still needs its first real conversation
 // What can happen next at each stage: [label, stage it moves the lead to (or null to stay)]
@@ -46,6 +46,8 @@ const FOLLOWUPS = {
   working: [["Work in progress", null], ["Waiting on film or parts", null], ["Customer update sent", null], ["Work finished, ready for pickup", "done"]],
   done: [["Paid in full", null], ["Asked for a review", null], ["Review received", null], ["Wants more work", "contacted"]],
   aged: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Spoke to the customer", "contacted"], ["Wrong number or spam", "lost"]],
+  interested: [["Called, no answer", null], ["Left a voicemail", null], ["Sent a text", null], ["Call back booked", null], ["Sent a quote", "quoted"], ["Deposit link sent", "deposit"], ["Not interested", "lost"]],
+  deposit: [["Sent a reminder", null], ["Called about the deposit", null], ["Waiting on the customer", null], ["Deposit paid", "booked"], ["Backed out", "lost"]],
   lost: [["Follow up later", null], ["Customer came back", "contacted"]],
 };
 
@@ -1370,7 +1372,7 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self)document.documentElement.classList.add("emb")</script>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
@@ -1392,7 +1394,7 @@ function bnav(on, n = 0, owner = false) {
   const moreKeys = ["speed", "rate", "missed", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/missed", "missed", "Missed dials", ic.missed)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/speed", "speed", "Speed", SPEED_ICON)}${row("/admin/rate", "rate", "Contact rate", ic.rate)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -1408,6 +1410,20 @@ async function todayCount(env) {
   } catch { return 0; }
 }
 const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+@media(min-width:1024px){
+  body{padding-left:228px}
+  .navtabs{position:fixed;left:0;top:0;bottom:0;width:228px;z-index:25;display:flex!important;flex-direction:column;flex-wrap:nowrap!important;gap:2px!important;padding:74px 12px 16px;background:#090c10;border-right:1px solid #1d2229;overflow-y:auto}
+  .navtabs::before{content:"Divine Detailers";position:absolute;left:0;right:0;top:0;height:62px;display:flex;align-items:center;padding:0 20px;font-weight:800;font-size:16px;letter-spacing:.2px;color:#e8eaed;border-bottom:1px solid #161b21}
+  .navtabs a{display:flex!important;align-items:center;gap:8px;position:relative;padding:11px 14px!important;border:0!important;border-radius:10px!important;color:#9aa1ab!important;font-weight:600;font-size:14.5px;background:none!important}
+  .navtabs a:hover{background:#10151b!important;color:#e8eaed!important}
+  .navtabs a.on{background:#112417!important;color:#32cd32!important}
+  .navtabs a.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:#32cd32}
+  .navtabs a.so{margin-top:auto;color:#6b727c!important}
+  .navtabs .nb{margin-left:auto}
+  header{padding-left:26px}
+  .emb body{padding-left:0}
+}
+.emb .navtabs,.emb .bnav,.emb .msheet,.emb header{display:none!important}.emb body{padding-left:0!important;padding-bottom:0!important}
 @media(max-width:700px){
   .navtabs{display:none!important}
   .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:#0a0d11;border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
@@ -1587,7 +1603,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-cont
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .sum{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:7px 13px}.stat b{display:block;font-size:19px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.g b{color:#32cd32}
 .board{flex:1;display:flex;gap:12px;padding:14px 22px 22px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
-.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
+.col.auto{background:#0a0d11;border-style:dashed}.col h2{flex-wrap:wrap}.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
 .col.over{border-color:#32cd32;background:#0d140f}.col h2{font-size:13px;margin:0;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;text-transform:uppercase;letter-spacing:.7px;color:#c3c8cf}
 .col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-aged h2{color:#ffb86b}.col.s-done h2{color:#7fe07f}
 .cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
@@ -1648,25 +1664,30 @@ ${TPL_JS}
 const D=JSON.parse(document.getElementById('data').textContent),S=D.stages,L=D.leads,CFG=D.cfg,board=document.getElementById('board'),dlg=document.getElementById('dlg');
 const $=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>n?'$'+Number(n).toLocaleString('en-US'):'';
 const M=window.matchMedia('(max-width:700px)');let cur='new';
-function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="tel:'+$(tel)+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
+function cardHtml(l,qa){const tel=(l.phone||'').replace(/[^\\d+]/g,'');return '<article class="card" draggable="'+(M.matches?'false':'true')+'" data-id="'+l.id+'"><b>'+$(l.name||l.email)+'</b><div class="meta">'+$(l.service||'')+(l.make?' &middot; '+$([l.year,l.make,l.model].filter(Boolean).join(' ')):'')+'</div><div class="row"><span>'+$(l.ago)+'</span><span>'+(l.type==='call'?(/voicemail/i.test(l.message||'')?'<span class="pill miss">Voicemail</span> ':l.answered===0?'<span class="pill miss">Missed</span> ':'<span class="pill call">Call</span> '):'')+(STG_PILL[l.stage]?'<span class="pill">'+STG_PILL[l.stage]+'</span> ':'')+(l.ad?'<span class="pill ad">Ads</span> ':'')+(l.value?'<span class="pill val">'+money(l.value)+'</span>':'')+'</span></div>'+(qa&&tel?'<div class="qa"><a class="call" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(tel))+'" data-stop="1">Call</a><button type="button" data-open="'+l.id+'">Details</button></div>':'')+'</article>'}
 const LIM={};const lim=k=>LIM[k]||40;const moreBtn=(k,n)=>n>lim(k)?'<button type="button" class="chip" data-more="'+k+'" style="margin:8px auto;display:block">Show '+Math.min(60,n-lim(k))+' more ('+(n-lim(k))+' left)</button>':'';
+const OPEN=['new','nocontact','contacted','quoted','aged'],DAYC=[['d1','1-2 days',0,2],['d3','3-6 days',3,6],['d7','7+ days',7,29],['d30','30+ days',30,1e9]],STG_PILL={nocontact:'Not contacted',contacted:'Contacted',quoted:'Quote sent'};
+const ageDays=l=>{const t=Date.parse(String(l.created_at||'').replace(' ','T')+'Z');return isNaN(t)?0:Math.max(0,Math.floor((Date.now()-t)/864e5))};
+const colOf=l=>{if(!OPEN.includes(l.stage))return l.stage;const a=ageDays(l);return (DAYC.find(d=>a>=d[2]&&a<=d[3])||DAYC[0])[0]};
+const COLS=DAYC.map(d=>[d[0],d[1],true]).concat(S.filter(x=>!OPEN.includes(x[0])).map(x=>[x[0],x[1],false]));
 function draw(){
   let open=0,won=0,booked=0;
-  S.forEach(([k])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);if(k==='new'||k==='nocontact')open+=ls.length;if(k==='booked'||k==='working'||k==='done')booked+=tot;if(k==='done')won=tot});
-  const pipe=L.filter(l=>['new','nocontact','contacted','quoted'].includes(l.stage)).reduce((a,l)=>a+(l.value||0),0);
+  L.forEach(l=>{if(l.stage==='new'||l.stage==='nocontact')open++;if(l.stage==='booked'||l.stage==='working'||l.stage==='done')booked+=(l.value||0);if(l.stage==='done')won+=(l.value||0)});
+  const pipe=L.filter(l=>OPEN.concat(['interested','deposit']).includes(l.stage)).reduce((a,l)=>a+(l.value||0),0);
   document.getElementById('sum').innerHTML='<div class="stat g"><b>'+open+'</b><span>new to contact</span></div><div class="stat"><b>'+money(pipe)+'</b><span>$ in pipeline</span></div><div class="stat"><b>'+money(booked)+'</b><span>booked + done</span></div><div class="stat"><b>'+money(won)+'</b><span>completed</span></div>';
-  const tabs=document.getElementById('tabs');
+  const tabs=document.getElementById('tabs'),inCol=k=>L.filter(l=>colOf(l)===k);
   if(M.matches){
-    tabs.innerHTML=S.map(([k,n])=>'<button class="tab'+(k===cur?' on':'')+'" data-tab="'+k+'">'+n+' <i>'+L.filter(l=>l.stage===k).length+'</i></button>').join('');
-    const ls=L.filter(l=>l.stage===cur),tot=ls.reduce((a,l)=>a+(l.value||0),0),name=(S.find(x=>x[0]===cur)||[0,''])[1];
+    if(!COLS.some(c=>c[0]===cur))cur='d1';
+    tabs.innerHTML=COLS.map(([k,n])=>'<button class="tab'+(k===cur?' on':'')+'" data-tab="'+k+'">'+n+' <i>'+inCol(k).length+'</i></button>').join('');
+    const ls=inCol(cur),tot=ls.reduce((a,l)=>a+(l.value||0),0),name=(COLS.find(x=>x[0]===cur)||[0,''])[1];
     board.innerHTML='<section class="col" data-stage="'+cur+'"><h2>'+name+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+(ls.slice(0,lim(cur)).map(l=>cardHtml(l,true)).join('')||'<div class="empty">Nothing in '+$(name)+' right now</div>')+moreBtn(cur,ls.length)+'</div></section>';
     const on=tabs.querySelector('.tab.on');if(on&&on.scrollIntoView)on.scrollIntoView({inline:'center',block:'nearest'});
     return;
   }
   tabs.innerHTML='';
-  board.innerHTML=S.map(([k,n])=>{const ls=L.filter(l=>l.stage===k),tot=ls.reduce((a,l)=>a+(l.value||0),0);
-    return '<section class="col s-'+k+'" data-stage="'+k+'"><h2>'+n+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+
-    (ls.slice(0,lim(k)).map(l=>cardHtml(l,false)).join('')||'<div class="empty">Drop leads here</div>')+moreBtn(k,ls.length)+'</div></section>';}).join('');
+  board.innerHTML=COLS.map(([k,n,auto])=>{const ls=inCol(k),tot=ls.reduce((a,l)=>a+(l.value||0),0);
+    return '<section class="col s-'+k+(auto?' auto':'')+'" data-stage="'+k+'"'+(auto?' title="Fills automatically by how long ago the lead came in"':'')+'><h2>'+n+' <small>'+ls.length+(tot?' &middot; '+money(tot):'')+'</small></h2><div class="cards">'+
+    (ls.slice(0,lim(k)).map(l=>cardHtml(l,false)).join('')||'<div class="empty">'+(auto?'No leads this age':'Drop leads here')+'</div>')+moreBtn(k,ls.length)+'</div></section>';}).join('');
 }
 M.addEventListener&&M.addEventListener('change',draw);
 board.addEventListener('click',e=>{const m=e.target.closest('[data-more]');if(m){LIM[m.dataset.more]=lim(m.dataset.more)+60;draw()}});
@@ -1702,14 +1723,14 @@ let dragId=null;
 board.addEventListener('dragstart',e=>{const c=e.target.closest('.card');if(!c)return;dragId=+c.dataset.id;c.classList.add('drag');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(dragId))});
 board.addEventListener('dragend',()=>{dragId=null;draw()});
 board.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(!c)return;e.preventDefault();board.querySelectorAll('.col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
-board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(l&&l.stage!==st){if(st==='booked'){const o=await askBook(l.id);if(o){Object.assign(l,o.lead||{});apply(l,o);if(o.log)l.log=o.log.concat(l.log||[])}draw();return}const o=await save(l.id,{stage:st},'/admin/stage');if(o){apply(l,o);draw();const nx=await askNext(l.name||l.phone||l.email,l.stage,l.id);if(nx){const o2=await save(l.id,{followup:nx.followup,follow_date:nx.follow_date},'/admin/stage');apply(l,o2)}}draw()}else draw()});
+board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||dragId==null)return;e.preventDefault();const l=L.find(x=>x.id===dragId);const st=c.dataset.stage;if(/^d\\d+$/.test(st)){draw();return}if(l&&colOf(l)!==st&&l.stage!==st){if(st==='booked'){const o=await askBook(l.id);if(o){Object.assign(l,o.lead||{});apply(l,o);if(o.log)l.log=o.log.concat(l.log||[])}draw();return}const o=await save(l.id,{stage:st},'/admin/stage');if(o){apply(l,o);draw();const nx=await askNext(l.name||l.phone||l.email,l.stage,l.id);if(nx){const o2=await save(l.id,{followup:nx.followup,follow_date:nx.follow_date},'/admin/stage');apply(l,o2)}}draw()}else draw()});
 board.addEventListener('click',e=>{if(e.target.closest('[data-stop]'))return;const d=e.target.closest('[data-open]');if(d){open(+d.dataset.open);return}const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
 document.addEventListener('click',e=>{const a=e.target.closest('a[href^=\"tel:\"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;markCall(+h.dataset.id,((h.querySelector('h3,b')||{}).textContent||'').trim());try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction','Vinyl Wraps','Exterior Detailing','Other'];
 function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
   const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
   dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
-  '<div class="acts">'+(tel?'<a class="btn call" href="tel:'+$(tel)+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+(l.recording?'<a class="btn rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">&#9654; Listen</a>':'')+'</div>'+
+  '<div class="acts">'+(tel?'<a class="btn call" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(tel))+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+(l.recording?'<a class="btn rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">&#9654; Listen</a>':'')+'</div>'+
   (isCall?'<div style="color:#c9a8ff;font-size:14px">'+(/voicemail/i.test(l.message||'')?'Voicemail':l.answered===0?'Missed call':'Phone call'+(l.dur?' &middot; '+$(l.dur):''))+'</div>':'')+
   infoHtml(l,veh)+
   ed+
@@ -1988,7 +2009,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-cont
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .app{flex:1;min-height:0;display:grid;grid-template-columns:330px 1fr}
 .list{border-right:1px solid #1b1f25;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
-.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
+.fl{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid #1b1f25;flex-wrap:wrap}.fl select{flex:1 1 90px;min-width:0;background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:9px;padding:7px 8px;font:inherit;font-size:13px;color-scheme:dark}.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
 .th{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #151a21;color:inherit;font:inherit;padding:12px 14px;cursor:pointer}.th.on{background:#10151b}
 .th b{display:flex;justify-content:space-between;gap:8px}.th small{color:#7c838d;font-weight:400;white-space:nowrap}.th p{margin:3px 0 0;color:#98a0aa;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .un{background:#32cd32;color:#04120a;border-radius:999px;font-size:11px;font-weight:800;padding:1px 7px;margin-left:6px}
@@ -2009,7 +2030,7 @@ ${BNAV_CSS}
 </style></head><body>
 <header><h1>Divine Detailers <b>messages</b></h1>${nav("messages", tc, owner)}</header>
 ${bnav("messages", tc, owner)}
-<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div id="tl"></div></div>
+<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div class="fl" id="fl"></div><div id="tl"></div></div>
 <div class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></div></div>
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2017,8 +2038,18 @@ const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=d
 let cur=null,on=true,busy=false,lastSig='';
 function ago(iso){const d=new Date(iso),n=Date.now(),s=Math.max(0,(n-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
 function nm(l){return l.name||l.phone||'Lead'}
-async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;
-  tl.innerHTML=j.threads.length?j.threads.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">No texts yet. Search for a lead above to start one.</div>'}catch(_){}}
+let TH=[],FL={sort:'recent',show:'all',svc:'all'};try{Object.assign(FL,JSON.parse(localStorage.getItem('mf')||'{}'))}catch(_){}
+const svcOf=t=>/tint/i.test(t.service||'')?'Window Tint':/coat/i.test(t.service||'')?'Ceramic Coating':(t.service||'Other');
+function drawFl(){const sv=[...new Set(TH.map(svcOf))].sort();const opt=(v,l,c)=>'<option value="'+$(v)+'"'+(c===v?' selected':'')+'>'+$(l)+'</option>';
+  document.getElementById('fl').innerHTML='<select data-k="sort" aria-label="Sort">'+[['recent','Newest first'],['oldest','Oldest first'],['unread','Unread first'],['name','Name A-Z']].map(x=>opt(x[0],x[1],FL.sort)).join('')+'</select><select data-k="show" aria-label="Show">'+[['all','All texts'],['unread','Unread'],['read','Read'],['theirs','They texted last'],['mine','I texted last']].map(x=>opt(x[0],x[1],FL.show)).join('')+'</select><select data-k="svc" aria-label="Service">'+opt('all','All services',FL.svc)+sv.map(x=>opt(x,x,FL.svc)).join('')+'</select>'}
+function drawList(){let a=TH.slice();
+  if(FL.show==='unread')a=a.filter(t=>t.unread>0);else if(FL.show==='read')a=a.filter(t=>!t.unread);else if(FL.show==='theirs')a=a.filter(t=>t.last_dir==='in');else if(FL.show==='mine')a=a.filter(t=>t.last_dir==='out');
+  if(FL.svc!=='all')a=a.filter(t=>svcOf(t)===FL.svc);
+  const T=t=>new Date(t.last_at).getTime()||0;
+  if(FL.sort==='oldest')a.sort((x,y)=>T(x)-T(y));else if(FL.sort==='unread')a.sort((x,y)=>(y.unread>0)-(x.unread>0)||T(y)-T(x));else if(FL.sort==='name')a.sort((x,y)=>nm(x).localeCompare(nm(y)));else a.sort((x,y)=>T(y)-T(x));
+  tl.innerHTML=a.length?a.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">'+(TH.length?'No conversations match these filters.':'No texts yet. Search for a lead above to start one.')+'</div>'}
+document.getElementById('fl').addEventListener('change',e=>{const k=e.target.dataset.k;if(!k)return;FL[k]=e.target.value;try{localStorage.setItem('mf',JSON.stringify(FL))}catch(_){}drawList()});
+async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;TH=j.threads;if(!document.getElementById('fl').children.length||document.activeElement.closest&&!document.activeElement.closest('#fl'))drawFl();drawList()}catch(_){}}
 async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id+j.messages[j.messages.length-1].status:'')+j.optout;
   if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;on=j.on;
   const box=pane.querySelector('.msgs'),atEnd=!box||box.scrollHeight-box.scrollTop-box.clientHeight<80;const draft=pane.querySelector('textarea')?pane.querySelector('textarea').value:'';
@@ -2548,7 +2579,28 @@ async function recordingProxy(env, sid, request) {
   for (const k of ["content-range", "content-length"]) if (r.headers.get(k)) out[k] = r.headers.get(k);
   return new Response(r.body, { status: r.status, headers: out });
 }
-const DIAL_STAGES = ["nocontact", "contacted", "quoted", "aged", "lost"];
+// the next days the shop can take a job, read from the CRM calendar (booked leads plus Urable jobs). A day is full at DAILY_JOB_CAP jobs (default 3); CLOSED_DAYS (default Sun) are skipped.
+async function openDays(env, n = 6) {
+  try {
+    const cap = Number(env.DAILY_JOB_CAP) || 3, closed = String(env.CLOSED_DAYS || "Sun").toLowerCase().split(/[\s,]+/).filter(Boolean).map(x => x.slice(0, 3));
+    const base = todayStr(), cnt = {};
+    const leads = (await env.DB.prepare("SELECT appt_at, urable_ref FROM leads WHERE COALESCE(appt_at,'') != '' AND stage NOT IN ('lost') AND appt_at >= ?").bind(base).all().catch(() => ({ results: [] }))).results || [];
+    const refs = new Set(leads.map(l => l.urable_ref).filter(Boolean));
+    for (const l of leads) { const d = String(l.appt_at).slice(0, 10); cnt[d] = (cnt[d] || 0) + 1; }
+    const cal = await urableCalendar(env).catch(() => ({ items: [] }));
+    for (const it of cal.items || []) { if (!it.appt_at || refs.has(it.ref)) continue; const d = String(it.appt_at).slice(0, 10); if (d >= base) cnt[d] = (cnt[d] || 0) + 1; }
+    const out = [], ord = d => d + (d % 100 >= 11 && d % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][d % 10] || "th");
+    for (let i = 1; i <= 30 && out.length < n; i++) {
+      const t = new Date(base + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + i);
+      const wd = t.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }), key = t.toISOString().slice(0, 10);
+      if (closed.includes(wd.slice(0, 3).toLowerCase())) continue;
+      const used = cnt[key] || 0; if (used >= cap) continue;
+      out.push({ date: key, say: `${wd} the ${ord(t.getUTCDate())}`, left: cap - used });
+    }
+    return out;
+  } catch (_) { return []; }
+}
+const DIAL_STAGES = ["nocontact", "contacted", "quoted", "aged", "interested", "deposit", "lost"];
 async function dialerQueue(env, url) {
   await ensureTable(env.DB);
   // ?stages=aged,contacted dials everyone in those pipeline stages (any age), least recently tried first. Without it: new leads and follow-ups that are due.
@@ -2559,18 +2611,22 @@ async function dialerQueue(env, url) {
     ? `l.stage IN (${want.map(() => "?").join(",")})`
     : `((l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-14 days')) OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('done','lost','aged')))`;
   const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT 120" : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT 60";
-  const rows = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
+  const sel = (w, o) => `SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-1 day')) tries24,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-3 hours')) tries3,
       (SELECT MAX(d.started_at) FROM dial_calls d WHERE d.lead_id = l.id) last_try,
       CASE WHEN l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('new','nocontact') THEN 1 ELSE 0 END cb
     FROM leads l WHERE l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo' AND COALESCE(l.phone,'') != ''
-      AND ${where}
-    ORDER BY ${order}`).bind(...want).all()).results || [];
+      AND ${w}
+    ORDER BY ${o}`;
+  let rows = (await env.DB.prepare(sel(where, order)).bind(...want).all()).results || [];
+  // ?lead=ID puts one lead (clicked from the pipeline) first, whatever its stage
+  const one = Number(url && url.searchParams.get("lead"));
+  if (Number.isInteger(one) && one > 0) { const r1 = (await env.DB.prepare(sel("l.id = ?", "l.id")).bind(one).all().catch(() => ({ results: [] }))).results || []; if (r1.length) rows = r1.concat(rows.filter(r => r.id !== one)); }
   const ids = rows.map(r => r.id);
   const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
   const texts = ids.length ? (await env.DB.prepare(`SELECT lead_id, direction, body, at FROM messages WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 300`).bind(...ids).all()).results || [] : [];
-  return json({ success: true, counts, leads: rows.map(r => ({ ...r, created_at: isoUtc(r.created_at), last_try: r.last_try ? isoUtc(r.last_try) : null, history: notes.filter(n => n.lead_id === r.id).slice(0, 4).map(n => ({ reason: n.reason, at: isoUtc(n.at) })), texts: texts.filter(t => t.lead_id === r.id).slice(0, 3).map(t => ({ direction: t.direction, body: String(t.body).slice(0, 200), at: isoUtc(t.at) })) })) });
+  return json({ success: true, counts, open: await openDays(env), leads: rows.map(r => ({ ...r, created_at: isoUtc(r.created_at), last_try: r.last_try ? isoUtc(r.last_try) : null, history: notes.filter(n => n.lead_id === r.id).slice(0, 4).map(n => ({ reason: n.reason, at: isoUtc(n.at) })), texts: texts.filter(t => t.lead_id === r.id).slice(0, 3).map(t => ({ direction: t.direction, body: String(t.body).slice(0, 200), at: isoUtc(t.at) })) })) });
 }
 async function dialerLead(env, id) {
   await ensureTable(env.DB);
@@ -2860,6 +2916,24 @@ main.m-call .rcol{grid-column:2;grid-row:5;display:flex;flex-direction:column;ga
 .bcall{min-height:80px;font-size:24px;border-radius:20px;width:100%}
 .skip{align-self:center}
 }
+/* polish: dialer idle screen */
+.bh .ph,.lead .ph{background:none!important;color:#32cd32!important;padding:0!important;border-radius:0!important;cursor:default;letter-spacing:.4px}
+.brief{background:radial-gradient(120% 90% at 0% 0%,#123220 0,#0d1612 38%,#0b0f13 75%);border:1px solid #1d4029;box-shadow:0 18px 50px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.04);gap:20px}
+.bh{gap:18px}.bh .av{width:76px;height:76px;box-shadow:0 0 0 3px #0b0f13,0 0 0 5px #1f6a37,0 8px 24px rgba(50,205,50,.18)}
+.bh h2{letter-spacing:-.4px;font-size:36px}
+.brief .chips{gap:8px}.brief .chip{padding:6px 14px;font-size:13.5px;background:#141b22;border:1px solid #232d37;color:#d6dbe1}.brief .chip.hot{background:#0f2c18;border-color:#1f6a37;color:#8cf08c;font-weight:700}
+.bc{background:linear-gradient(180deg,#0e1419,#0b0f13);border:1px solid #1b2530;border-radius:18px;padding:20px 22px;gap:8px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.bc h4{display:flex;align-items:center;gap:8px;color:#4fdc5a;font-size:11px;letter-spacing:1.2px}.bc h4::after{content:"";flex:1;height:1px;background:#1b2530}
+.bc p{color:#dfe3e8}.bc .big{font-size:19px;color:#fff;letter-spacing:-.1px}
+.bcall{background:linear-gradient(180deg,#3bdc3b,#27b927);border:0;color:#04120a;box-shadow:0 10px 30px rgba(50,205,50,.28),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .12s,box-shadow .12s,filter .12s;letter-spacing:.2px}
+.bcall:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 14px 36px rgba(50,205,50,.36),inset 0 1px 0 rgba(255,255,255,.35)}.bcall:active:not(:disabled){transform:translateY(1px)}
+.skip{background:none;border:1px solid #232d37;color:#8a939e}.skip:hover{color:#e8eaed;border-color:#34404c}
+.q .it{background:#0d1217;border:1px solid #1a222b;border-radius:14px;transition:border-color .12s,background .12s}.q .it:hover{border-color:#2c3a47;background:#10161c}.q .it.cur{border-color:#2f9e3f;background:#0e1d14;box-shadow:0 0 0 1px #1f6a37 inset}
+.panel{border-radius:18px;background:#0b0f13;border-color:#19212a}.panel h3{letter-spacing:1.2px;color:#8a939e;font-size:11.5px}
+.tabs button{padding:7px 16px}.tabs button.on{box-shadow:0 4px 14px rgba(50,205,50,.22)}
+header h1{letter-spacing:-.2px}
+.bbody{display:flex;flex-direction:column;gap:20px}
+#navdr{position:fixed;inset:0;z-index:70}#navdr[hidden]{display:none}#navdr .nbd{position:absolute;inset:0;background:rgba(0,0,0,.55)}#navdr .npn{position:absolute;top:0;right:0;bottom:0;width:min(940px,94vw);background:#07090c;border-left:1px solid #232932;display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.5)}#navdr .nh{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid #1d2229;background:#0b2012;color:#7fe08a}#navdr iframe{flex:1;width:100%;border:0;background:#07090c}
 ${BNAV_CSS}
 @media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
 </style></head><body>
@@ -2891,7 +2965,7 @@ ${bnav("dialer", tc, true)}
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const el=id=>document.getElementById(id),ET='America/New_York';
-const QF=[['','New leads'],['nocontact','Not contacted'],['contacted','Contacted'],['quoted','Quote sent'],['aged','7 day +'],['lost','Lost']];let QS=[],QC={};try{QS=JSON.parse(localStorage.getItem('dq')||'[]').filter(x=>QF.some(f=>f[0]===x))}catch(_){}
+const QF=[['','New leads'],['nocontact','Not contacted'],['contacted','Contacted'],['quoted','Quote sent'],['aged','7 day +'],['interested','Interested'],['deposit','Deposit pending'],['lost','NO']];let QS=[],QC={};try{QS=JSON.parse(localStorage.getItem('dq')||'[]').filter(x=>QF.some(f=>f[0]===x))}catch(_){}
 let Q=[],ix=0,ST={tint:'',coating:'',missed:''},AU={},dev=null,call=null,tmr=null,t0=0,sid='',state='idle',muted=false,sk='tint',vmArm=null;
 const etHour=()=>+new Date().toLocaleString('en-US',{timeZone:ET,hour:'numeric',hour12:false});
 const inHours=()=>true; // manual dialing works at any hour; only the automatic dialer keeps its calling hours
@@ -3019,7 +3093,8 @@ el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)ret
 function next(){if(state==='live'||state==='connecting')return;state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
 function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')}
-async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):''))).json();Q=q.leads||[];QC=q.counts||{}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
+let OPEN_DAYS=[];let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
+async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_DAYS=(q.open||[]).map(d=>d.say);if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
 el('qf').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
 const stLab=k=>(QF.find(f=>f[0]===k)||[0,k])[1]||'';
 function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
@@ -3126,9 +3201,9 @@ function gMap(sc,svc){const sug=gSugIdx(sc),cur=sc.steps[gi],show=gOpenPh||(cur&
 const swp=t=>{let s=String(t||'');(OF.swaps||[]).forEach(p=>{if(p&&p.f)s=s.split(p.f).join(p.t||'')});return s};
 function gfmt(t,l,svc){let h=$(swp(t));
   h=h.replace(/\\{(\\w+)\\}/g,(m,n)=>{const k='{'+n+'}',v=OVR[k]||vv(n,l,svc);return v?'<span class="ph ok" data-e="'+k+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+k+'">'+$('['+(LBL[n]||n)+']')+'</span>'});
-  h=h.replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n0)=>{const n=n0.replace(/&amp;/g,'&'),v=sv(n,l,svc);return v?'<span class="ph ok" data-e="'+$(n)+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+$(n)+'">'+$(n.toLowerCase())+'</span>'});
+  let di=0;h=h.replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n0)=>{const n=n0.replace(/&amp;/g,'&'),v=n==='DATE'?(OPEN_DAYS[di++]||''):sv(n,l,svc);return v?'<span class="ph ok" data-e="'+$(n)+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+$(n)+'">'+$(n.toLowerCase())+'</span>'});
   return h}
-function gplain(t,l,svc){return swp(t).replace(/\\{(\\w+)\\}/g,(m,n)=>OVR['{'+n+'}']||vv(n,l,svc)||'...').replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n)=>sv(n,l,svc)||'...')}
+function gplain(t,l,svc){let di=0;return swp(t).replace(/\\{(\\w+)\\}/g,(m,n)=>OVR['{'+n+'}']||vv(n,l,svc)||'...').replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n)=>(n==='DATE'?(OPEN_DAYS[di++]||''):sv(n,l,svc))||'...')}
 function gnode(n,l,svc){const f=t=>gfmt(t,l,svc);
   if(n.k==='pill')return '';
   if(n.k==='cond')return '<div class="gcond"><b>If</b> '+f(n.t)+'</div>';
@@ -3366,6 +3441,12 @@ function nudgeCheck(){const box=el('nudge');if(!box)return;if(state!=='live'||de
   const dep=(l&&vv('dep',l,gsvc(l)))||'The deposit';
   box.hidden=false;box.innerHTML='<b>'+(hot?'Buying signal. Close now.':'You gave the price. Close now.')+'</b>Offer two open days, then say: &ldquo;'+$(dep)+' comes off your total and it is refundable. Debit or credit?&rdquo;'}
 setInterval(nudgeCheck,2000);
+// browsing the CRM during a call: links open in a side panel so the call never drops
+(function(){let dr=null;const live=()=>state==='live'||state==='connecting';
+function open(u){if(!dr){dr=document.createElement('div');dr.id='navdr';dr.innerHTML='<div class="nbd"></div><div class="npn"><div class="nh"><b>Your call is still connected</b><button type="button" class="btn sm" id="ndc">Back to call</button></div><iframe id="ndf" title="CRM"></iframe></div>';document.body.appendChild(dr);dr.querySelector('.nbd').onclick=()=>{dr.hidden=true};dr.querySelector('#ndc').onclick=()=>{dr.hidden=true}}
+  dr.hidden=false;dr.querySelector('#ndf').src=u}
+document.addEventListener('click',e=>{if(!live())return;const a=e.target.closest('a[href]');if(!a||a.closest('#navdr'))return;const h=a.getAttribute('href')||'';if(h.charAt(0)!=='/'||h.indexOf('/logout')===0||a.target==='_blank')return;e.preventDefault();open(h)},true);
+window.addEventListener('beforeunload',e=>{if(live()){e.preventDefault();e.returnValue=''}})})();
 function addLine(who,text,final,low){if(final){nudgeNote(who,text);gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&n>=4)pend=null;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial')+(low?' low':'');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
@@ -3429,7 +3510,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)document.t
 async function init(){
   try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
   await loadAudio();await coachStatus();await loadOffer();
-  try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):''))).json();Q=q.leads||[];QC=q.counts||{}}catch(_){}
+  try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_DAYS=(q.open||[]).map(d=>d.say);if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){}
   ix=0;Q.forEach(l=>known.add(l.id));drawQF();drawLead();drawQ();drawScript();setInterval(poll,10000);el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
   await initDev()}
 init();
@@ -3580,10 +3661,12 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
   const get = k => { const r = rows.find(x => x.k === k); try { return r ? JSON.parse(r.v) : null; } catch (_) { return null; } };
   const offer = get("offer") || {}, sc = svc ? get("script_" + svc) : null;
   const facts = lead ? `Lead: ${lead.name || "unknown"}. Service tag: ${lead.service || "unknown"}. Vehicle: ${[lead.year, lead.make, lead.model].filter(Boolean).join(" ") || "unknown"}. Quoted job value: ${lead.value > 0 ? "$" + lead.value : "not set"}.` : "Lead: unknown.";
+  const od = await openDays(env, 4);
+  const factsOpen = od.length ? `\nOpen days on our calendar right now (offer these when booking): ${od.map(d => d.say).join(", ")}.` : "";
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
   const lib = svc ? await env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : [];
-  return { system, facts, svc, lib, body: system.slice(COACH_RULES.length) };
+  return { system, facts: facts + factsOpen, svc, lib, body: system.slice(COACH_RULES.length) };
 }
 // One streamed request to the coach model. onSay fires the moment the "say" line is complete, so the rep can start talking before the rest has been written.
 async function coachStream(env, system, user, onSay, opts) {
@@ -4259,8 +4342,13 @@ async function speedRows(env) {
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason, to_stage FROM stage_log ORDER BY id ASC LIMIT 30000").all();
   // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
   // Texts, emails, the Contacted button and stage changes do not stop it.
-  const isCallLog = r => /^(called|call result|auto-dial: calling the lead|left a voicemail|spoke to the customer)/i.test(r || "");
-  const REACHED = /^(call result: answered|spoke to the customer|auto-dial: lead answered)/i, RESULT = /^call result: (.+)/i, ATTEMPT = /^(called|auto-dial: calling the lead)/i;
+  const isCallLog = r => /^called \(in-app dialer\)/i.test(r || "");
+  // only calls placed from the in-app dialer count. Its log lines read "Called (in-app dialer): 3:12" or "...: not connected"
+  const ATTEMPT = /^called \(in-app dialer\)/i, DIALRX = /^called \(in-app dialer\): (?:(\d+):(\d\d)|not connected)/i, minS = contactMinSecs(env);
+  const dsec = g => { const m = DIALRX.exec(g.reason || ""); return m && m[1] != null ? Number(m[1]) * 60 + Number(m[2]) : 0; };
+  const { results: msgs } = await env.DB.prepare("SELECT lead_id, direction, auto, at FROM messages WHERE lead_id IS NOT NULL ORDER BY id ASC LIMIT 80000").all();
+  const msgBy = new Map();
+  for (const m of msgs) { if (!msgBy.has(m.lead_id)) msgBy.set(m.lead_id, []); msgBy.get(m.lead_id).push(m); }
   const byLead = new Map();
   for (const g of logs) { if (!byLead.has(g.lead_id)) byLead.set(g.lead_id, []); byLead.get(g.lead_id).push(g); }
   const first = new Map();
@@ -4272,12 +4360,14 @@ async function speedRows(env) {
   const rows = leads.map(l => {
     let contact = "", by = "", how = "";
     const g = first.get(l.id);
-    if (l.type === "call" && l.answered === 1) { contact = l.created_at; how = "Answered live"; }
-    else if (g) { contact = g.at; by = g.by_user || ""; how = g.reason || ""; }
+    if (g) { const st = new Date(ms(g.at) - dsec(g) * 1000).toISOString().slice(0, 19).replace("T", " "); contact = ms(st) < ms(l.created_at) ? g.at : st; by = g.by_user || ""; how = "Called from the dialer"; }
+    else if (l.type === "call" && l.answered === 1) { contact = l.created_at; how = "Answered live"; }
     const t = etParts(l.created_at);
     const gl = byLead.get(l.id) || [];
-    const reachedLog = gl.find(g => REACHED.test(g.reason || ""));
-    const results = gl.map(g => { const m = RESULT.exec(g.reason || ""); return m ? { by: g.by_user || "", res: m[1] } : null; }).filter(Boolean);
+    const dl = gl.filter(g => ATTEMPT.test(g.reason || "")), reachedLog = dl.find(g => dsec(g) > minS);
+    const results = dl.map(g => ({ by: g.by_user || "", res: dsec(g) > minS ? "Answered" : dsec(g) ? "Short call" : "Not connected" }));
+    const ml = msgBy.get(l.id) || [], bk = gl.find(g => BOOKED.includes(g.to_stage)), cutAt = bk ? ms(bk.at) : Infinity;
+    const callsPre = dl.filter(g => ms(g.at) <= cutAt).length, textsPre = ml.filter(m => m.direction === "out" && ms(m.at) <= cutAt).length;
     const lostLog = [...gl].reverse().find(g => g.to_stage === "lost"), bookedLog = gl.find(g => BOOKED.includes(g.to_stage));
     const so = sourceOf(l);
     return {
@@ -4289,9 +4379,11 @@ async function speedRows(env) {
       service: l.service || "Not set", stage: l.stage, h: t.h, channel: l.utm_medium === "paid_social" ? "meta" : so.ad ? "google" : "", srckey: so.ad ? (l.utm_medium === "paid_social" ? "Meta Ads" : "Google Ads") + (l.utm_campaign ? " \u00b7 " + l.utm_campaign : "") : so.label,
       lost: l.stage === "lost" ? (lostLog && lostLog.reason && lostLog.reason !== "Moved" ? lostLog.reason : "No reason logged") : "",
       booked_days: bookedLog ? Math.max(0, (ms(bookedLog.at) - ms(l.created_at)) / 864e5) : null, qv: l.stage === "quoted" ? (l.value || 0) : 0,
-      outs: gl.filter(g => RESULT.test(g.reason || "")).map(g => ({ h: etParts(g.at).h, ok: /answered/i.test(g.reason || "") })),
-      attempts: gl.filter(g => ATTEMPT.test(g.reason || "")).length, to_reach: reachedLog ? Math.max(1, gl.slice(0, gl.indexOf(reachedLog) + 1).filter(g => ATTEMPT.test(g.reason || "")).length) : null, missed: gl.filter(g => /^agent missed the auto-dial/i.test(g.reason || "")).length, unrecorded: Math.max(0, gl.filter(g => /^called$/i.test(g.reason || "")).length - Math.max(0, results.length - gl.filter(g => /^called via callrail/i.test(g.reason || "")).length)), reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
-      after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && !["done", "lost"].includes(l.stage),
+      outs: dl.map(g => ({ h: etParts(g.at).h, ok: dsec(g) > minS })),
+      attempts: dl.length, to_reach: reachedLog ? dl.indexOf(reachedLog) + 1 : null, reached: !!reachedLog, reached_by: reachedLog ? reachedLog.by_user || "" : "", results,
+      calls: dl.length, texts_out: ml.filter(m => m.direction === "out").length, texts_auto: ml.filter(m => m.direction === "out" && m.auto).length, texts_in: ml.filter(m => m.direction === "in").length,
+      touches_pre: callsPre + textsPre, never_called: dl.length === 0, inbound: l.type === "call",
+      after: t.wd === "Sun" || t.h < 9 || t.h >= 18, open: !contact && l.type !== "call" && !["done", "lost"].includes(l.stage),
     };
   });
   return rows;
@@ -4329,7 +4421,7 @@ ${RANGE_HTML}
 <h2>How fast leads were called (number of leads)</h2><div class="chart" id="c1"></div>
 <h2>By person</h2><div class="who" id="w"></div>
 <h2>Every lead, newest first</h2><div class="list" id="l"></div>
-<p class="note">A lead's clock starts when the form is sent or the call comes in. It stops only when the lead is actually called: the first tap on a Call button, a logged call result (called, left a voicemail, spoke to the customer) or, later, the auto-dial reaching the lead. Texts, emails, the Contacted button and stage changes do not stop it. An answered inbound call counts as instant. Contact rate counts form leads only: after a Call tap the CRM asks whether the lead answered, and a lead counts as reached when someone answered (or the call result is logged as Spoke to the customer). Calls made from a phone without using the CRM buttons are not seen. Business hours are Mon to Sat, 9 AM to 6 PM Eastern.</p>
+<p class="note">A lead's clock starts when the form is sent. It stops when you place the first call from the dialer (the Call buttons in the Dial page and Pipeline both use it). Calls placed any other way, texts, emails and stage changes do not stop it. Leads who phoned you are left out of this page.</p>
 </main>
 <script type="application/json" id="data">${payload}</script>
 <script>
@@ -4341,7 +4433,7 @@ const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):null;
 const cls=s=>s==null?'':s<=300?'fast':s<=3600?'slow':'vslow';
 ${RANGE_JS}
 ${CHART_JS}
-function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null&&r.open),forms=L.filter(r=>r.type==='quote'),calledF=forms.filter(r=>r.secs!=null),reachedF=calledF.filter(r=>r.reached);
+function draw(){const L=pick().filter(r=>!r.inbound),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r.secs),wait=L.filter(r=>r.secs==null&&r.open),forms=L.filter(r=>r.type==='quote'),calledF=forms.filter(r=>r.secs!=null),reachedF=calledF.filter(r=>r.reached);
  const pct=t=>done.length?Math.round(100*secs.filter(x=>x<=t).length/done.length)+'%':'-';
  const now=Date.now(),waits=wait.map(r=>Math.round((now-new Date(r.created).getTime())/1000));
  document.getElementById('k').innerHTML=
@@ -4354,7 +4446,7 @@ function draw(){const L=pick(),done=L.filter(r=>r.secs!=null),secs=done.map(r=>r
   '<div class="kpi g"><b>'+(calledF.length?Math.round(100*reachedF.length/calledF.length)+'%':'-')+'</b><span>Contact rate: form leads reached &divide; form leads called</span></div>'+
   '<div class="kpi"><b>'+reachedF.length+' of '+calledF.length+'</b><span>Form leads reached (picked up) out of those called</span></div>'+
   '<div class="kpi"><b>'+(calledF.length?(calledF.reduce((a,r)=>a+Math.max(1,r.attempts),0)/calledF.length).toFixed(1):'-')+'</b><span>Calls per form lead</span></div>'+
-  '<div class="kpi '+(L.reduce((a,r)=>a+(r.missed||0),0)?'r':'')+'"><b>'+L.reduce((a,r)=>a+(r.missed||0),0)+'</b><span>Auto-dials the agent missed (see Missed dials)</span></div>';
+  '<div class="kpi"><b>'+L.reduce((a,r)=>a+(r.calls||0),0)+'</b><span>Dialer calls placed</span></div>';
  const BK=[['1 min',-1,60],['1&ndash;5 min',60,300],['5&ndash;15 min',300,900],['15&ndash;30 min',900,1800],['30&ndash;60 min',1800,3600],['1&ndash;2 hr',3600,7200],['2&ndash;4 hr',7200,14400],['4&ndash;24 hr',14400,86400],['24 hr +',86400,Infinity]];
  bars('c1',BK.map((b,i)=>{const n=done.filter(r=>r.secs>b[1]&&r.secs<=b[2]).length;return {l:b[0],v:n,t:n,s:done.length?Math.round(100*n/done.length)+'%':'',c:i<2?'':i<4?'mid':'low'}}).concat([{l:'Not called yet',v:wait.length,t:wait.length,s:'',c:'mute'}]));
  const by={};done.forEach(r=>{const k=r.by||(r.how==='Answered live'?'answered live':'not recorded');(by[k]=by[k]||[]).push(r.secs)});
@@ -4475,43 +4567,6 @@ ${leaks.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Reache
 }
 
 // Owner-only board: every auto-dial where the agent did not answer or did not press 1, and whether the lead was called afterwards
-async function missedPage(env, user) {
-  await ensureTable(env.DB);
-  const tc = await todayCount(env);
-  const miss = (await env.DB.prepare(`SELECT s.lead_id, s.at miss_at, s.by_user, l.name, l.phone, l.service, l.stage,
-      (SELECT MIN(x.at) FROM stage_log x WHERE x.lead_id = s.lead_id AND x.at > s.at AND (x.reason LIKE 'Called%' OR x.reason LIKE 'Call result:%' OR x.reason LIKE 'Left a voicemail%' OR x.reason LIKE 'Spoke to the customer%')) called_at
-    FROM stage_log s JOIN leads l ON l.id = s.lead_id
-    WHERE s.reason LIKE 'Agent missed the auto-dial%' AND COALESCE(l.ip,'') != 'demo' ORDER BY s.at DESC LIMIT 200`).all()).results || [];
-  const tot = (await env.DB.prepare("SELECT COUNT(*) n FROM dial_log d JOIN leads l ON l.id = d.lead_id WHERE d.source = 'auto' AND COALESCE(l.ip,'') != 'demo'").first() || {}).n || 0;
-  const ms = t => Date.parse(String(t).replace(" ", "T") + "Z");
-  const mins = r => r.called_at ? Math.max(0, Math.round((ms(r.called_at) - ms(r.miss_at)) / 60000)) : null;
-  const waiting = miss.filter(r => !r.called_at), later = miss.filter(r => r.called_at);
-  const lag = later.map(mins).sort((a, b) => a - b), med = lag.length ? lag[Math.floor(lag.length / 2)] : null;
-  const row = r => `<tr><td><a href="/admin/pipeline#id=${r.lead_id}">${esc(r.name || prettyPhone(r.phone))}</a><br><span class="note">${esc(prettyPhone(r.phone))}${r.service ? " &middot; " + esc(r.service) : ""}</span></td><td>${esc(when(r.miss_at).abs)}<br><span class="note">${esc(r.by_user || "")}</span></td><td>${r.called_at ? "Called " + mins(r) + " min later" : '<b style="color:#ff6b6b">Not called yet</b>'}</td><td>${esc(stageNameOf(r.stage))}</td></tr>`;
-  const stageNameOf = k => (STAGES.find(x => x[0] === k) || [k, k])[1];
-  const tbl = rs => rs.length ? `<div class="tbw"><table class="tb"><tr><th>Lead</th><th>Missed at</th><th>What happened next</th><th>Stage</th></tr>${rs.map(row).join("")}</table></div>` : '<p class="note">Nothing here.</p>';
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Missed dials | Divine Detailers</title>
-<style>
-*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
-header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
-h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
-main{max-width:1000px;margin:0 auto;padding:16px 22px 40px;display:flex;flex-direction:column;gap:18px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px}.kpi b{display:block;font-size:26px;line-height:1.15}.kpi span{color:#8a9099;font-size:12.5px}.kpi.g b{color:#32cd32}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:6px 0 0}.note{color:#7c838d;font-size:12.5px}
-.tbw{overflow-x:auto;background:#0d1116;border:1px solid #1d2229;border-radius:14px}.tb{width:100%;border-collapse:collapse}.tb th,.tb td{text-align:left;padding:10px 12px;border-bottom:1px solid #1b1f25;vertical-align:top}.tb th{color:#8a9099;font-size:12px;text-transform:uppercase;letter-spacing:.6px}.tb a{color:#32cd32;text-decoration:none;font-weight:600}
-${BNAV_CSS}
-@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}}
-</style></head><body>
-<header><h1>Divine Detailers <b>missed dials</b></h1>${nav("missed", tc, true)}</header>
-${bnav("missed", tc, true)}
-<main>
-<div class="kpis"><div class="kpi"><b>${tot}</b><span>auto-dials placed</span></div><div class="kpi ${miss.length ? "" : "g"}"><b>${miss.length}</b><span>missed by the agent${tot ? " (" + Math.round(miss.length * 100 / tot) + "%)" : ""}</span></div><div class="kpi ${waiting.length ? "" : "g"}"><b>${waiting.length}</b><span>still not called</span></div><div class="kpi"><b>${med === null ? "-" : med + " min"}</b><span>median time to call back</span></div></div>
-<h2>Missed and still not called</h2>${tbl(waiting)}
-<h2>Missed, then called later</h2>${tbl(later)}
-<p class="note">A dial is missed when the agent's phone was rung and nobody answered or pressed 1, so the lead was never called. The lead stays in the normal pipeline so it can still be worked. Only the owner login sees this page.</p>
-</main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-}
-
 async function ratePage(env, user) {
   const rows = await speedRows(env);
   const tc = await todayCount(env);
@@ -4591,6 +4646,8 @@ ${bnav("insights", tc, true)}
 ${RANGE_HTML}
 <div class="kpis" id="k"></div>
 <h2>Lead funnel<small>how many leads make it through each step</small></h2><div class="chart" id="fn"></div>
+<h2>Speed to lead vs closing<small>how fast the first dialer call went out, and how many of those leads booked</small></h2><div class="tbw"><table class="tb" id="spd"></table></div>
+<h2>Follow-up effort<small>calls from the dialer plus texts sent</small></h2><div class="kpis" id="eff"></div><div class="tbw"><table class="tb" id="tch"></table></div>
 <h2>Ad return<small>worked out for you from the leads, booked job values, and the ad spend and job costs entered at the bottom &middot; <a href="/admin/ads" style="color:#32cd32">Upload booked jobs to Google Ads</a></small></h2><div class="kpis" id="ads"></div><div class="tbw"><table class="tb" id="adt"></table></div>
 <h2>Where leads come from</h2><div class="tbw"><table class="tb" id="src"></table></div>
 <h2>Which services bring the money</h2><div class="tbw"><table class="tb" id="svc"></table></div>
@@ -4638,7 +4695,23 @@ function draw(){const L=pick(),S=stats(L),f=bounds()[0],t=bounds()[1];
  bars('hr',hrs.map((n,h)=>({l:lab(h),v:n,t:n||'',c:h>=9&&h<18?'':'mute'})));
  const outs=[].concat(...L.map(r=>r.outs||[])),bt=Array.from({length:24},(_,h)=>{const x=outs.filter(o=>o.h===h);return {h:h,n:x.length,a:x.filter(o=>o.ok).length}});
  const btItems=bt.filter(x=>x.n>0).map(x=>({l:lab(x.h),v:x.n>=3?Math.round(100*x.a/x.n):0,t:x.n>=3?Math.round(100*x.a/x.n)+'%':'-',s:x.a+' of '+x.n,c:x.n>=3?'':'mute',small:x.n<5}));
- document.getElementById('bt').innerHTML=btItems.length?'':'<div class="note" style="padding:14px">No call results logged in this range yet. Answer the popup after tapping Call and this fills in.</div>';if(btItems.length)bars('bt',btItems)}
+ document.getElementById('bt').innerHTML=btItems.length?'':'<div class="note" style="padding:14px">No dialer calls in this range yet.</div>';if(btItems.length)bars('bt',btItems);
+ // speed to lead vs closing: leads grouped by how fast the first dialer call went out
+ const FL=L.filter(r=>!r.inbound),SB=[['Within 5 min',0,300],['5-15 min',300,900],['15-60 min',900,3600],['1-4 hours',3600,14400],['4-24 hours',14400,86400],['Over 24 hours',86400,Infinity]];
+ const sr=SB.map(b=>{const x=FL.filter(r=>r.secs!=null&&r.secs>=b[1]&&(r.secs<b[2]||(b[2]===Infinity&&r.secs>=b[1])));const bk=x.filter(r=>r.booked);return [b[0],x.length,x.filter(r=>r.reached).length,bk.length,pc(bk.length,x.length),money(bk.reduce((a,r)=>a+(r.value||0),0))]});
+ const nc=FL.filter(r=>r.secs==null),ncb=nc.filter(r=>r.booked);sr.push(['Never called',nc.length,0,ncb.length,pc(ncb.length,nc.length),money(ncb.reduce((a,r)=>a+(r.value||0),0))]);
+ tbl('spd',['First dialer call','Leads','Reached','Booked','Booked rate','Revenue'],FL.length?sr:[]);
+ // touchpoints: dialer calls + texts sent
+ const T=r=>(r.calls||0)+(r.texts_out||0),bkd=FL.filter(r=>r.booked),avgT=a=>a.length?(a.reduce((x,r)=>x+T(r),0)/a.length).toFixed(1):'-',withT=FL.filter(r=>(r.texts_out||0)>0);
+ document.getElementById('eff').innerHTML='<div class="kpi g"><b>'+(bkd.length?(bkd.reduce((a,r)=>a+(r.touches_pre||0),0)/bkd.length).toFixed(1):'-')+'</b><span>Touchpoints before a booking (calls + texts, on average)</span></div>'
+  +'<div class="kpi"><b>'+avgT(FL)+'</b><span>Touchpoints per lead, all leads</span></div>'
+  +'<div class="kpi '+(FL.filter(r=>r.never_called).length?'r':'')+'"><b>'+FL.filter(r=>r.never_called).length+'</b><span>Leads never called ('+pc(FL.filter(r=>r.never_called).length,FL.length)+')</span></div>'
+  +'<div class="kpi"><b>'+pc(withT.filter(r=>(r.texts_in||0)>0).length,withT.length)+'</b><span>Texted leads who replied ('+withT.filter(r=>(r.texts_in||0)>0).length+' of '+withT.length+')</span></div>'
+  +'<div class="kpi"><b>'+(FL.filter(r=>r.calls>0).length?(FL.reduce((a,r)=>a+(r.calls||0),0)/FL.filter(r=>r.calls>0).length).toFixed(1):'-')+'</b><span>Dialer calls per lead called</span></div>'
+  +'<div class="kpi"><b>'+FL.reduce((a,r)=>a+(r.texts_out||0),0)+' / '+FL.reduce((a,r)=>a+(r.texts_in||0),0)+'</b><span>Texts sent / replies received</span></div>';
+ const TB=[['0 (none)',0,0],['1',1,1],['2',2,2],['3-4',3,4],['5-7',5,7],['8 or more',8,Infinity]];
+ tbl('tch',['Touchpoints so far','Leads','Booked','Booked rate'],FL.length?TB.map(b=>{const x=FL.filter(r=>T(r)>=b[1]&&T(r)<=b[2]),k=x.filter(r=>r.booked).length;return [b[0],x.length,k,pc(k,x.length)]}):[]);
+}
 function drawSpend(){const ms=[];let d=TODAY.slice(0,7);for(let i=0;i<6;i++){ms.push(d);const dd=dt(d+'-01');dd.setUTCMonth(dd.getUTCMonth()-1);d=ds(dd).slice(0,7)}
  for(const [id,ch] of [['sp','google'],['spm','meta']])document.getElementById(id).innerHTML=ms.map(m=>'<div><label>'+dt(m+'-01').toLocaleDateString('en-US',{timeZone:'UTC',month:'long',year:'numeric'})+'</label><input type="number" min="0" step="1" inputmode="numeric" data-m="'+m+'" data-ch="'+ch+'" value="'+((SP[ch]||{})[m]||'')+'" placeholder="$0"></div>').join('');
  const svc=[...new Set((D.services||[]).concat(R.map(r=>r.service).filter(x=>x&&x!=='Not set')))];
@@ -4840,7 +4913,7 @@ async function adminRoute(p, request, env) {
   }
   if (p === "/admin/ads") return a === OWNER ? adsPage(env, a, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
-  if (p === "/admin/missed") return a === OWNER ? missedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
   if (p === "/admin/testalert" && request.method === "POST") return testAlert(request, env);
