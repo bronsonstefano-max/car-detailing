@@ -2970,7 +2970,7 @@ function drawLead(){const l=Q[ix];const box=el('lead');
    +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
    +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
    +'<div class="bar"><a class="btn sm" href="/admin/pipeline#id='+l.id+'" style="text-decoration:none;display:inline-flex;align-items:center">Open lead / book</a></div>';
-  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh=''}
+  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};LH={};LH={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh=''}
   sk=svcOf(l);{const sv=gsvc(l);if(sv&&GS[sv]===undefined)gLoad(sv).then(()=>{if(Q[ix]===l){drawScript();drawBrief(l)}})}
   drawScript();drawBrief(l);drawCtl()}
 function drawCtl(){setMode();drawQ();syncCb();const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
@@ -2999,7 +2999,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};LH={};LH={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;const l=Q[ix];made++;if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
@@ -3105,14 +3105,15 @@ function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||''
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
 function gLines(sc,l,svc){const out=[];sc.steps.forEach((s,si)=>{if(!s.n)return;(s.main||[]).forEach(n=>{if(n.k!=='say')return;(n.ps||[]).forEach((p,pi)=>{if(p.t&&!p.note&&!/^if\\b/i.test(p.sub||''))out.push({si:si,sid:s.id,k:s.id+'.'+out.length,t:gplain(p.t,l,svc)})})})});return out}
 function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<1)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
-  L.forEach((x,j)=>{const set=new Set(words(x.t));if(!set.size)return;const hit=w.filter(y=>set.has(y)).length,need=set.size===1?1:set.size<=3?2:3,r=hit/Math.min(set.size,Math.max(w.length,2));if(set.size===1&&w.length>4)return;if(hit>=need&&r>=0.5&&r>bs){bs=r;best=j}});
+  L.forEach((x,j)=>{const set=new Set(words(x.t));if(!set.size)return;const hs=w.filter(y=>set.has(y)),hit=hs.length,need=set.size===1?1:set.size<=3?2:3;if(set.size===1&&w.length>4)return;if(hit<need||hit/Math.max(w.length,2)<0.5)return;
+    const acc=LH[x.k]||(LH[x.k]=new Set());hs.forEach(y=>acc.add(y));const r=acc.size/set.size;if(r>=(set.size<=3?1:0.7)&&r>bs){bs=r;best=j}});
   if(best>=0){const m=L[best];lastSaid={k:m.k,sid:m.sid,t:m.t,at:Date.now()};L.forEach((x,j)=>{if(x.si===m.si&&j<=best)SAID[x.k]=1});if(L.filter(x=>x.si===m.si).every(x=>SAID[x.k]))COV[m.sid]=1;const mv=m.si!==gi;if(mv)gi=m.si;gMark(mv)}}
 // the line the rep should say next: the first line, at or after the current step, that has not been said or already covered by what the lead told us
 function gNextLine(){const sc=gScript(),l=Q[ix];if(!sc||!l)return null;const svc=gsvc(l),L=gLines(sc,l,svc),open=L.filter(x=>!SAID[x.k]&&!COV[x.sid]);if(!open.length)return{done:true};return open.find(x=>x.si>=gi)||open[0]}
 function sendPos(nl){const t=nl&&nl.t?nl.t:'';if(t===lastPos||!cws||cws.readyState!==1)return;lastPos=t;try{const sc=gScript(),s=nl&&sc?sc.steps[nl.si]:null;cws.send(JSON.stringify({type:'pos',next:t,step:s?s.n+' '+topicOf(gsvc(Q[ix]),s):''}))}catch(_){}}
 const TOPIC={tint:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle',s07:'Windows',s08:'Current tint',s09:'Main goal',s10:'Darkness',s11:'Other shops',s12:'Recap',s13:'Process',s14:'Questions',s15:'Why us',s16:'Questions',s17:'Timing',s18:'Price',s19:'Book the day',s20:'Contact info',s21:'Deposit',s22:'Referral',s23:'Wrap up'},
  coating:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle & color',s07:'Paint condition',s08:'What they know',s09:'Storage & washing',s10:'How long keeping',s11:'Past coatings',s12:'Recap',s13:'The prep',s14:'Questions',s15:'The coating',s16:'Questions',s17:'Free add ons',s18:'Timing',s19:'Price',s20:'Book the day',s21:'Contact info',s22:'Deposit',s23:'Wrap up'}};
-let COV={},gOpenPh='',SAID={},lastPos='',lastSaid=null,priceAt=0,depAsked=false,sigAt=0;
+let COV={},gOpenPh='',SAID={},LH={},lastPos='',lastSaid=null,priceAt=0,depAsked=false,sigAt=0;
 const topicOf=(svc,s)=>(TOPIC[svc]&&TOPIC[svc][s.id])||s.tag||s.id;
 function gCov(m){m=m||COV;const l=Q[ix],svc=gsvc(l),F=FACTS;if(!svc)return;if(vehOf(l))m.s06=1;
   if(svc==='tint'){if(F.windows)m.s07=1;if(F.goals.length)m.s09=1;if(F.shade)m.s10=1;if(F.time)m.s17=1}
@@ -3356,7 +3357,8 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
 const PRICE_RX=/\\$\\s?\\d|\\b\\d{3}\\s?dollars|\\b(two|three|four|five|six|seven)\\s+(ninety|seventy|eighty|sixty|fifty|forty|thirty|twenty)\\b|out the door|the price is/i,DEP_RX=/deposit|debit or credit|payment link|secure link|apple pay|card (over|by) the phone/i,SIG_RX=/(sounds? (good|great|fair)|that works|that.?s fair|not bad|let.?s do it|i want to (get|do|book)|how (do|can) i (pay|book)|when can (you|i)|what (days|times) do you have|go ahead|sounds like a plan)/i;
-function nudgeNote(who,text){if(who==='rep'){if(!priceAt&&PRICE_RX.test(text))priceAt=Date.now();if(DEP_RX.test(text)){depAsked=true;nudgeCheck()}}else if(priceAt&&!depAsked&&SIG_RX.test(text))sigAt=Date.now()}
+function priceStep(){const sc=gScript(),l=Q[ix],st=sc&&sc.steps[gi];return !!(st&&l&&topicOf(gsvc(l),st)==='Price')}
+function nudgeNote(who,text){if(who==='rep'){if(!priceAt&&PRICE_RX.test(text)&&priceStep())priceAt=Date.now();if(DEP_RX.test(text)){depAsked=true;nudgeCheck()}}else if(priceAt&&!depAsked&&SIG_RX.test(text))sigAt=Date.now()}
 function nudgeCheck(){const box=el('nudge');if(!box)return;if(state!=='live'||depAsked||!priceAt){box.hidden=true;return}
   const now=Date.now(),sc=gScript(),l=Q[ix],nl=sc?gNextLine():null,s=nl&&!nl.done?sc.steps[nl.si]:null,tp=s&&l?topicOf(gsvc(l),s):'';
   if(/^(Book the day|Contact info|Deposit|Referral|Wrap up)$/.test(tp)){box.hidden=true;return}
@@ -3384,7 +3386,7 @@ async function prMenu(){if(state==='live'||state==='connecting')return;const d=e
 function startPractice(svc,level){if(state==='live'||state==='connecting')return;el('prdlg').close();
   practiceOn=true;prSvc=svc;prLevel=level;prSaid=false;const pl={id:0,practice:true,name:'Practice caller',phone:'',service:svc==='tint'?'Window Tint':'Ceramic Coating',year:'',make:'',model:'',stage:'new',created_at:new Date().toISOString(),message:''};
   Q.splice(ix,0,pl);INFO[0]={lead:pl,facts:{attempts:0,talkSecs:0,connected:0},notes:[],calls:[],texts:[],activity:[]};
-  sid='PR'+Array.from(crypto.getRandomValues(new Uint8Array(12))).map(x=>('0'+x.toString(16)).slice(-2)).join('');state='live';t0=Date.now();muted=false;el('after').hidden=true;setSt('Practice','warn');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';
+  sid='PR'+Array.from(crypto.getRandomValues(new Uint8Array(12))).map(x=>('0'+x.toString(16)).slice(-2)).join('');state='live';t0=Date.now();muted=false;el('after').hidden=true;setSt('Practice','warn');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};LH={};LH={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';
   drawLead();drawScript();drawQ();coachStart(sid,{svc:svc,level:level});clearInterval(tmr);tmr=setInterval(tick,500);drawCtl();el('pbar').hidden=false;setTimeout(()=>{const i=el('pin');if(i)i.focus()},400)}
 function endPractice(){if(!practiceOn||prSaid)return;prSaid=true;const sc=gScript(),l=Q[ix],cov=sc&&l?sc.steps.filter(s=>COV[s.id]).map(s=>s.n+' '+topicOf(gsvc(l),s)):[];
   try{cws.send(JSON.stringify({type:'practice_end',covered:cov}))}catch(_){}
