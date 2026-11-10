@@ -93,6 +93,8 @@ async function ensureTableRun(db) {
       db.prepare("UPDATE leads SET stage = 'contacted' WHERE contacted = 1"),
     ]);
   }
+  if (!cols.includes("tags")) await db.prepare("ALTER TABLE leads ADD COLUMN tags TEXT NOT NULL DEFAULT ''").run();
+  if (!cols.includes("starred")) await db.prepare("ALTER TABLE leads ADD COLUMN starred INTEGER NOT NULL DEFAULT 0").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS call_notes (call_id TEXT PRIMARY KEY, lead_id INTEGER, direction TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), summary TEXT, transcript TEXT, keys TEXT, tries INTEGER NOT NULL DEFAULT 0, next_try TEXT, done INTEGER NOT NULL DEFAULT 0)").run();
   const dcols = (await db.prepare("PRAGMA table_info(dial_log)").all()).results.map(c => c.name);
   if (dcols.length && !dcols.includes("attempt")) await db.batch([db.prepare("ALTER TABLE dial_log ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"), db.prepare("ALTER TABLE dial_log ADD COLUMN retried INTEGER NOT NULL DEFAULT 0")]);
@@ -190,6 +192,10 @@ async function ensureTableRun(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_leads_call_id ON leads(call_id)"),
   ]);
+  await db.prepare("ALTER TABLE dial_calls ADD COLUMN from_num TEXT").run().catch(() => {});
+  await db.prepare("ALTER TABLE messages ADD COLUMN from_num TEXT").run().catch(() => {});
+  await db.prepare("ALTER TABLE messages ADD COLUMN err TEXT").run().catch(() => {});
+  await db.prepare("CREATE TABLE IF NOT EXISTS number_health (num TEXT PRIMARY KEY, level INTEGER NOT NULL DEFAULT 0, at TEXT)").run();
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
@@ -1379,11 +1385,11 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  const ins = on === "insights" || on === "speed" || on === "rate", t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
-  return `<nav class="navtabs">${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
+  const ins = ["insights", "speed", "rate", "msgstats", "dials", "meta", "numbers"].includes(on), t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
+  return `<nav class="navtabs">${owner ? t("/admin/dashboard", "dashboard", "Dashboard") : ""}${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
 }
 // one Insights section: overview, speed to lead and contact rate share this tab bar
-const insightTabs = on => `<div class="itabs"><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Overview</a><a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed to lead</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/ads" class="${on === "ads" ? "on" : ""}">Google Ads upload</a></div>`;
+const insightTabs = on => `<div class="itabs">${[["insights", "/admin/insights", "Overview"], ["meta", "/admin/meta", "Meta Ads"], ["dials", "/admin/dials", "Dials"], ["numbers", "/admin/numbers", "Number health"], ["speed", "/admin/speed", "Speed to lead"], ["rate", "/admin/rate", "Contact rate"], ["msgstats", "/admin/msgstats", "Messages"], ["ads", "/admin/ads", "Google Ads upload"]].map(([k, h, l]) => `<a href="${h}" class="${on === k ? "on" : ""}">${l}</a>`).join("")}</div>`;
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
   const ic = {
@@ -1401,10 +1407,10 @@ function bnav(on, n = 0, owner = false) {
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
   };
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
-  const moreKeys = ["speed", "rate", "insights", "calendar", "automations", "dialer"];
+  const moreKeys = ["speed", "rate", "msgstats", "dials", "meta", "numbers", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dashboard", "dashboard", "Dashboard", ic.rate)}${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Reports", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -1419,7 +1425,12 @@ async function todayCount(env) {
     return r ? r.n : 0;
   } catch { return 0; }
 }
-const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0}.itabs a{color:#9aa1ab;text-decoration:none;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid #232932;background:#0d1116}.itabs a.on{background:#112417;border-color:#1f6a37;color:#32cd32}@media(max-width:700px){.itabs{padding:10px 14px 0}}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+const BNAV_CSS = `/* Divine Detailers design system: dark tokens shared by every page */
+:root{--bg:#07090c;--bg2:#0a0d11;--panel:#0d1116;--panel2:#10151b;--line:#1b2128;--line2:#232b34;--text:#e8eaed;--mut:#8a939e;--dim:#6b727c;--accent:#32cd32;--accent2:#4fdc5a;--accent-bg:#0f2c18;--accent-line:#1f6a37;--warn:#ffb86b;--bad:#ff7a7a;--info:#8ec0ff;--r:14px}
+html{scrollbar-color:#2a323b #0a0d11;scrollbar-width:thin}::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#242c35;border-radius:8px;border:2px solid #0a0d11}::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid #32cd32;outline-offset:2px}::selection{background:#1f6a37;color:#fff}button,a{-webkit-tap-highlight-color:transparent}select,input,textarea{color-scheme:dark}
+header{border-bottom-color:var(--line)!important}
+article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0;max-width:1100px;margin:0 auto}.itabs a{color:#9aa1ab;text-decoration:none;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid #232932;background:#0d1116}.itabs a.on{background:#112417;border-color:#1f6a37;color:#32cd32}@media(max-width:700px){.itabs{padding:10px 14px 0}}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(min-width:1024px){
   body{padding-left:228px}
   .navtabs{position:fixed;left:0;top:0;bottom:0;width:228px;z-index:25;display:flex!important;flex-direction:column;flex-wrap:nowrap!important;gap:2px!important;padding:74px 12px 16px;background:#090c10;border-right:1px solid #1d2229;overflow-y:auto}
@@ -1930,7 +1941,7 @@ async function sendLeadText(env, lead, body, { user = "system", auto = false, la
   const status = ok ? String(j.status || "queued") : "failed";
   const reason = auto ? `Texted: ${label || "Auto text"} (auto)` : `Texted: Message: ${body.slice(0, 80)}`;
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO messages (lead_id, phone, direction, body, status, sid, by_user, auto, is_read) VALUES (?,?,?,?,?,?,?,?,1)").bind(lead.id, to, "out", body, status, ok ? j.sid : "", user, auto ? 1 : 0),
+    env.DB.prepare("INSERT INTO messages (lead_id, phone, direction, body, status, sid, by_user, auto, is_read, from_num, err) VALUES (?,?,?,?,?,?,?,?,1,?,?)").bind(lead.id, to, "out", body, status, ok ? j.sid : "", user, auto ? 1 : 0, normNum(env.TWILIO_FROM) || null, ok ? null : String(j.code || "").slice(0, 12) || null),
     ...(ok ? [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, ? FROM leads WHERE id = ?").bind(reason, user, lead.id)] : []),
   ]);
   return ok ? { ok: true } : { ok: false, message: String(j.message || "Twilio refused the text.").slice(0, 200) };
@@ -1979,7 +1990,7 @@ async function handleTwilioStatus(request, env) {
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
   if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
   const sid = String(params.MessageSid || params.SmsSid || ""), st = String(params.MessageStatus || params.SmsStatus || "");
-  if (sid && st) await env.DB.prepare("UPDATE messages SET status = ? WHERE sid = ? AND direction = 'out'").bind(st.slice(0, 20), sid).run();
+  if (sid && st) await env.DB.prepare("UPDATE messages SET status = ?, err = COALESCE(NULLIF(?, ''), err) WHERE sid = ? AND direction = 'out'").bind(st.slice(0, 20), String(params.ErrorCode || "").slice(0, 12), sid).run();
   return twiml();
 }
 const isoUtc = t => String(t || "").replace(" ", "T") + "Z";
@@ -1991,7 +2002,7 @@ async function messageThreads(env, url) {
     const rs = (await env.DB.prepare("SELECT id, name, phone, service, stage FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND COALESCE(phone,'') != '' AND (name LIKE ? OR phone LIKE ?) ORDER BY id DESC LIMIT 15").bind(like, "%" + (dg.length >= 3 ? dg : "@@none@@") + "%").all()).results || [];
     return json({ success: true, found: rs });
   }
-  const rs = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.stage,
+  const rs = (await env.DB.prepare(`SELECT l.id, l.name, l.phone, l.service, l.stage, l.starred, l.tags, l.value,
       (SELECT body FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_body,
       (SELECT direction FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_dir,
       (SELECT at FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_at,
@@ -2003,83 +2014,728 @@ async function messageThread(env, url) {
   await ensureTable(env.DB);
   const id = Number(url.searchParams.get("id"));
   if (!Number.isInteger(id)) return json({ success: false }, 400);
-  const lead = await env.DB.prepare("SELECT id, name, phone, service, stage, year, make, model FROM leads WHERE id = ?").bind(id).first();
+  const lead = await env.DB.prepare("SELECT id, name, phone, email, service, stage, year, make, model, value, appt_at, follow_up, follow_up_date, created_at, utm_medium, utm_campaign, tags, starred FROM leads WHERE id = ?").bind(id).first();
   if (!lead) return json({ success: false }, 404);
   await env.DB.prepare("UPDATE messages SET is_read = 1 WHERE lead_id = ? AND direction = 'in' AND is_read = 0").bind(id).run();
-  const ms = (await env.DB.prepare("SELECT id, direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 300").bind(id).all()).results || [];
-  return json({ success: true, lead, on: twilioOn(env), optout: await isOptedOut(env, lead.phone), messages: ms.reverse().map(m => ({ ...m, at: isoUtc(m.at) })) });
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const ms = await q("SELECT id, direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 300", id);
+  // calls (dialer calls matched to their recording), notes, call results and stage moves share one timeline with the texts
+  const calls = await q("SELECT call_sid, started_at, duration, by_user FROM dial_calls WHERE lead_id = ? ORDER BY id DESC LIMIT 60", id);
+  const recs = await q("SELECT call_id, direction, url, duration, at FROM call_recordings WHERE lead_id = ? AND url != '' ORDER BY at DESC LIMIT 60", id);
+  const logs = await q("SELECT from_stage, to_stage, reason, by_user, at FROM stage_log WHERE lead_id = ? ORDER BY id DESC LIMIT 150", id);
+  const t2 = x => Date.parse(String(x).replace(" ", "T") + "Z"), used = new Set(), events = [];
+  for (const c of calls) {
+    let best = -1, bd = 9e15; recs.forEach((r, i) => { if (used.has(i)) return; const d = Math.abs(t2(r.at) - t2(c.started_at)); if (d < bd) { bd = d; best = i; } });
+    const rec = best >= 0 && bd < 900000 ? (used.add(best), recs[best]) : null;
+    events.push({ kind: "call", at: isoUtc(c.started_at), dur: c.duration || 0, by: c.by_user || "", url: rec ? rec.url : "", dir: "out" });
+  }
+  recs.forEach((r, i) => { if (!used.has(i)) events.push({ kind: "call", at: isoUtc(r.at), dur: r.duration || 0, by: "", url: r.url, dir: r.direction === "inbound" ? "in" : "out" }); });
+  for (const g of logs) {
+    const r = g.reason || "";
+    if (/^called \(in-app dialer\)/i.test(r) || /^texted/i.test(r)) continue;
+    if (/^note:/i.test(r)) events.push({ kind: "note", at: isoUtc(g.at), text: r.replace(/^note:\s*/i, ""), by: g.by_user || "" });
+    else if (/^call result:/i.test(r)) events.push({ kind: "result", at: isoUtc(g.at), text: r.replace(/^call result:\s*/i, ""), by: g.by_user || "" });
+    else if (g.to_stage !== g.from_stage) events.push({ kind: "stage", at: isoUtc(g.at), text: "Moved to " + stageName(g.to_stage), by: g.by_user || "" });
+  }
+  const notes = (await callNotes(env, id).catch(() => [])).filter(n => n.summary).slice(0, 3);
+  return json({ success: true, lead: { ...lead, tags: String(lead.tags || "").split(",").filter(Boolean), stage_label: stageName(lead.stage), created_at: isoUtc(lead.created_at) }, on: twilioOn(env), optout: await isOptedOut(env, lead.phone), messages: ms.reverse().map(m => ({ ...m, at: isoUtc(m.at) })), events, notes });
 }
 async function messagesPage(env, user) {
   await ensureTable(env.DB);
   const tc = await todayCount(env), owner = user === OWNER;
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Messages | Divine Detailers</title>
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">${PWA_HEAD}<title>Conversations | Divine Detailers</title>
 <style>
-*{box-sizing:border-box}html,body{height:100%}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed;display:flex;flex-direction:column}
+*{box-sizing:border-box}html,body{height:100%}body{font:14.5px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed);display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid #1b1f25}
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
-.app{flex:1;min-height:0;display:grid;grid-template-columns:330px 1fr}
-.list{border-right:1px solid #1b1f25;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
-.fl{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid #1b1f25;flex-wrap:wrap}.fl select{flex:1 1 90px;min-width:0;background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:9px;padding:7px 8px;font:inherit;font-size:13px;color-scheme:dark}.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
-.th{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #151a21;color:inherit;font:inherit;padding:12px 14px;cursor:pointer}.th.on{background:#10151b}
-.th b{display:flex;justify-content:space-between;gap:8px}.th small{color:#7c838d;font-weight:400;white-space:nowrap}.th p{margin:3px 0 0;color:#98a0aa;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.un{background:#32cd32;color:#04120a;border-radius:999px;font-size:11px;font-weight:800;padding:1px 7px;margin-left:6px}
-.pane{display:flex;flex-direction:column;min-height:0;min-width:0}
-.ph{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #1b1f25}.ph .t{flex:1;min-width:0}.ph .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ph .t span{color:#7c838d;font-size:13px}
-.bk{display:none;background:#151a21;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer}
-.ph a.c{border:1px solid #2a313a;background:#151a21;color:#e8eaed;text-decoration:none;border-radius:10px;padding:9px 12px;font-weight:700}
-.msgs{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;-webkit-overflow-scrolling:touch}
-.m{max-width:min(78%,520px);padding:9px 12px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}.m.out{align-self:flex-end;background:#32cd32;color:#04120a;border-bottom-right-radius:5px}.m.in{align-self:flex-start;background:#1a2027;border-bottom-left-radius:5px}
-.mt{font-size:11.5px;color:#7c838d;margin:-4px 4px 2px}.mt.out{align-self:flex-end}.mt.in{align-self:flex-start}
+.app{flex:1;min-height:0;display:grid;grid-template-columns:350px minmax(0,1fr) 330px}.app.noinfo{grid-template-columns:350px minmax(0,1fr)}
+.list{border-right:1px solid var(--line,#1b2128);min-height:0;display:flex;flex-direction:column;background:#090c10}
+.lh{padding:14px 16px 6px;display:flex;align-items:center;justify-content:space-between}.lh b{font-size:16px}
+.tb{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:6px 10px 10px;border-bottom:1px solid var(--line,#1b2128)}
+.tb button{background:none;border:0;color:#8a939e;font:inherit;font-size:12.5px;font-weight:650;padding:8px 2px;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}.tb button i{font-style:normal;font-size:11px;min-width:20px;border-radius:999px;background:#151b22;color:#aab0b9;padding:1px 6px}
+.tb button.on{background:#0f2c18;color:#4fdc5a}.tb button.on i{background:#1f6a37;color:#eafbea}.tb button.hot i{background:#2f7bff;color:#fff}
+.sr{padding:10px 10px 0}.sr input{width:100%;background:#0d1217;border:1px solid #1d252e;color:#fff;border-radius:11px;padding:10px 12px;font:inherit;font-size:14px}
+.fl{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line,#1b2128)}.fl select{flex:1 1 0;min-width:0;background:#0d1217;border:1px solid #1d252e;color:#aab0b9;border-radius:9px;padding:6px 8px;font:inherit;font-size:12.5px;color-scheme:dark}
+.tl{overflow-y:auto;flex:1;min-height:0}
+.th{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:2px 11px;align-items:center;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #12171d;color:inherit;font:inherit;padding:12px 14px;cursor:pointer;border-left:3px solid transparent}
+.th:hover{background:#0d1217}.th.on{background:#0f1a14;border-left-color:#32cd32}
+.av{width:40px;height:40px;border-radius:50%;background:linear-gradient(145deg,#1b5d30,#0f3a1f);color:#c9f7c9;font-weight:800;display:grid;place-items:center;font-size:14px;grid-row:1/3}
+.th .nm{display:flex;align-items:center;gap:6px;min-width:0;font-weight:650}.th .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.th .tm{color:#7c838d;font-size:11.5px;white-space:nowrap;text-align:right}
+.th .sn{grid-column:2/3;color:#8f98a3;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.th .rt{grid-column:3;grid-row:2;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.th.unr .nm{color:#fff}.th.unr .sn{color:#cfd6de}.un{background:#2f7bff;color:#fff;border-radius:999px;font-size:11px;font-weight:800;min-width:19px;text-align:center;padding:1px 6px}
+.st{background:none;border:0;color:#4b5560;font-size:16px;cursor:pointer;padding:0;line-height:1}.st.on{color:#ffcc4d}.st:hover{color:#ffcc4d}
+.pane{display:flex;flex-direction:column;min-height:0;min-width:0;background:#0a0d11}
+.ph{display:flex;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line,#1b2128);background:#0b0f13}.ph .t{flex:1;min-width:0}.ph .t b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ph .t span{color:#7c838d;font-size:12.5px}
+.bk{display:none;background:#151a21;border:1px solid #2a313a;color:#e8eaed;border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+.ib{border:1px solid #232b34;background:#10151b;color:#cfd6de;text-decoration:none;border-radius:10px;padding:8px 12px;font:inherit;font-size:13.5px;font-weight:650;cursor:pointer;display:inline-flex;align-items:center;gap:6px}.ib:hover{border-color:#34404c;color:#fff}.ib.g{background:#32cd32;border-color:#32cd32;color:#04120a}.ib.on{color:#ffcc4d;border-color:#5a4a1f}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:16px 22px;display:flex;flex-direction:column;gap:7px;-webkit-overflow-scrolling:touch}
+.dv{align-self:center;margin:10px 0 4px;font-size:12px;color:#7c838d;background:#0f141a;border:1px solid #1b2128;border-radius:999px;padding:3px 14px}
+.m{max-width:min(72%,560px);padding:9px 13px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}.m.out{align-self:flex-end;background:#16452a;color:#eafbea;border-bottom-right-radius:5px}.m.in{align-self:flex-start;background:#18202a;border-bottom-left-radius:5px}
+.mt{font-size:11.5px;color:#6f7782;margin:-3px 6px 3px}.mt.out{align-self:flex-end}.mt.in{align-self:flex-start}
+.cc{align-self:center;width:min(92%,520px);background:#0e151b;border:1px solid #1f2b35;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:7px}.cc .h{display:flex;align-items:center;gap:9px;font-weight:650}.cc .h svg{width:18px;height:18px;stroke:#4fdc5a;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.cc small{color:#7c838d;font-weight:400}.cc audio{width:100%;height:36px;color-scheme:dark}
+.ev{align-self:center;font-size:12.5px;color:#9fe29f;background:#0d1c13;border:1px solid #1b3a26;border-radius:999px;padding:4px 13px;display:flex;gap:8px}.ev small{color:#6f7782}.ev.stage{color:#aab0b9;background:#10151b;border-color:#1f2830}
+.nt{align-self:center;width:min(92%,520px);background:#1b1708;border:1px solid #3a3213;border-radius:12px;padding:8px 13px;color:#ecd9a0;font-size:13.5px;white-space:pre-wrap}.nt small{display:block;color:#8a7d4a;margin-bottom:2px}
 .empty{margin:auto;color:#7c838d;text-align:center;padding:20px}
-.cmp{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid #1b1f25;align-items:flex-end}
-.cmp textarea{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:14px;padding:11px 13px;font:inherit;font-size:16px;resize:none;max-height:140px;min-height:44px}
-.cmp button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 18px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp button:disabled{opacity:.4}
-.warn{background:#2a1d0e;color:#ffb86b;padding:10px 14px;font-size:14px;border-bottom:1px solid #3a2a14}.err{color:#ff8a8a;padding:0 14px 6px;font-size:13.5px;min-height:0}
+.cmp{display:flex;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line,#1b2128);align-items:flex-end;background:#0b0f13}
+.cmp textarea{flex:1;min-width:0;background:#0d1217;border:1px solid #1d252e;color:#fff;border-radius:14px;padding:11px 13px;font:inherit;font-size:15px;resize:none;max-height:140px;min-height:44px}
+.cmp button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 20px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp button:disabled{opacity:.4}
+.warn{background:#2a1d0e;color:#ffb86b;padding:10px 16px;font-size:13.5px;border-bottom:1px solid #3a2a14}.err{color:#ff8a8a;padding:0 16px 6px;font-size:13px;min-height:0}
+.info{border-left:1px solid var(--line,#1b2128);overflow-y:auto;min-height:0;background:#090c10;padding:16px;display:flex;flex-direction:column;gap:14px}.info[hidden]{display:none}
+.ic0{display:flex;gap:12px;align-items:center}.ic0 .av{width:52px;height:52px;font-size:18px;grid-row:auto}.ic0 b{display:block;font-size:17px}.ic0 span{color:#7c838d;font-size:12.5px}
+.sec{background:#0d1217;border:1px solid #181f27;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}.sec h4{margin:0;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#7c838d}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:6px 10px;font-size:13.5px}.kv span{color:#7c838d}.kv b{font-weight:600;overflow-wrap:anywhere}.kv a{color:#8ec0ff;text-decoration:none}
+.tg{display:flex;flex-wrap:wrap;gap:6px}.tg span{display:inline-flex;align-items:center;gap:5px;background:#142029;border:1px solid #20323f;color:#b9d7ee;border-radius:999px;padding:3px 6px 3px 11px;font-size:12.5px}.tg span button{background:none;border:0;color:#6f8aa0;cursor:pointer;font-size:14px;padding:0 3px;line-height:1}
+.tg input{background:#0b1015;border:1px dashed #2a3642;color:#fff;border-radius:999px;padding:4px 11px;font:inherit;font-size:12.5px;width:110px}
+.sm{font-size:13px;color:#cfd6de;white-space:pre-wrap}.sm small{display:block;color:#6f7782;margin-bottom:2px}
+.pill2{display:inline-block;background:#0f2c18;color:#4fdc5a;border:1px solid #1f6a37;border-radius:999px;padding:2px 11px;font-size:12px;font-weight:700}
 ${BNAV_CSS}
-@media(max-width:700px){header{padding:10px 14px}h1{font-size:17px}.app{grid-template-columns:1fr}.pane{display:none}.app.open .list{display:none}.app.open .pane{display:flex}.bk{display:block}.m{max-width:86%}}
+@media(max-width:1279px){.app{grid-template-columns:330px minmax(0,1fr)}.info{position:fixed;top:0;right:0;bottom:0;width:min(360px,100vw);z-index:40;box-shadow:-20px 0 60px rgba(0,0,0,.6)}}
+@media(max-width:700px){header{padding:10px 14px}h1{font-size:17px}.app,.app.noinfo{grid-template-columns:1fr}.pane{display:none}.app.open .list{display:none}.app.open .pane{display:flex}.bk{display:block}.m{max-width:86%}.msgs{padding:12px}.th{padding:13px 12px}}
 </style></head><body>
-<header><h1>Divine Detailers <b>messages</b></h1>${nav("messages", tc, owner)}</header>
+<header><h1>Divine Detailers <b>conversations</b></h1>${nav("messages", tc, owner)}</header>
 ${bnav("messages", tc, owner)}
-<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div class="fl" id="fl"></div><div id="tl"></div></div>
-<div class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></div></div>
+<div class="app noinfo" id="app"><aside class="list"><div class="lh"><b>Team inbox</b></div><div class="tb" id="tb"></div><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div class="fl" id="fl"></div><div class="tl" id="tl"></div></aside>
+<section class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></section>
+<aside class="info" id="info" hidden></aside></div>
 <script>
+const IS_OWNER=${owner};
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=document.getElementById('pane'),q=document.getElementById('q');
-let cur=null,on=true,busy=false,lastSig='';
-function ago(iso){const d=new Date(iso),n=Date.now(),s=Math.max(0,(n-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
-function nm(l){return l.name||l.phone||'Lead'}
-let TH=[],FL={sort:'recent',show:'all',svc:'all'};try{Object.assign(FL,JSON.parse(localStorage.getItem('mf')||'{}'))}catch(_){}
+const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=document.getElementById('pane'),q=document.getElementById('q'),info=document.getElementById('info');
+let cur=null,on=true,busy=false,lastSig='',TH=[],TAB='all',FL={sort:'recent',svc:'all'},showInfo=false,D=null;
+try{Object.assign(FL,JSON.parse(localStorage.getItem('mf')||'{}'));TAB=localStorage.getItem('mt')||'all';showInfo=localStorage.getItem('mi')==='1'}catch(_){}
+const nm=l=>l.name||l.phone||'Lead',ini=l=>{const w=String(l.name||'').trim().split(/\\s+/).filter(Boolean);return ((w[0]||'?')[0]+((w[1]||'')[0]||'')).toUpperCase()};
+function ago(iso){const d=new Date(iso),s=Math.max(0,(Date.now()-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});if(s<604800)return d.toLocaleDateString('en-US',{weekday:'short'});return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
 const svcOf=t=>/tint/i.test(t.service||'')?'Window Tint':/coat/i.test(t.service||'')?'Ceramic Coating':(t.service||'Other');
+const TABS=[['unread','Unread'],['all','All'],['recent','Recent'],['starred','Starred']];
+const isRecent=t=>Date.now()-new Date(t.last_at).getTime()<3*864e5;
+function drawTabs(){const n={unread:TH.filter(t=>t.unread>0).length,all:TH.length,recent:TH.filter(isRecent).length,starred:TH.filter(t=>t.starred).length};
+  document.getElementById('tb').innerHTML=TABS.map(x=>'<button type="button" data-t="'+x[0]+'" class="'+(TAB===x[0]?'on':'')+(x[0]==='unread'&&n.unread?' hot':'')+'">'+x[1]+'<i>'+n[x[0]]+'</i></button>').join('')}
 function drawFl(){const sv=[...new Set(TH.map(svcOf))].sort();const opt=(v,l,c)=>'<option value="'+$(v)+'"'+(c===v?' selected':'')+'>'+$(l)+'</option>';
-  document.getElementById('fl').innerHTML='<select data-k="sort" aria-label="Sort">'+[['recent','Newest first'],['oldest','Oldest first'],['unread','Unread first'],['name','Name A-Z']].map(x=>opt(x[0],x[1],FL.sort)).join('')+'</select><select data-k="show" aria-label="Show">'+[['all','All texts'],['unread','Unread'],['read','Read'],['theirs','They texted last'],['mine','I texted last']].map(x=>opt(x[0],x[1],FL.show)).join('')+'</select><select data-k="svc" aria-label="Service">'+opt('all','All services',FL.svc)+sv.map(x=>opt(x,x,FL.svc)).join('')+'</select>'}
+  document.getElementById('fl').innerHTML='<select data-k="sort" aria-label="Sort">'+[['recent','Newest first'],['oldest','Oldest first'],['unread','Unread first'],['name','Name A-Z']].map(x=>opt(x[0],x[1],FL.sort)).join('')+'</select><select data-k="svc" aria-label="Service">'+opt('all','All services',FL.svc)+sv.map(x=>opt(x,x,FL.svc)).join('')+'</select>'}
 function drawList(){let a=TH.slice();
-  if(FL.show==='unread')a=a.filter(t=>t.unread>0);else if(FL.show==='read')a=a.filter(t=>!t.unread);else if(FL.show==='theirs')a=a.filter(t=>t.last_dir==='in');else if(FL.show==='mine')a=a.filter(t=>t.last_dir==='out');
+  if(TAB==='unread')a=a.filter(t=>t.unread>0);else if(TAB==='recent')a=a.filter(isRecent);else if(TAB==='starred')a=a.filter(t=>t.starred);
   if(FL.svc!=='all')a=a.filter(t=>svcOf(t)===FL.svc);
   const T=t=>new Date(t.last_at).getTime()||0;
   if(FL.sort==='oldest')a.sort((x,y)=>T(x)-T(y));else if(FL.sort==='unread')a.sort((x,y)=>(y.unread>0)-(x.unread>0)||T(y)-T(x));else if(FL.sort==='name')a.sort((x,y)=>nm(x).localeCompare(nm(y)));else a.sort((x,y)=>T(y)-T(x));
-  tl.innerHTML=a.length?a.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">'+(TH.length?'No conversations match these filters.':'No texts yet. Search for a lead above to start one.')+'</div>'}
+  drawTabs();
+  tl.innerHTML=a.length?a.map(t=>'<div class="th'+(cur&&cur.id===t.id?' on':'')+(t.unread?' unr':'')+'" data-id="'+t.id+'" role="button" tabindex="0"><span class="av">'+$(ini(t))+'</span><span class="nm"><span>'+$(nm(t))+'</span></span><span class="tm">'+ago(t.last_at)+'</span><span class="sn">'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</span><span class="rt">'+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'<button type="button" class="st'+(t.starred?' on':'')+'" data-star="'+t.id+'" aria-label="Star">'+(t.starred?'&#9733;':'&#9734;')+'</button></span></div>').join(''):'<div class="empty">'+(TH.length?'Nothing here with these filters.':'No texts yet. Search for a lead above to start one.')+'</div>'}
+document.getElementById('tb').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;TAB=b.dataset.t;try{localStorage.setItem('mt',TAB)}catch(_){}drawList()});
 document.getElementById('fl').addEventListener('change',e=>{const k=e.target.dataset.k;if(!k)return;FL[k]=e.target.value;try{localStorage.setItem('mf',JSON.stringify(FL))}catch(_){}drawList()});
-async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;TH=j.threads;if(!document.getElementById('fl').children.length||document.activeElement.closest&&!document.activeElement.closest('#fl'))drawFl();drawList()}catch(_){}}
-async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id+j.messages[j.messages.length-1].status:'')+j.optout;
-  if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;on=j.on;
+async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;TH=j.threads;if(!document.getElementById('fl').children.length||(document.activeElement&&document.activeElement.closest&&!document.activeElement.closest('#fl')))drawFl();drawList()}catch(_){}}
+async function toggleStar(id,val){try{await fetch('/admin/star',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,on:val})})}catch(_){}const t=TH.find(x=>x.id===id);if(t)t.starred=val?1:0;if(D&&D.lead.id===id){D.lead.starred=val?1:0;const b=document.getElementById('stb');if(b){b.classList.toggle('on',!!val);b.innerHTML=(val?'&#9733;':'&#9734;')+' '+(val?'Starred':'Star')}}drawList()}
+const day=d=>{const t=new Date(d),n=new Date(),a=new Date(t.getFullYear(),t.getMonth(),t.getDate()),b=new Date(n.getFullYear(),n.getMonth(),n.getDate()),diff=Math.round((b-a)/864e5);return diff===0?'Today':diff===1?'Yesterday':t.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})};
+const hm=iso=>new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+const mmss=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+const PHONE='<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>';
+function timeline(j){const items=j.messages.map(m=>({k:'m',at:m.at,m:m})).concat(j.events.map(e=>({k:e.kind,at:e.at,e:e})));items.sort((a,b)=>new Date(a.at)-new Date(b.at));
+  let last='',h='';items.forEach(it=>{const dv=day(it.at);if(dv!==last){last=dv;h+='<div class="dv">'+$(dv)+'</div>'}
+    if(it.k==='m'){const m=it.m;h+='<div class="m '+m.direction+'">'+$(m.body)+'</div><div class="mt '+m.direction+'">'+hm(m.at)+(m.direction==='out'?(m.by_user&&!m.auto?' &middot; '+$(m.by_user):'')+(m.auto?' &middot; auto':'')+(m.status==='failed'||m.status==='undelivered'?' &middot; not delivered':m.status==='delivered'?' &middot; delivered':''):'')+'</div>'}
+    else if(it.k==='call'){const e=it.e;h+='<div class="cc"><div class="h">'+PHONE+'<span>'+(e.dir==='in'?'Incoming call':'Call')+(e.dur?' &middot; '+mmss(e.dur):' &middot; not connected')+' <small>'+(e.by?$(e.by)+' &middot; ':'')+hm(e.at)+'</small></span></div>'+(e.url?'<audio controls preload="none" src="'+$(e.url)+'"></audio>':'')+'</div>'}
+    else if(it.k==='result')h+='<div class="ev">Result: '+$(it.e.text)+' <small>'+hm(it.at)+'</small></div>';
+    else if(it.k==='stage')h+='<div class="ev stage">'+$(it.e.text)+' <small>'+hm(it.at)+'</small></div>';
+    else if(it.k==='note')h+='<div class="nt"><small>Note &middot; '+(it.e.by?$(it.e.by)+' &middot; ':'')+hm(it.at)+'</small>'+$(it.e.text)+'</div>'});
+  return h||'<div class="empty">No messages yet. Say hello.</div>'}
+function drawInfo(j){const l=j.lead,car=[l.year,l.make,l.model].filter(Boolean).join(' '),kv=(k,v)=>v?'<span>'+k+'</span><b>'+v+'</b>':'';
+  const ap=l.appt_at?new Date(l.appt_at.replace(' ','T')).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
+  info.innerHTML='<div class="ic0"><span class="av">'+$(ini(l))+'</span><div><b>'+$(nm(l))+'</b><span>'+$(l.phone||'')+'</span></div></div>'
+   +'<div class="sec"><h4>Details</h4><div class="kv">'+kv('Stage','<span class="pill2">'+$(l.stage_label)+'</span>')+kv('Phone',l.phone?'<a href="tel:'+$(l.phone)+'">'+$(l.phone)+'</a>':'')+kv('Email',l.email?'<a href="mailto:'+$(l.email)+'">'+$(l.email)+'</a>':'')+kv('Service',$(l.service||''))+kv('Vehicle',$(car))+kv('Value',l.value?'$'+Number(l.value).toLocaleString('en-US'):'')+kv('Appointment',$(ap))+kv('Follow up',$((l.follow_up||'')+(l.follow_up_date?' '+l.follow_up_date:'')))+kv('Source',$(l.utm_medium==='paid_social'?'Facebook / Meta ads':(l.utm_campaign||'')))+kv('Came in',$(day(l.created_at)))+'</div></div>'
+   +'<div class="sec"><h4>Tags</h4><div class="tg" id="tg">'+l.tags.map(t=>'<span>'+$(t)+'<button type="button" data-rt="'+$(t)+'" aria-label="Remove">&times;</button></span>').join('')+'<input id="tin" placeholder="+ add tag" maxlength="24"></div></div>'
+   +(j.notes&&j.notes.length?'<div class="sec"><h4>Call notes</h4>'+j.notes.map(n=>'<div class="sm"><small>'+$(n.at)+'</small>'+$(n.summary)+'</div>').join('')+'</div>':'')
+   +'<div class="sec"><h4>Actions</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(l.phone||''))+'">Call</a><a class="ib" href="/admin/pipeline#id='+l.id+'">Open lead</a></div></div>';
+  info.hidden=!showInfo;app.classList.toggle('noinfo',!showInfo)}
+info.addEventListener('click',async e=>{const b=e.target.closest('[data-rt]');if(!b||!D)return;D.lead.tags=D.lead.tags.filter(t=>t!==b.dataset.rt);await saveTags();drawInfo(D)});
+info.addEventListener('keydown',async e=>{if(e.target.id!=='tin'||e.key!=='Enter'||!D)return;e.preventDefault();const v=e.target.value.trim();if(!v)return;if(D.lead.tags.indexOf(v)<0)D.lead.tags.push(v);await saveTags();drawInfo(D);const t=document.getElementById('tin');if(t)t.focus()});
+async function saveTags(){try{const r=await fetch('/admin/tags',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:D.lead.id,tags:D.lead.tags})});const j=await r.json();if(j.success)D.lead.tags=j.tags}catch(_){}}
+async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const lm=j.messages.length?j.messages[j.messages.length-1]:{};const sig=j.messages.length+':'+(lm.id||'')+(lm.status||'')+j.optout+':'+j.events.length+':'+j.lead.stage+':'+j.lead.starred+':'+j.lead.tags.join();
+  if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;D=j;on=j.on;
   const box=pane.querySelector('.msgs'),atEnd=!box||box.scrollHeight-box.scrollTop-box.clientHeight<80;const draft=pane.querySelector('textarea')?pane.querySelector('textarea').value:'';
   const car=[j.lead.year,j.lead.make,j.lead.model].filter(Boolean).join(' ');
-  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><a class="c" href="/admin/pipeline#id='+j.lead.id+'">Lead</a><a class="c" href="tel:'+$(j.lead.phone)+'">Call</a></div>'
+  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><span class="av" style="width:40px;height:40px">'+$(ini(j.lead))+'</span><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><button type="button" class="ib'+(j.lead.starred?' on':'')+'" id="stb">'+(j.lead.starred?'&#9733; Starred':'&#9734; Star')+'</button><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+j.lead.id:'tel:'+$(j.lead.phone||''))+'">Call</a><button type="button" class="ib" id="inb">Info</button></div>'
    +(!on?'<div class="warn">Texting is not set up yet. Add the Twilio keys in Cloudflare to send texts from here.</div>':'')+(j.optout?'<div class="warn">This person replied STOP. They cannot be texted.</div>':'')
-   +'<div class="msgs" id="ms">'+(j.messages.length?j.messages.map(m=>'<div class="m '+m.direction+'">'+$(m.body)+'</div><div class="mt '+m.direction+'">'+new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+(m.direction==='out'?(m.auto?' · auto':'')+(m.status==='failed'||m.status==='undelivered'?' · not delivered':m.status==='delivered'?' · delivered':''):'')+'</div>').join(''):'<div class="empty">No messages yet. Say hello.</div>')+'</div><div class="err" id="er"></div>'
-   +'<div class="cmp"><textarea id="tx" rows="1" placeholder="Text message"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
+   +'<div class="msgs" id="ms">'+timeline(j)+'</div><div class="err" id="er"></div>'
+   +'<div class="cmp"><textarea id="tx" rows="1" placeholder="Type a message"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
   const ms=document.getElementById('ms');if(!keep||atEnd)ms.scrollTop=ms.scrollHeight;const tx=document.getElementById('tx');tx.value=draft;
-  document.getElementById('bk').onclick=()=>{app.classList.remove('open');cur=null;history.replaceState(null,'','#');loadList()};
-  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send()}});
+  document.getElementById('bk').onclick=()=>{app.classList.remove('open');cur=null;D=null;history.replaceState(null,'','#');loadList()};
+  document.getElementById('stb').onclick=()=>toggleStar(j.lead.id,!D.lead.starred);
+  document.getElementById('inb').onclick=()=>{showInfo=!showInfo;try{localStorage.setItem('mi',showInfo?'1':'0')}catch(_){}info.hidden=!showInfo;app.classList.toggle('noinfo',!showInfo)};
+  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+  const ti=document.activeElement&&document.activeElement.id==='tin';if(!ti)drawInfo(j);
   app.classList.add('open');if(!keep)history.replaceState(null,'','#id='+id);loadList()}catch(_){}}
 async function send(){if(busy||!cur)return;const tx=document.getElementById('tx'),er=document.getElementById('er'),b=tx.value.trim();if(!b)return;busy=true;document.getElementById('sd').disabled=true;er.textContent='';
   try{const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:cur.id,body:b})});const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.success){er.textContent=j.message||'Could not send. Try again.';busy=false;document.getElementById('sd').disabled=false;return}
     tx.value='';busy=false;lastSig='';await open(cur.id,false)}catch(_){er.textContent='No connection. Try again.';busy=false;document.getElementById('sd').disabled=false}}
-tl.addEventListener('click',e=>{const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)});
-let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<button class="th fd" data-id="'+l.id+'"><b><span>'+$(nm(l))+'</span></b><p>'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</p></button>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
-const hm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hm)open(+hm[1]);
-setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur)open(cur.id,true)},6000);
+tl.addEventListener('click',e=>{const s=e.target.closest('[data-star]');if(s){e.stopPropagation();const id=+s.dataset.star,t=TH.find(x=>x.id===id);toggleStar(id,!(t&&t.starred));return}const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)});
+tl.addEventListener('keydown',e=>{if(e.key==='Enter'){const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)}});
+let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<div class="th fd" data-id="'+l.id+'" role="button" tabindex="0"><span class="av">'+$(ini(l))+'</span><span class="nm"><span>'+$(nm(l))+'</span></span><span class="tm"></span><span class="sn">'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</span></div>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
+const hmm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hmm)open(+hmm[1]);
+setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur&&!(document.activeElement&&document.activeElement.id==='tin'))open(cur.id,true)},6000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Message statistics (owner only): delivery, replies, response times and what each automation earns
+const addDays = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+async function msgStatsData(env, from, to) {
+  await ensureTable(env.DB);
+  const okd = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  to = okd(to) ? to : todayStr();
+  from = okd(from) ? from : addDays(to, -29);
+  if (from > to) from = to;
+  let days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+  if (days > 366) { from = addDays(to, -365); days = 366; }
+  const pTo = addDays(from, -1), pFrom = addDays(pTo, -(days - 1));
+  const lo = addDays(pFrom, -1) + " 00:00:00", hi = addDays(to, 2) + " 00:00:00";
+  const rows = (await env.DB.prepare("SELECT id, lead_id, direction, status, auto, by_user, at FROM messages WHERE at >= ? AND at < ? ORDER BY id ASC LIMIT 120000").bind(lo, hi).all()).results || [];
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z");
+  const ed = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }), eh = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+  const dayOf = t => ed.format(new Date(t)), hourOf = t => Number(eh.format(new Date(t)));
+  const FAIL = new Set(["failed", "undelivered"]);
+  // thread pass: how long we take to answer a text, how long they take, and whether a text got a reply within a day
+  const byLead = new Map();
+  for (const r of rows) { r.t = ms(r.at); r.d = dayOf(r.t); r.h = hourOf(r.t); if (r.lead_id != null) { if (!byLead.has(r.lead_id)) byLead.set(r.lead_id, []); byLead.get(r.lead_id).push(r); } }
+  const ours = [], theirs = [];
+  for (const th of byLead.values()) {
+    th.sort((a, b) => a.t - b.t || a.id - b.id);
+    for (let i = 0; i < th.length; i++) {
+      const m = th[i];
+      if (m.direction === "in") { const nx = th.slice(i + 1).find(x => x.direction === "out" && !x.auto); if (nx && nx.t - m.t < 864e5 * 3) ours.push({ d: m.d, s: (nx.t - m.t) / 1000 }); }
+      else { const nx = th.slice(i + 1).find(x => x.direction === "in"); m.replied = !!(nx && nx.t - m.t <= 864e5); if (nx && nx.t - m.t < 864e5 * 3) theirs.push({ d: m.d, s: (nx.t - m.t) / 1000 }); }
+    }
+  }
+  const med = a => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y), i = Math.floor(b.length / 2); return Math.round(b.length % 2 ? b[i] : (b[i - 1] + b[i]) / 2); };
+  const agg = (f, t) => {
+    const r = rows.filter(x => x.d >= f && x.d <= t), out = r.filter(x => x.direction === "out"), inn = r.filter(x => x.direction === "in");
+    const sent = out.length, delivered = out.filter(x => x.status === "delivered").length, failed = out.filter(x => FAIL.has(x.status)).length;
+    const texted = new Set(out.map(x => x.lead_id).filter(v => v != null)), replied = new Set(inn.map(x => x.lead_id).filter(v => v != null));
+    const perDay = {}; for (let i = 0; i < days; i++) perDay[addDays(f, i)] = { sent: 0, delivered: 0, failed: 0, received: 0 };
+    out.forEach(x => { const p = perDay[x.d]; if (p) { p.sent++; if (x.status === "delivered") p.delivered++; if (FAIL.has(x.status)) p.failed++; } });
+    inn.forEach(x => { const p = perDay[x.d]; if (p) p.received++; });
+    const hr = Array.from({ length: 24 }, () => ({ sent: 0, replied: 0, received: 0 }));
+    out.forEach(x => { hr[x.h].sent++; if (x.replied) hr[x.h].replied++; }); inn.forEach(x => { hr[x.h].received++; });
+    const who = {}; out.forEach(x => { const k = x.auto ? "Automations" : (x.by_user || "Not recorded"); who[k] = (who[k] || 0) + 1; });
+    return { sent, delivered, failed, received: inn.length, auto: out.filter(x => x.auto).length, texted: texted.size, replied: [...replied].filter(v => texted.has(v)).length,
+      ourMed: med(ours.filter(x => x.d >= f && x.d <= t).map(x => x.s)), theirMed: med(theirs.filter(x => x.d >= f && x.d <= t).map(x => x.s)), perDay, hr, who };
+  };
+  const cur = agg(from, to), prev = agg(pFrom, pTo);
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const f0 = from + " 00:00:00", t1 = addDays(to, 1) + " 00:00:00", pf0 = pFrom + " 00:00:00", pt1 = addDays(pTo, 1) + " 00:00:00";
+  const optN = async (a, b) => ((await q("SELECT COUNT(*) n FROM sms_optout WHERE at >= ? AND at < ?", a, b))[0] || {}).n || 0;
+  const bk = "('booked','working','done')";
+  const [waiting, failedList, autos, camps, resp] = await Promise.all([
+    q(`SELECT l.id, l.name, l.phone, m.at, m.body FROM messages m JOIN leads l ON l.id = m.lead_id WHERE m.id = (SELECT MAX(id) FROM messages WHERE lead_id = l.id) AND m.direction = 'in' ORDER BY m.at ASC LIMIT 25`),
+    q("SELECT m.at, m.status, l.id, l.name, m.phone FROM messages m LEFT JOIN leads l ON l.id = m.lead_id WHERE m.direction = 'out' AND m.status IN ('failed','undelivered') AND m.at >= ? AND m.at < ? ORDER BY m.id DESC LIMIT 15", f0, t1),
+    q(`SELECT a.name, COUNT(*) sent, SUM(EXISTS(SELECT 1 FROM messages m WHERE m.lead_id = r.lead_id AND m.direction = 'in' AND m.at > r.at AND m.at <= datetime(r.at,'+2 days'))) replies, SUM(COALESCE(l.stage,'') IN ${bk}) booked FROM automation_runs r JOIN automations a ON a.id = r.automation_id LEFT JOIN leads l ON l.id = r.lead_id WHERE r.at >= ? AND r.at < ? GROUP BY a.id ORDER BY sent DESC LIMIT 20`, f0, t1),
+    q(`SELECT c.name, COUNT(*) sent, SUM(EXISTS(SELECT 1 FROM messages m WHERE m.lead_id = s.lead_id AND m.direction = 'in' AND m.at > s.at AND m.at <= datetime(s.at,'+2 days'))) replies, SUM(COALESCE(l.stage,'') IN ${bk}) booked FROM campaign_sends s JOIN campaigns c ON c.id = s.campaign_id LEFT JOIN leads l ON l.id = s.lead_id WHERE s.at >= ? AND s.at < ? GROUP BY c.id ORDER BY sent DESC LIMIT 20`, f0, t1),
+    q(`SELECT COALESCE(SUM(rep),0) rep, COALESCE(SUM(rep*b),0) repb, COALESCE(SUM(1-rep),0) non, COALESCE(SUM((1-rep)*b),0) nonb FROM (SELECT l.id, EXISTS(SELECT 1 FROM messages WHERE lead_id = l.id AND direction = 'in') rep, (l.stage IN ${bk}) b FROM leads l WHERE EXISTS(SELECT 1 FROM messages m WHERE m.lead_id = l.id AND m.direction = 'out' AND m.at >= ? AND m.at < ?))`, f0, t1),
+  ]);
+  const now = Date.now();
+  return { from, to, days, prevFrom: pFrom, prevTo: pTo, cur: { ...cur, optouts: await optN(f0, t1) }, prev: { ...prev, optouts: await optN(pf0, pt1) },
+    waiting: waiting.map(w => ({ id: w.id, name: w.name || w.phone, body: String(w.body || "").slice(0, 90), mins: Math.round((now - ms(w.at)) / 60000) })),
+    failedList: failedList.map(f => ({ id: f.id, name: f.name || prettyPhone(f.phone), phone: f.phone, status: f.status, at: isoUtc(f.at) })),
+    autos: autos.map(a => ({ ...a, kind: "Automation" })).concat(camps.map(c => ({ ...c, kind: "Campaign" }))), resp: resp[0] || {} };
+}
+async function msgStatsPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Message statistics | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+main{max-width:1100px;margin:0 auto;padding:16px 22px 50px;display:flex;flex-direction:column;gap:18px}
+.rb{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rb input[type=date]{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:9px 10px;font:inherit;min-height:42px}.rb button{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.rb button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.card{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}.card h3{margin:0;font-size:13px;letter-spacing:.9px;text-transform:uppercase;color:#aab0b9;display:flex;align-items:center;gap:8px}
+.kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}.k small{display:block;color:#8a939e;font-size:12.5px;margin-bottom:4px}.k b{display:block;font-size:30px;line-height:1.1;letter-spacing:-.5px}.k b i{font-style:normal;font-size:14px;color:#8a939e;font-weight:600;margin-left:4px}
+.dl{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 6px;margin-top:6px}.dl.up{background:#0f2c18;color:#4fdc5a}.dl.dn{background:#2c1414;color:#ff8a8a}.dl.fl{background:#1a2027;color:#8a939e}.dls{color:#6f7782;font-size:12px;margin-left:6px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:8px 0 0}h2 small{text-transform:none;letter-spacing:0;color:#7c838d;font-weight:400;font-size:12.5px;margin-left:6px}
+.ch{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:14px 16px}.ch svg{width:100%;height:auto;display:block}
+.tbw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:#7c838d;text-align:left;padding:8px 10px;border-bottom:1px solid #1d2229}td{padding:10px;border-bottom:1px solid #141a20}td a{color:#8ec0ff;text-decoration:none}
+.note{color:#7c838d;font-size:12.5px}.empty{color:#7c838d;padding:16px 0;text-align:center}.warn{color:#ffb86b}
+.hb div{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:6px 0}.hb i{display:block;height:10px;border-radius:6px;background:#32cd32}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 24px}.k b{font-size:26px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>message statistics</b></h1>${nav("msgstats", tc, true)}</header>
+${bnav("msgstats", tc, true)}
+${insightTabs("msgstats")}
+<main>
+<div class="rb"><input type="date" id="f"><span class="note">to</span><input type="date" id="t"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+<p class="note" id="rn"></p>
+<div class="g2"><div class="card"><h3>Texts you sent</h3><div class="kp" id="o"></div></div><div class="card"><h3>Texts you received</h3><div class="kp" id="i"></div></div></div>
+<div class="g2"><div class="card"><h3>Speed of replies</h3><div class="kp" id="rs"></div></div><div class="card"><h3>Text replies and booking</h3><div class="kp" id="bk"></div></div></div>
+<h2>Failure rate by day<small>the dashed line is 10%: above it, check your numbers and the Twilio registration</small></h2><div class="ch" id="c1"></div>
+<h2>Texts sent and received by day</h2><div class="ch" id="c2"></div>
+<h2>Best time to text<small>share of texts that got a reply within 24 hours, by the hour they were sent (Eastern)</small></h2><div class="ch" id="c3"></div>
+<h2>Waiting on you<small>the lead texted last and nobody has answered yet</small></h2><div class="card"><div class="tbw"><table id="wt"></table></div></div>
+<h2>Automations and campaigns<small>texts sent in this range, replies within 2 days, and how many of those leads are booked now</small></h2><div class="card"><div class="tbw"><table id="at"></table></div></div>
+<div class="g2"><div><h2>Who sent them</h2><div class="card hb" id="wh"></div></div><div><h2>Texts that failed<small>fix these numbers</small></h2><div class="card"><div class="tbw"><table id="ft"></table></div></div></div></div>
+<p class="note">Times are Eastern. "Delivered" and "failed" come from the carrier's report, so the most recent texts can show as sent for a few minutes. Reply rate counts leads who replied at least once. Booked means Deposit collected, In shop or Service completed.</p>
+</main>
+<script>
+const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const F=document.getElementById('f'),T=document.getElementById('t');
+const pct=(a,b)=>b?Math.round(1000*a/b)/10:0,fmt=n=>n>=10000?(n/1000).toFixed(1).replace(/\\.0$/,'')+'K':Number(n).toLocaleString('en-US');
+const dur=s=>{if(s==null)return '-';if(s<60)return s+' sec';const m=Math.round(s/60);if(m<60)return m+' min';const h=Math.floor(m/60);if(h<48)return h+' h '+(m%60)+' min';return Math.round(h/24)+' days'};
+function delta(c,p,inv){if(!p&&!c)return '<span class="dl fl">0%</span>';if(!p)return '<span class="dl fl">new</span>';const d=Math.round(100*(c-p)/p);if(!d)return '<span class="dl fl">0%</span>';const good=inv?d<0:d>0;return '<span class="dl '+(good?'up':'dn')+'">'+(d>0?'&#9650; ':'&#9660; ')+Math.abs(d)+'%</span>'}
+const kp=(l,v,sub,dl)=>'<div class="k"><small>'+l+'</small><b>'+v+(sub?'<i>'+sub+'</i>':'')+'</b>'+(dl?dl+'<span class="dls">vs previous</span>':'')+'</div>';
+function chart(id,days,series,opt){const W=900,H=230,L=40,B=26,Tp=12,n=days.length,bw=(W-L-10)/n,mx=Math.max(opt.min||1,...days.map((d,i)=>Math.max(...series.map(s=>s.v[i]))));const y=v=>Tp+(H-B-Tp)*(1-v/mx);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';for(let k=0;k<=4;k++){const v=mx*k/4;s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="#1b2128"/><text x="'+(L-6)+'" y="'+(y(v)+4)+'" fill="#6f7782" font-size="11" text-anchor="end">'+(opt.unit==='%'?Math.round(v)+'%':Math.round(v))+'</text>'}
+  const sw=bw/(series.length)*0.78;days.forEach((d,i)=>{series.forEach((se,j)=>{const v=se.v[i],x=L+i*bw+(bw-sw*series.length)/2+j*sw,col=se.hot&&se.hot(v)?'#ff7a7a':se.c;s+='<rect x="'+x+'" y="'+y(v)+'" width="'+Math.max(1,sw-1)+'" height="'+Math.max(0,(H-B)-y(v))+'" rx="2" fill="'+col+'"><title>'+d+': '+(opt.unit==='%'?v+'%':v)+' '+se.n+'</title></rect>'});if(n<=14||i%Math.ceil(n/12)===0)s+='<text x="'+(L+i*bw+bw/2)+'" y="'+(H-8)+'" fill="#6f7782" font-size="11" text-anchor="middle">'+d.slice(5)+'</text>'});
+  if(opt.line!=null)s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(opt.line)+'" y2="'+y(opt.line)+'" stroke="#ff5d5d" stroke-dasharray="6 5"/>';
+  if(opt.legend)s+=series.map((se,j)=>'<rect x="'+(L+j*110)+'" y="2" width="10" height="10" rx="2" fill="'+se.c+'"/><text x="'+(L+j*110+15)+'" y="11" fill="#aab0b9" font-size="11">'+se.n+'</text>').join('');
+  document.getElementById(id).innerHTML=s+'</svg>'}
+function mins(m){if(m<60)return m+' min';const h=Math.floor(m/60);if(h<48)return h+' h';return Math.round(h/24)+' days'}
+function draw(d){const c=d.cur,p=d.prev;document.getElementById('rn').textContent=d.from+' to '+d.to+' ('+d.days+' days), compared with '+d.prevFrom+' to '+d.prevTo+'.';
+  const nd=c.sent-c.delivered-c.failed;
+  document.getElementById('o').innerHTML=kp('Sent',fmt(c.sent),'',delta(c.sent,p.sent))+kp('Delivered',fmt(c.delivered),pct(c.delivered,c.sent)+'%',delta(c.delivered,p.delivered))+kp('Failed',fmt(c.failed),pct(c.failed,c.sent)+'%',delta(c.failed,p.failed,true))+(nd>0?kp('No report yet',fmt(nd),'',''):'');
+  document.getElementById('i').innerHTML=kp('Received',fmt(c.received),'',delta(c.received,p.received))+kp('Reply rate',pct(c.replied,c.texted)+'%',c.replied+' of '+c.texted,delta(pct(c.replied,c.texted),pct(p.replied,p.texted)))+kp('Opt-out rate',pct(c.optouts,c.texted)+'%',c.optouts+' STOP',delta(pct(c.optouts,c.texted),pct(p.optouts,p.texted),true));
+  document.getElementById('rs').innerHTML=kp('You answer in (median)',dur(c.ourMed),'',p.ourMed!=null&&c.ourMed!=null?delta(c.ourMed,p.ourMed,true):'')+kp('They answer in (median)',dur(c.theirMed),'',p.theirMed!=null&&c.theirMed!=null?delta(c.theirMed,p.theirMed):'')+kp('Waiting on you',d.waiting.length,'',d.waiting.length?'<span class="dl dn">answer these</span>':'<span class="dl up">all caught up</span>');
+  const r=d.resp,rr=pct(r.repb,r.rep),nr=pct(r.nonb,r.non);
+  document.getElementById('bk').innerHTML=kp('Booked, replied to texts',rr+'%',(r.repb||0)+' of '+(r.rep||0))+kp('Booked, never replied',nr+'%',(r.nonb||0)+' of '+(r.non||0))+kp('Automatic texts',pct(c.auto,c.sent)+'%',fmt(c.auto)+' of '+fmt(c.sent));
+  const days=Object.keys(c.perDay);
+  chart('c1',days,[{n:'failed',v:days.map(k=>pct(c.perDay[k].failed,c.perDay[k].sent)),c:'#4a5ae8',hot:v=>v>10}],{unit:'%',line:10,min:12});
+  chart('c2',days,[{n:'sent',v:days.map(k=>c.perDay[k].sent),c:'#32cd32'},{n:'received',v:days.map(k=>c.perDay[k].received),c:'#4a9be8'}],{legend:true});
+  const hrs=Array.from({length:24},(_,h)=>h),lab=h=>(h%12||12)+(h<12?'a':'p');
+  chart('c3',hrs.map(lab),[{n:'reply rate',v:hrs.map(h=>c.hr[h].sent>=5?pct(c.hr[h].replied,c.hr[h].sent):0),c:'#a78bfa'}],{unit:'%',min:10});
+  document.getElementById('wt').innerHTML=d.waiting.length?'<tr><th>Lead</th><th>Their last text</th><th>Waiting</th></tr>'+d.waiting.map(w=>'<tr><td><a href="/admin/messages#id='+w.id+'">'+$(w.name)+'</a></td><td>'+$(w.body)+'</td><td'+(w.mins>60?' class="warn"':'')+'>'+mins(w.mins)+'</td></tr>').join(''):'<tr><td class="empty">Every text has been answered.</td></tr>';
+  document.getElementById('at').innerHTML=d.autos.length?'<tr><th>Name</th><th>Type</th><th>Sent</th><th>Replies</th><th>Reply rate</th><th>Booked now</th></tr>'+d.autos.map(a=>'<tr><td>'+$(a.name)+'</td><td>'+a.kind+'</td><td>'+a.sent+'</td><td>'+a.replies+'</td><td>'+pct(a.replies,a.sent)+'%</td><td>'+a.booked+'</td></tr>').join(''):'<tr><td class="empty">No automation or campaign texts in this range.</td></tr>';
+  const who=Object.entries(c.who).sort((a,b)=>b[1]-a[1]),mx=Math.max(1,...who.map(w=>w[1]));
+  document.getElementById('wh').innerHTML=who.length?who.map(w=>'<div><span style="text-transform:capitalize">'+$(w[0])+'</span><span><i style="width:'+Math.max(3,Math.round(100*w[1]/mx))+'%"></i></span><span>'+w[1]+'</span></div>').join(''):'<span class="note">No texts sent in this range.</span>';
+  document.getElementById('ft').innerHTML=d.failedList.length?'<tr><th>Lead</th><th>Number</th><th>Result</th></tr>'+d.failedList.map(f=>'<tr><td>'+(f.id?'<a href="/admin/pipeline#id='+f.id+'">'+$(f.name)+'</a>':$(f.name))+'</td><td>'+$(f.phone||'')+'</td><td class="warn">'+$(f.status)+'</td></tr>').join(''):'<tr><td class="empty">No failed texts. Nice.</td></tr>'}
+async function load(){const r=await fetch('/admin/msgstats/data?from='+F.value+'&to='+T.value);const j=await r.json();if(j.success){F.value=j.from;T.value=j.to;draw(j)}}
+const iso=d=>d.toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+function preset(n){const t=new Date();T.value=iso(t);F.value=iso(new Date(t.getTime()-(n-1)*864e5));document.querySelectorAll('.rb button').forEach(b=>b.classList.toggle('on',+b.dataset.d===n));load()}
+document.querySelectorAll('.rb button').forEach(b=>b.onclick=()=>preset(+b.dataset.d));[F,T].forEach(i=>i.onchange=()=>{document.querySelectorAll('.rb button').forEach(b=>b.classList.remove('on'));load()});
+preset(30);setInterval(()=>{if(!document.hidden)load()},120000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// shared look and helpers for the report pages (cards, KPI blocks, SVG charts)
+const RPT_CSS = `main{max-width:1100px;margin:0 auto;padding:16px 22px 50px;display:flex;flex-direction:column;gap:18px}
+.rb{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rb input[type=date],.rb select,.rb input[type=number]{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:9px 10px;font:inherit;min-height:42px}.rb button{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.rb button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.card{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}.card h3{margin:0;font-size:13px;letter-spacing:.9px;text-transform:uppercase;color:#aab0b9;display:flex;align-items:center;gap:8px}
+.kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}.k small{display:block;color:#8a939e;font-size:12.5px;margin-bottom:4px}.k b{display:block;font-size:30px;line-height:1.1;letter-spacing:-.5px}.k b i{font-style:normal;font-size:14px;color:#8a939e;font-weight:600;margin-left:4px}
+.dl{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 6px;margin-top:6px}.dl.up{background:#0f2c18;color:#4fdc5a}.dl.dn{background:#2c1414;color:#ff8a8a}.dl.fl{background:#1a2027;color:#8a939e}.dls{color:#6f7782;font-size:12px;margin-left:6px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:8px 0 0}h2 small{text-transform:none;letter-spacing:0;color:#7c838d;font-weight:400;font-size:12.5px;margin-left:6px}
+.ch{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:14px 16px}.ch svg{width:100%;height:auto;display:block}
+.tbw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:#7c838d;text-align:left;padding:8px 10px;border-bottom:1px solid #1d2229;white-space:nowrap}td{padding:10px;border-bottom:1px solid #141a20}td a{color:#8ec0ff;text-decoration:none}
+.note{color:#7c838d;font-size:12.5px}.empty{color:#7c838d;padding:16px 0;text-align:center}.warn{color:#ffb86b}.good{color:#4fdc5a}
+.hb div{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:6px 0}.hb i{display:block;height:10px;border-radius:6px;background:#32cd32}
+@media(max-width:700px){main{padding:8px 14px 24px}.k b{font-size:26px}}`;
+const RPT_JS = `const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=(a,b)=>b?Math.round(1000*a/b)/10:0,fmt=n=>n>=10000?(n/1000).toFixed(1).replace(/\\.0$/,'')+'K':Number(n).toLocaleString('en-US'),money=n=>'$'+Math.round(n||0).toLocaleString('en-US'),m2=n=>'$'+(n>=100?Math.round(n).toLocaleString('en-US'):n.toFixed(2));
+const dur=s=>{if(s==null)return '-';if(s<60)return s+' sec';const m=Math.round(s/60);if(m<60)return m+' min';const h=Math.floor(m/60);if(h<48)return h+' h '+(m%60)+' min';return Math.round(h/24)+' days'};
+const iso=d=>d.toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+function delta(c,p,inv){if(!p&&!c)return '<span class="dl fl">0%</span>';if(!p)return '<span class="dl fl">new</span>';const d=Math.round(100*(c-p)/p);if(!d)return '<span class="dl fl">0%</span>';const good=inv?d<0:d>0;return '<span class="dl '+(good?'up':'dn')+'">'+(d>0?'&#9650; ':'&#9660; ')+Math.abs(d)+'%</span>'}
+const kp=(l,v,sub,dl)=>'<div class="k"><small>'+l+'</small><b>'+v+(sub?'<i>'+sub+'</i>':'')+'</b>'+(dl?dl+'<span class="dls">vs previous</span>':'')+'</div>';
+function chart(id,days,series,opt){const W=900,H=230,L=40,B=26,Tp=12,n=days.length,bw=(W-L-10)/n,mx=Math.max(opt.min||1,...days.map((d,i)=>Math.max(...series.map(s=>s.v[i]))));const y=v=>Tp+(H-B-Tp)*(1-v/mx);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';for(let k=0;k<=4;k++){const v=mx*k/4;s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="#1b2128"/><text x="'+(L-6)+'" y="'+(y(v)+4)+'" fill="#6f7782" font-size="11" text-anchor="end">'+(opt.unit==='%'?Math.round(v)+'%':Math.round(v))+'</text>'}
+  const sw=bw/(series.length)*0.78;days.forEach((d,i)=>{series.forEach((se,j)=>{const v=se.v[i],x=L+i*bw+(bw-sw*series.length)/2+j*sw,col=se.hot&&se.hot(v)?'#ff7a7a':se.c;s+='<rect x="'+x+'" y="'+y(v)+'" width="'+Math.max(1,sw-1)+'" height="'+Math.max(0,(H-B)-y(v))+'" rx="2" fill="'+col+'"><title>'+d+': '+(opt.unit==='%'?v+'%':v)+' '+se.n+'</title></rect>'});if(n<=14||i%Math.ceil(n/12)===0)s+='<text x="'+(L+i*bw+bw/2)+'" y="'+(H-8)+'" fill="#6f7782" font-size="11" text-anchor="middle">'+(String(d).length>8?String(d).slice(5):d)+'</text>'});
+  if(opt.line!=null)s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(opt.line)+'" y2="'+y(opt.line)+'" stroke="#ff5d5d" stroke-dasharray="6 5"/>';
+  if(opt.legend)s+=series.map((se,j)=>'<rect x="'+(L+j*110)+'" y="2" width="10" height="10" rx="2" fill="'+se.c+'"/><text x="'+(L+j*110+15)+'" y="11" fill="#aab0b9" font-size="11">'+se.n+'</text>').join('');
+  document.getElementById(id).innerHTML=s+'</svg>'}
+function rangeUI(load){const F=document.getElementById('f'),T=document.getElementById('t');window.RF=F;window.RT=T;
+  function preset(n){const t=new Date();T.value=iso(t);F.value=iso(new Date(t.getTime()-(n-1)*864e5));document.querySelectorAll('.rb button[data-d]').forEach(b=>b.classList.toggle('on',+b.dataset.d===n));load()}
+  document.querySelectorAll('.rb button[data-d]').forEach(b=>b.onclick=()=>preset(+b.dataset.d));[F,T].forEach(i=>i.onchange=()=>{document.querySelectorAll('.rb button[data-d]').forEach(b=>b.classList.remove('on'));load()});preset(30)}`;
+
+// ---- Dials report (owner only): how many dials, how many connected, and how many dials it takes to book
+function rptRange(from, to) {
+  const okd = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  to = okd(to) ? to : todayStr(); from = okd(from) ? from : addDays(to, -29); if (from > to) from = to;
+  let days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+  if (days > 366) { from = addDays(to, -365); days = 366; }
+  const pTo = addDays(from, -1), pFrom = addDays(pTo, -(days - 1));
+  return { from, to, days, pFrom, pTo };
+}
+async function dialsData(env, from, to) {
+  await ensureTable(env.DB);
+  const R = rptRange(from, to), { days } = R;
+  from = R.from; to = R.to;
+  const lo = addDays(R.pFrom, -1) + " 00:00:00", hi = addDays(to, 2) + " 00:00:00";
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const dials = await q("SELECT d.id, d.lead_id, d.duration, d.by_user, d.started_at FROM dial_calls d JOIN leads l ON l.id = d.lead_id WHERE d.started_at >= ? AND d.started_at < ? AND COALESCE(l.ip,'') != 'demo' ORDER BY d.started_at ASC, d.id ASC LIMIT 60000", lo, hi);
+  const logs = await q("SELECT lead_id, from_stage, to_stage, reason, by_user, at FROM stage_log WHERE at >= ? AND at < ? AND (reason LIKE 'Call result:%' OR to_stage = 'booked') ORDER BY at ASC, id ASC LIMIT 60000", lo, hi);
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z");
+  const ed = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }), eh = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+  const minS = contactMinSecs(env), byLead = new Map();
+  for (const d of dials) { d.t = ms(d.started_at); d.d = ed.format(new Date(d.t)); d.h = Number(eh.format(new Date(d.t))); d.out = ""; if (!byLead.has(d.lead_id)) byLead.set(d.lead_id, []); byLead.get(d.lead_id).push(d); }
+  for (const g of logs) {
+    const m = /^call result: (.+)$/i.exec(g.reason || ""); if (!m) continue;
+    const arr = byLead.get(g.lead_id) || [], t = ms(g.at); let best = null;
+    for (const d of arr) if (d.t <= t + 60000 && t - d.t < 6 * 36e5) best = d;
+    if (best) best.out = m[1];
+  }
+  const REACH = new Set(["Answered", "Interested", "Callback", "Booked", "Deposit pending", "Quote sent", "Not interested"]), NO = new Set(["Left a voicemail", "Voicemail", "No answer", "Lead hung up", "Wrong number"]);
+  for (const d of dials) d.ok = d.out ? (REACH.has(d.out) ? true : NO.has(d.out) ? false : d.duration > minS) : d.duration > minS;
+  // bookings: the first time a lead reached Deposit collected
+  const seen = new Set(), closes = [];
+  for (const g of logs) { if (g.to_stage === "booked" && g.from_stage !== "booked" && !seen.has(g.lead_id)) { seen.add(g.lead_id); closes.push({ lead: g.lead_id, d: ed.format(new Date(ms(g.at))), t: ms(g.at), by: g.by_user || "" }); } }
+  const before = closes.length ? await q(`SELECT lead_id, started_at FROM dial_calls WHERE lead_id IN (${closes.map(() => "?").join(",")})`, ...closes.map(c => c.lead)) : [];
+  for (const c of closes) c.n = before.filter(b => b.lead_id === c.lead && ms(b.started_at) <= c.t + 60000).length;
+  const agg = (f, t) => {
+    const ds = dials.filter(x => x.d >= f && x.d <= t), cs = closes.filter(x => x.d >= f && x.d <= t);
+    const perDay = {}; for (let i = 0; i < days; i++) perDay[addDays(f, i)] = { dials: 0, reached: 0, closes: 0 };
+    ds.forEach(x => { const p = perDay[x.d]; if (p) { p.dials++; if (x.ok) p.reached++; } }); cs.forEach(x => { const p = perDay[x.d]; if (p) p.closes++; });
+    const hr = Array.from({ length: 24 }, () => ({ dials: 0, reached: 0 })); ds.forEach(x => { hr[x.h].dials++; if (x.ok) hr[x.h].reached++; });
+    const out = {}; ds.forEach(x => { const k = x.out || (x.ok ? "Connected (no result picked)" : (x.duration ? "Short call (no result picked)" : "Not connected")); out[k] = (out[k] || 0) + 1; });
+    const who = {}; const W = k => (who[k] = who[k] || { dials: 0, reached: 0, talk: 0, closes: 0 });
+    ds.forEach(x => { const w = W(x.by_user || "Not recorded"); w.dials++; if (x.ok) { w.reached++; w.talk += x.duration || 0; } }); cs.forEach(x => { W(x.by || "Not recorded").closes++; });
+    const leads = new Set(ds.map(x => x.lead_id)); let firstReach = [], neverReached = 0;
+    for (const id of leads) { const arr = ds.filter(x => x.lead_id === id), i = arr.findIndex(x => x.ok); if (i >= 0) firstReach.push(i + 1); else neverReached++; }
+    return { dials: ds.length, reached: ds.filter(x => x.ok).length, talk: ds.filter(x => x.ok).reduce((a, x) => a + (x.duration || 0), 0), closes: cs.length, leads: leads.size, perDay, hr, out, who,
+      neverReached, avgToReach: firstReach.length ? Math.round(10 * firstReach.reduce((a, b) => a + b, 0) / firstReach.length) / 10 : null,
+      dist: [0, 1, 2, 3, 4, 5].map(n => cs.filter(x => n === 5 ? x.n >= 5 : x.n === n).length) };
+  };
+  return { success: true, from, to, days, prevFrom: R.pFrom, prevTo: R.pTo, cur: agg(from, to), prev: agg(R.pFrom, R.pTo), today: dials.filter(x => x.d === todayStr()).length };
+}
+async function dialsPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Dials | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+.gl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.gl input{width:90px}.pb{flex:1;min-width:140px;height:10px;border-radius:6px;background:#161c23;overflow:hidden}.pb i{display:block;height:100%;background:#32cd32}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>dials</b></h1>${nav("dials", tc, true)}</header>
+${bnav("dials", tc, true)}
+${insightTabs("dials")}
+<main>
+<div class="rb"><input type="date" id="f"><span class="note">to</span><input type="date" id="t"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+<p class="note" id="rn"></p>
+<div class="card"><h3>Today</h3><div class="gl"><div class="k"><b id="td">0</b><small>dials so far</small></div><div class="pb"><i id="tp" style="width:0"></i></div><label class="note">Daily goal <input type="number" id="gl" min="1" max="500" value="50" style="background:#10141a;border:1px solid #232932;color:#fff;border-radius:8px;padding:6px 8px;font:inherit"></label></div></div>
+<div class="g2"><div class="card"><h3>Dials</h3><div class="kp" id="a"></div></div><div class="card"><h3>Closing</h3><div class="kp" id="b"></div></div></div>
+<h2>Dials per day<small>green = someone picked up</small></h2><div class="ch" id="c1"></div>
+<div class="g2"><div><h2>Dials by hour<small>Eastern</small></h2><div class="ch" id="c2"></div></div><div><h2>Connect rate by hour<small>needs 5+ dials in the hour</small></h2><div class="ch" id="c3"></div></div></div>
+<div class="g2"><div><h2>How calls ended</h2><div class="card hb" id="oc"></div></div><div><h2>Dials before a booking</h2><div class="card"><div class="tbw"><table id="ds"></table></div></div></div></div>
+<h2>By person</h2><div class="card"><div class="tbw"><table id="bp"></table></div></div>
+<p class="note">A dial is one call placed from the Dial page. Connected means the result you picked after the call was a real conversation, or, when none was picked, the call lasted longer than 45 seconds. A booking is the first time a lead reaches Deposit collected, and it is credited to whoever moved it. Dials per booking is all dials in the range divided by bookings in the range.</p>
+</main>
+<script>
+${RPT_JS}
+function draw(d){const c=d.cur,p=d.prev;document.getElementById('rn').textContent=d.from+' to '+d.to+' ('+d.days+' days), compared with '+d.prevFrom+' to '+d.prevTo+'.';
+  const dpd=Math.round(10*c.dials/d.days)/10,pdpd=Math.round(10*p.dials/d.days)/10;
+  document.getElementById('a').innerHTML=kp('Dials',fmt(c.dials),'',delta(c.dials,p.dials))+kp('Dials per day',dpd,'',delta(dpd,pdpd))+kp('Connected',fmt(c.reached),pct(c.reached,c.dials)+'%',delta(c.reached,p.reached))+kp('Talk time',dur(c.talk),'',delta(c.talk,p.talk))+kp('Leads called',fmt(c.leads),'',delta(c.leads,p.leads))+kp('Dials per lead',c.leads?(Math.round(10*c.dials/c.leads)/10):'-','');
+  const dpc=c.closes?Math.round(10*c.dials/c.closes)/10:null,pdpc=p.closes?Math.round(10*p.dials/p.closes)/10:null;
+  document.getElementById('b').innerHTML=kp('Bookings',c.closes,'',delta(c.closes,p.closes))+kp('Dials per booking',dpc==null?'-':dpc,'',dpc!=null&&pdpc!=null?delta(dpc,pdpc,true):'')+kp('Connects per booking',c.closes?Math.round(10*c.reached/c.closes)/10:'-','')+kp('Dials to reach a lead',c.avgToReach==null?'-':c.avgToReach,'')+kp('Never reached',c.neverReached,'leads')+kp('Talk time per connect',c.reached?dur(Math.round(c.talk/c.reached)):'-','');
+  const days=Object.keys(c.perDay);
+  chart('c1',days,[{n:'not connected',v:days.map(k=>c.perDay[k].dials-c.perDay[k].reached),c:'#3b4552'},{n:'connected',v:days.map(k=>c.perDay[k].reached),c:'#32cd32'}],{legend:true});
+  const hrs=Array.from({length:24},(_,h)=>h),lab=h=>(h%12||12)+(h<12?'a':'p');
+  chart('c2',hrs.map(lab),[{n:'dials',v:hrs.map(h=>c.hr[h].dials),c:'#4a9be8'}],{});
+  chart('c3',hrs.map(lab),[{n:'connect rate',v:hrs.map(h=>c.hr[h].dials>=5?pct(c.hr[h].reached,c.hr[h].dials):0),c:'#a78bfa'}],{unit:'%',min:10});
+  const oc=Object.entries(c.out).sort((a,b)=>b[1]-a[1]),mx=Math.max(1,...oc.map(o=>o[1]));
+  document.getElementById('oc').innerHTML=oc.length?oc.map(o=>'<div><span>'+$(o[0])+'</span><span><i style="width:'+Math.max(3,Math.round(100*o[1]/mx))+'%"></i></span><span>'+o[1]+'</span></div>').join(''):'<span class="note">No dials in this range.</span>';
+  const L=['No dial recorded','1 dial','2 dials','3 dials','4 dials','5 or more'];
+  document.getElementById('ds').innerHTML=c.closes?'<tr><th>Dials before booking</th><th>Bookings</th><th>Share</th></tr>'+L.map((l,i)=>'<tr><td>'+l+'</td><td>'+c.dist[i]+'</td><td>'+pct(c.dist[i],c.closes)+'%</td></tr>').join(''):'<tr><td class="empty">No bookings in this range.</td></tr>';
+  const who=Object.entries(c.who).sort((a,b)=>b[1].dials-a[1].dials);
+  document.getElementById('bp').innerHTML=who.length?'<tr><th>Person</th><th>Dials</th><th>Connected</th><th>Connect rate</th><th>Talk time</th><th>Bookings</th><th>Dials per booking</th></tr>'+who.map(([k,w])=>'<tr><td style="text-transform:capitalize">'+$(k)+'</td><td>'+w.dials+'</td><td>'+w.reached+'</td><td>'+pct(w.reached,w.dials)+'%</td><td>'+dur(w.talk)+'</td><td>'+w.closes+'</td><td>'+(w.closes?Math.round(10*w.dials/w.closes)/10:'-')+'</td></tr>').join(''):'<tr><td class="empty">No dials in this range.</td></tr>';
+  const g=+document.getElementById('gl').value||50;document.getElementById('td').textContent=d.today;document.getElementById('tp').style.width=Math.min(100,Math.round(100*d.today/g))+'%'}
+let LAST=null;async function load(){const r=await fetch('/admin/dials/data?from='+RF.value+'&to='+RT.value);const j=await r.json();if(j.success){RF.value=j.from;RT.value=j.to;LAST=j;draw(j)}}
+try{document.getElementById('gl').value=localStorage.getItem('dgoal')||50}catch(_){}
+document.getElementById('gl').onchange=e=>{try{localStorage.setItem('dgoal',e.target.value)}catch(_){}if(LAST)draw(LAST)};
+rangeUI(load);setInterval(()=>{if(!document.hidden)load()},60000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Meta Ads report (owner only): what the Facebook and Instagram leads turned into. Spend is typed in by month because the CRM is not connected to Meta's ad account yet.
+async function metaPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  const rows = (await speedRows(env)).filter(r => r.channel === "meta").map(r => ({ id: r.id, name: r.name, cd: r.cd, created: r.created, service: r.service, stage: r.stage, booked: r.booked, value: r.value, secs: r.secs, reached: r.reached, attempts: r.attempts, camp: r.camp, adset: r.adset, ad: r.adname, form: r.form, lost: r.lost, open: r.open, h: r.h }));
+  const spend = {};
+  for (const r of (await env.DB.prepare("SELECT month, amount FROM ad_spend2 WHERE channel = 'meta'").all()).results || []) spend[r.month] = r.amount;
+  const payload = JSON.stringify({ rows, spend, today: todayStr() }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Meta Ads report | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+.sp{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}.sp label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}.sp input{width:100%;background:#10141a;border:1px solid #232932;color:#fff;border-radius:8px;padding:8px 10px;font:inherit}
+.btnc{background:#32cd32;color:#04120a;text-decoration:none;font-weight:800;border-radius:9px;padding:6px 12px;font-size:13px}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>meta ads</b></h1>${nav("meta", tc, true)}</header>
+${bnav("meta", tc, true)}
+${insightTabs("meta")}
+<main>
+<div class="rb"><input type="date" id="f"><span class="note">to</span><input type="date" id="t"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+<div class="g2"><div class="card"><h3>Results</h3><div class="kp" id="k1"></div></div><div class="card"><h3>What they turned into</h3><div class="kp" id="k2"></div></div></div>
+<h2>Leads per day</h2><div class="ch" id="c1"></div>
+<h2>Funnel<small>how many Meta leads make it through each step</small></h2><div class="ch" id="c2"></div>
+<h2>Performance<small>group by</small> <select id="gb" style="background:#10141a;border:1px solid #232932;color:#fff;border-radius:8px;padding:6px 8px;font:inherit"><option value="camp">Campaign</option><option value="adset">Ad set</option><option value="ad">Ad</option><option value="form">Form</option><option value="service">Service</option></select></h2>
+<div class="card"><div class="tbw"><table id="tb"></table></div></div>
+<h2>Not called yet<small>Meta leads in this range nobody has dialed. Oldest first.</small></h2><div class="card"><div class="tbw"><table id="nc"></table></div></div>
+<h2>Ad spend<small>type what you spent on Meta each month; it is saved automatically and used for cost per lead and return</small></h2><div class="card"><div class="sp" id="sp"></div></div>
+<p class="note">Impressions, clicks and click-through rate live inside Meta, so they are not shown here yet (connecting Meta's Ads API would add them). Everything above is counted from your CRM: leads from Meta forms, the calls made from the dialer, and bookings. Spend per campaign is estimated by splitting the month's spend by each campaign's share of leads. Booked means Deposit collected, In shop or Service completed.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+${RPT_JS}
+const D=JSON.parse(document.getElementById('data').textContent),R=D.rows;let SPD=D.spend||{};
+const med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);return Math.round(b.length%2?b[i]:(b[i-1]+b[i])/2)};
+const dt=s=>new Date(s+'T00:00:00Z');
+function spendFor(f,t){let tot=0;for(const m in SPD){const y=+m.slice(0,4),mo=+m.slice(5,7),dim=new Date(Date.UTC(y,mo,0)).getUTCDate(),first=m+'-01',last=m+'-'+String(dim).padStart(2,'0'),lo=f>first?f:first,hi=t<last?t:last;if(lo>hi)continue;tot+=SPD[m]*(((dt(hi)-dt(lo))/864e5)+1)/dim}return tot}
+function monthsIn(f,t){const out=[];let d=dt(f.slice(0,7)+'-01');const end=dt(t);while(d<=end){out.push(d.toISOString().slice(0,7));d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1))}return out}
+function drawSpend(f,t){const ms=monthsIn(f,t);document.getElementById('sp').innerHTML=ms.map(m=>'<div><label>'+m+'</label><input type="number" min="0" step="1" data-m="'+m+'" value="'+(SPD[m]||'')+'" placeholder="$0"></div>').join('')}
+document.getElementById('sp').addEventListener('change',async e=>{const i=e.target.closest('input[data-m]');if(!i)return;const v=Math.max(0,Number(i.value)||0);SPD[i.dataset.m]=v;try{await fetch('/admin/adspend',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({month:i.dataset.m,channel:'meta',amount:v})})}catch(_){}draw()});
+const keyOf={camp:r=>r.camp||'(no campaign)',adset:r=>r.adset||'(no ad set)',ad:r=>r.ad||'(no ad name)',form:r=>r.form||'(no form)',service:r=>r.service||'Not set'};
+function draw(){const f=RF.value,t=RT.value,L=R.filter(r=>r.cd>=f&&r.cd<=t),n=L.length,called=L.filter(r=>r.secs!=null),reached=L.filter(r=>r.reached),bk=L.filter(r=>r.booked),rev=bk.reduce((a,r)=>a+(r.value||0),0),sp=spendFor(f,t),nc=L.filter(r=>r.secs==null&&r.open);
+  document.getElementById('k1').innerHTML=kp('Leads',fmt(n),'')+kp('Ad spend',sp?money(sp):'-','')+kp('Cost per lead',sp&&n?m2(sp/n):'-','')+kp('Cost per booking',sp&&bk.length?m2(sp/bk.length):'-','')+kp('Return on ad spend',sp&&rev?(rev/sp).toFixed(1)+'x':'-','');
+  const m=med(called.map(r=>r.secs));
+  document.getElementById('k2').innerHTML=kp('Called',pct(called.length,n)+'%',called.length+' of '+n)+kp('Reached',pct(reached.length,called.length)+'%',reached.length+' of '+called.length)+kp('Booked',bk.length,pct(bk.length,n)+'%')+kp('Booked revenue',money(rev),'')+kp('Median time to first call',m==null?'-':dur(m),'');
+  const days=[];for(let d=dt(f);d<=dt(t);d=new Date(d.getTime()+864e5))days.push(d.toISOString().slice(0,10));
+  chart('c1',days,[{n:'leads',v:days.map(d=>L.filter(r=>r.cd===d).length),c:'#4a9be8'},{n:'booked',v:days.map(d=>L.filter(r=>r.cd===d&&r.booked).length),c:'#32cd32'}],{legend:true});
+  chart('c2',['Leads','Called','Reached','Booked'],[{n:'leads',v:[n,called.length,reached.length,bk.length],c:'#32cd32'}],{});
+  const g=document.getElementById('gb').value,groups={};L.forEach(r=>{const k=keyOf[g](r);(groups[k]=groups[k]||[]).push(r)});
+  const rows=Object.entries(groups).sort((a,b)=>b[1].length-a[1].length);
+  document.getElementById('tb').innerHTML=rows.length?'<tr><th>Name</th><th>Leads</th><th>Not called</th><th>Called</th><th>Reached</th><th>Booked</th><th>Booked rate</th><th>Revenue</th><th>Est. spend</th><th>Cost per lead</th><th>Cost per booking</th><th>Return</th></tr>'+rows.map(([k,x])=>{const c=x.filter(r=>r.secs!=null).length,rc=x.filter(r=>r.reached).length,b=x.filter(r=>r.booked),rv=b.reduce((a,r)=>a+(r.value||0),0),es=n?sp*x.length/n:0;return '<tr><td>'+$(k)+'</td><td>'+x.length+'</td><td'+(x.length-c?' class="warn"':'')+'>'+(x.length-c)+'</td><td>'+pct(c,x.length)+'%</td><td>'+pct(rc,c)+'%</td><td>'+b.length+'</td><td>'+pct(b.length,x.length)+'%</td><td>'+money(rv)+'</td><td>'+(es?money(es):'-')+'</td><td>'+(es?m2(es/x.length):'-')+'</td><td>'+(es&&b.length?m2(es/b.length):'-')+'</td><td>'+(es&&rv?(rv/es).toFixed(1)+'x':'-')+'</td></tr>'}).join(''):'<tr><td class="empty">No Meta leads in this range.</td></tr>';
+  const ncs=nc.sort((a,b)=>new Date(a.created)-new Date(b.created)).slice(0,25);
+  document.getElementById('nc').innerHTML=ncs.length?'<tr><th>Lead</th><th>Service</th><th>Campaign</th><th>Waiting</th><th></th></tr>'+ncs.map(r=>'<tr><td><a href="/admin/pipeline#id='+r.id+'">'+$(r.name)+'</a></td><td>'+$(r.service)+'</td><td>'+$(r.camp||'')+'</td><td class="warn">'+dur(Math.round((Date.now()-new Date(r.created).getTime())/1000))+'</td><td><a class="btnc" href="/admin/dialer?lead='+r.id+'">Call</a></td></tr>').join(''):'<tr><td class="empty good">Every Meta lead in this range has been called.</td></tr>';
+  drawSpend(f,t)}
+document.getElementById('gb').onchange=draw;
+rangeUI(draw);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Number health (owner only): is each calling and texting number still getting through, or is it being flagged as spam?
+const normNum = n => { const d = String(n || "").replace(/\D/g, ""); return !d ? "" : d.length === 10 ? "+1" + d : d.length === 11 && d[0] === "1" ? "+" + d : "+" + d; };
+const ourNumbers = env => [...new Set([env.TWILIO_FROM, ...String(env.TWILIO_NUMBERS || "").split(/[\s,]+/)].map(normNum).filter(Boolean))];
+async function numberHealth(env) {
+  await ensureTable(env.DB);
+  const nums = ourNumbers(env), primary = nums[0] || "";
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const [dials, msgs, outc, opt, texted] = await Promise.all([
+    q("SELECT lead_id, duration, started_at, from_num FROM dial_calls WHERE started_at >= datetime('now','-30 days') ORDER BY started_at ASC LIMIT 20000"),
+    q("SELECT status, err, at, from_num FROM messages WHERE direction = 'out' AND at >= datetime('now','-30 days') LIMIT 40000"),
+    q("SELECT lead_id, reason, at FROM stage_log WHERE reason LIKE 'Call result: Left a voicemail%' AND at >= datetime('now','-30 days')"),
+    q("SELECT COUNT(*) n FROM sms_optout WHERE at >= datetime('now','-7 days')"),
+    q("SELECT COUNT(DISTINCT lead_id) n FROM messages WHERE direction = 'out' AND at >= datetime('now','-7 days')"),
+  ]);
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z"), now = Date.now(), day = 864e5;
+  const all = [...new Set([...nums, ...dials.map(r => normNum(r.from_num)), ...msgs.map(r => normNum(r.from_num))].filter(Boolean))];
+  if (!all.length && (dials.length || msgs.length)) all.push("Not recorded");
+  const numOf = r => normNum(r.from_num) || primary || "Not recorded";
+  const vmAt = new Map(); for (const o of outc) { if (!vmAt.has(o.lead_id)) vmAt.set(o.lead_id, []); vmAt.get(o.lead_id).push(ms(o.at)); }
+  const out = [];
+  for (const num of all) {
+    const dr = dials.filter(r => numOf(r) === num).map(r => ({ t: ms(r.started_at), dur: r.duration || 0, lead: r.lead_id }));
+    const mr = msgs.filter(r => numOf(r) === num).map(r => ({ t: ms(r.at), st: r.status, err: String(r.err || "") }));
+    for (const d of dr) d.vm = (vmAt.get(d.lead) || []).some(t => t >= d.t - 6e4 && t - d.t < 6 * 36e5);
+    const calls = rows => ({ n: rows.length, picked: rows.filter(x => x.dur > 0).length, short: rows.filter(x => x.dur > 0 && x.dur < 10).length, vm: rows.filter(x => x.vm).length });
+    const texts = rows => ({ n: rows.length, delivered: rows.filter(x => x.st === "delivered").length, failed: rows.filter(x => x.st === "failed" || x.st === "undelivered").length, blocked: rows.filter(x => x.err === "30007").length });
+    const inW = (rows, a, b) => rows.filter(x => x.t >= now - b * day && x.t < now - a * day);
+    const cur = { calls: calls(inW(dr, 0, 7)), texts: texts(inW(mr, 0, 7)) }, base = { calls: calls(inW(dr, 7, 30)), texts: texts(inW(mr, 7, 30)) };
+    const rate = (a, b) => (b ? a / b : null), reasons = []; let level = 0;
+    const up = (l, t) => { level = Math.max(level, l); reasons.push(t); };
+    const ar = rate(cur.calls.picked, cur.calls.n), bar = rate(base.calls.picked, base.calls.n), P = v => Math.round(v * 100) + "%";
+    const callsOk = cur.calls.n >= 15, textsOk = cur.texts.n >= 30;
+    if (callsOk && base.calls.n >= 20 && bar != null) {
+      const drop = bar - ar;
+      if (drop >= 0.2 && ar <= 0.6 * bar) up(2, "Answer rate fell from " + P(bar) + " to " + P(ar) + " this week.");
+      else if (drop >= 0.1) up(1, "Answer rate dipped from " + P(bar) + " to " + P(ar) + " this week.");
+    } else if (callsOk && ar < 0.15) up(1, "Only " + P(ar) + " of calls are being picked up (not enough history to compare yet).");
+    if (cur.calls.picked >= 10) { const sr = cur.calls.short / cur.calls.picked; if (sr > 0.6) up(2, P(sr) + " of answered calls ended in under 10 seconds (people hanging up fast)."); else if (sr > 0.4) up(1, P(sr) + " of answered calls ended in under 10 seconds (people hanging up fast)."); }
+    if (textsOk) {
+      const br = cur.texts.blocked / cur.texts.n, fr = cur.texts.failed / cur.texts.n;
+      if (br >= 0.08) up(2, P(br) + " of texts were blocked by carriers (error 30007)."); else if (br >= 0.03) up(1, P(br) + " of texts were blocked by carriers (error 30007).");
+      if (fr >= 0.2) up(2, P(fr) + " of texts failed or were not delivered."); else if (fr >= 0.1) up(1, P(fr) + " of texts failed or were not delivered.");
+    }
+    if (all.length <= 1 && texted[0] && texted[0].n >= 20) { const or = (opt[0].n || 0) / texted[0].n; if (or >= 0.06) up(2, P(or) + " of the people texted this week replied STOP."); else if (or >= 0.03) up(1, P(or) + " of the people texted this week replied STOP."); }
+    const status = !callsOk && !textsOk ? "learning" : level >= 2 ? "red" : level === 1 ? "yellow" : "green";
+    const daily = Array.from({ length: 14 }, (_, i) => { const a = 13 - i, c = calls(inW(dr, a, a + 1)), t = texts(inW(mr, a, a + 1)); return { d: new Date(now - a * day).toLocaleDateString("en-CA", { timeZone: TZ }), dials: c.n, picked: c.picked, texts: t.n, delivered: t.delivered, blocked: t.blocked }; });
+    out.push({ num, label: num.startsWith("+1") ? prettyPhone(num.slice(2)) : num, primary: num === primary, status, level: status === "learning" ? 0 : level, reasons,
+      suggest: status === "red" ? "Pause outbound calls from this number, switch to a backup number, and register a replacement." : status === "yellow" ? "Keep an eye on it for a few days. Lower the daily volume and vary your text wording." : status === "learning" ? "Needs about 15 calls or 30 texts in a week to judge." : "Looks healthy.",
+      cur, base, daily });
+  }
+  return out;
+}
+async function numberHealthAlert(env) {
+  if (!env.DB || new Date().getUTCMinutes() !== 7) return;
+  await ensureTable(env.DB);
+  for (const n of await numberHealth(env)) {
+    const prev = await env.DB.prepare("SELECT level FROM number_health WHERE num = ?").bind(n.num).first();
+    const was = prev ? prev.level : 0;
+    if (n.level > was && n.level >= 1) await pushToDevices(env, { title: n.level >= 2 ? "Number health: RED" : "Number health: yellow", message: `${n.label}: ${n.reasons[0] || "check this number"}`, click: env.CRM_HOST ? `https://${env.CRM_HOST}/admin/numbers` : undefined, users: [OWNER] }).catch(() => {});
+    await env.DB.prepare("INSERT INTO number_health (num, level, at) VALUES (?,?,datetime('now')) ON CONFLICT(num) DO UPDATE SET level = excluded.level, at = excluded.at").bind(n.num, n.level).run();
+  }
+}
+// best-effort look at Twilio's own spam status for each number (Voice Integrity). Only runs when the owner presses the button.
+async function twilioNumberCheck(env) {
+  const base = env.TWILIO_API_BASE || "https://api.twilio.com", auth = { authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_TOKEN}`) }, out = [];
+  if (!env.TWILIO_SID || !env.TWILIO_TOKEN) return [{ num: "", ok: false, message: "Twilio is not set up yet." }];
+  for (const num of ourNumbers(env)) {
+    try {
+      const r = await fetch(`${base}/2010-04-01/Accounts/${env.TWILIO_SID}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(num)}`, { headers: auth, signal: AbortSignal.timeout(8000) });
+      const j = await r.json().catch(() => ({})), sid = j.incoming_phone_numbers && j.incoming_phone_numbers[0] && j.incoming_phone_numbers[0].sid;
+      if (!sid) { out.push({ num, ok: false, message: "Twilio does not list this number on the account." }); continue; }
+      const v = await fetch(`${env.TWILIO_VOICE_INTEGRITY_BASE || "https://voiceintegrity.twilio.com"}/v1/PhoneNumbers/${sid}`, { headers: auth, signal: AbortSignal.timeout(8000) });
+      if (!v.ok) { out.push({ num, ok: false, message: v.status === 404 ? "No Voice Integrity registration for this number yet. Turn it on in Twilio (Trust Hub > Voice Integrity)." : "Twilio answered " + v.status + "." }); continue; }
+      const d = await v.json().catch(() => ({})); out.push({ num, ok: true, data: JSON.stringify(d).slice(0, 600) });
+    } catch (e) { out.push({ num, ok: false, message: "Could not reach Twilio." }); }
+  }
+  return out;
+}
+async function numbersPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env), list = await numberHealth(env);
+  const payload = JSON.stringify({ list, twilio: !!(env.TWILIO_SID && env.TWILIO_TOKEN) }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Number health | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+.nm{display:flex;flex-direction:column;gap:14px}.nh{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.nh b{font-size:22px;letter-spacing:-.3px}.st{border-radius:999px;padding:4px 14px;font-weight:800;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+.st.green{background:#0f2c18;color:#4fdc5a;border:1px solid #1f6a37}.st.yellow{background:#2a2410;color:#ffd166;border:1px solid #5a4a1f}.st.red{background:#2c1414;color:#ff8a8a;border:1px solid #6a2a2a}.st.learning{background:#161c23;color:#9aa4af;border:1px solid #2a323b}
+.rs{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}.sg{background:#0b0f13;border:1px solid #1b2530;border-radius:12px;padding:10px 14px;color:#cfd6de}
+.btnc{background:#10151b;border:1px solid #232b34;color:#e8eaed;border-radius:10px;padding:9px 14px;font:inherit;font-weight:650;cursor:pointer}.btnc:hover{border-color:#34404c}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>number health</b></h1>${nav("numbers", tc, true)}</header>
+${bnav("numbers", tc, true)}
+${insightTabs("numbers")}
+<main>
+<p class="note">Each number gets a status from how people react to it: calls picked up, calls ended in seconds, texts delivered and texts blocked by carriers. It compares the last 7 days with the 3 weeks before. A phone alert goes to your login only when a number turns yellow or red.</p>
+<div id="list"></div>
+<div class="card"><h3>Twilio's own spam status</h3><p class="note" id="tw">Asks Twilio what it reports for each number (Voice Integrity). Turn Voice Integrity on in Twilio first, or this will say it has nothing for the number.</p><div><button class="btnc" id="chk" type="button">Check with Twilio</button></div><div id="twr" class="note"></div></div>
+<p class="note">No tool can promise a number is clean: the carriers' spam lists are not public. This catches problems early from behavior, but it needs a few days of calling to sharpen. Numbers are recorded from now on; older calls and texts count toward your main number.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+${RPT_JS}
+const D=JSON.parse(document.getElementById('data').textContent);
+const P=v=>v==null?'-':Math.round(v*100)+'%';
+function card(n){const c=n.cur,b=n.base,ar=c.calls.n?c.calls.picked/c.calls.n:null,bar=b.calls.n?b.calls.picked/b.calls.n:null,dl=c.texts.n?c.texts.delivered/c.texts.n:null,bl=c.texts.n?c.texts.blocked/c.texts.n:null,sh=c.calls.picked?c.calls.short/c.calls.picked:null;
+  return '<div class="card nm"><div class="nh"><b>'+$(n.label)+'</b><span class="st '+n.status+'">'+n.status+'</span>'+(n.primary?'<span class="note">main number</span>':'')+'</div>'
+  +(n.reasons.length?'<ul class="rs">'+n.reasons.map(r=>'<li>'+$(r)+'</li>').join('')+'</ul>':'')+'<div class="sg">'+$(n.suggest)+'</div>'
+  +'<div class="kp">'+kp('Calls (7 days)',c.calls.n,'')+kp('Picked up',P(ar),bar!=null?'was '+P(bar):'')+kp('Hung up in under 10 sec',P(sh),'of answered')+kp('Texts (7 days)',c.texts.n,'')+kp('Delivered',P(dl),'')+kp('Blocked by carriers',P(bl),'')+'</div>'
+  +'<div class="ch" id="ch'+n.num.replace(/\\D/g,'')+'"></div></div>'}
+const el=document.getElementById('list');
+el.innerHTML=D.list.length?D.list.map(card).join(''):'<div class="card"><div class="empty">No numbers found. Add TWILIO_FROM in Cloudflare and make a few calls.</div></div>';
+D.list.forEach(n=>{const e=document.getElementById('ch'+n.num.replace(/\\D/g,''));if(e)chart('ch'+n.num.replace(/\\D/g,''),n.daily.map(d=>d.d),[{n:'calls',v:n.daily.map(d=>d.dials),c:'#4a9be8'},{n:'picked up',v:n.daily.map(d=>d.picked),c:'#32cd32'},{n:'texts blocked',v:n.daily.map(d=>d.blocked),c:'#ff7a7a'}],{legend:true})});
+document.getElementById('chk').onclick=async e=>{e.target.disabled=true;document.getElementById('twr').textContent='Asking Twilio...';try{const j=await (await fetch('/admin/numbers/check',{method:'POST'})).json();document.getElementById('twr').innerHTML=(j.results||[]).map(r=>'<p><b>'+$(r.num||'')+'</b> '+(r.ok?'<span class="good">'+$(r.data)+'</span>':'<span class="warn">'+$(r.message)+'</span>')+'</p>').join('')||'No numbers to check.'}catch(_){document.getElementById('twr').textContent='Could not reach the server.'}e.target.disabled=false};
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Dashboard (owner only): the page the CRM opens to
+async function dashData(env, days) {
+  await ensureTable(env.DB);
+  days = [1, 7, 30, 90].includes(days) ? days : 30;
+  const today = todayStr(), start = days === 1 ? today : addDays(today, -(days - 1)), startUtc = start + " 05:00:00", minS = contactMinSecs(env);
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const base = "l.type != 'newsletter' AND COALESCE(l.ip,'') != 'demo'";
+  const [all, logs, called, reachedA, reachedB, notCalled, due, waiting, appts, dialsToday] = await Promise.all([
+    q(`SELECT l.id, l.stage, l.value, l.created_at FROM leads l WHERE ${base} ORDER BY l.id DESC LIMIT 6000`),
+    q(`SELECT s.lead_id, s.to_stage FROM stage_log s JOIN leads l ON l.id = s.lead_id WHERE l.created_at >= ? AND ${base} AND s.to_stage IN ('interested','quoted','deposit','booked','working','done')`, startUtc),
+    q(`SELECT DISTINCT d.lead_id FROM dial_calls d JOIN leads l ON l.id = d.lead_id WHERE l.created_at >= ? AND ${base}`, startUtc),
+    q(`SELECT DISTINCT d.lead_id FROM dial_calls d JOIN leads l ON l.id = d.lead_id WHERE l.created_at >= ? AND ${base} AND d.duration > ?`, startUtc, minS),
+    q(`SELECT DISTINCT s.lead_id FROM stage_log s JOIN leads l ON l.id = s.lead_id WHERE l.created_at >= ? AND ${base} AND s.reason IN ('Call result: Answered','Call result: Interested','Call result: Callback','Call result: Booked','Call result: Deposit pending','Call result: Quote sent','Call result: Not interested')`, startUtc),
+    q(`SELECT l.id, l.name, l.service, l.created_at FROM leads l WHERE ${base} AND l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-7 days') AND NOT EXISTS (SELECT 1 FROM dial_calls d WHERE d.lead_id = l.id) ORDER BY l.created_at ASC LIMIT 8`),
+    q(`SELECT l.id, l.name, l.service, l.follow_up_date, l.follow_up FROM leads l WHERE ${base} AND COALESCE(l.follow_up_date,'') != '' AND l.follow_up_date <= ? AND l.stage NOT IN ('lost','done') ORDER BY l.follow_up_date ASC LIMIT 8`, today),
+    q(`SELECT l.id, l.name, m.at FROM messages m JOIN leads l ON l.id = m.lead_id WHERE m.id = (SELECT MAX(id) FROM messages WHERE lead_id = l.id) AND m.direction = 'in' ORDER BY m.at ASC LIMIT 8`),
+    q(`SELECT l.id, l.name, l.service, l.appt_at, l.stage FROM leads l WHERE ${base} AND COALESCE(l.appt_at,'') != '' AND l.stage != 'lost' AND l.appt_at >= ? ORDER BY l.appt_at ASC LIMIT 8`, today),
+    q("SELECT COUNT(*) n FROM dial_calls WHERE started_at >= ?", today + " 05:00:00"),
+  ]);
+  const OPEN = ["new", "nocontact", "contacted", "quoted", "aged", "interested", "deposit"], WON = ["booked", "working", "done"];
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z"), age = l => Math.floor((Date.now() - ms(l.created_at)) / 864e5);
+  const inR = all.filter(l => l.created_at >= startUtc);
+  const ever = { interested: new Set(), deposit: new Set(), booked: new Set(), working: new Set(), done: new Set() };
+  const rank = { interested: 0, quoted: 0, deposit: 1, booked: 2, working: 3, done: 4 };
+  const reach = new Set([...reachedA, ...reachedB].map(r => r.lead_id));
+  const step = new Map(); // furthest step a lead ever reached
+  const bump = (id, r) => step.set(id, Math.max(step.get(id) ?? -1, r));
+  for (const g of logs) bump(g.lead_id, rank[g.to_stage]);
+  for (const l of inR) { const cur = { interested: 0, quoted: 0, deposit: 1, booked: 2, working: 3, done: 4 }[l.stage]; if (cur != null) bump(l.id, cur); }
+  const n = inR.length, cnt = f => inR.filter(l => f(step.get(l.id) ?? -1)).length;
+  const calledSet = new Set(called.map(r => r.lead_id));
+  const funnel = [["New leads", n], ["Called", inR.filter(l => calledSet.has(l.id)).length], ["Reached", inR.filter(l => reach.has(l.id)).length], ["Interested", cnt(r => r >= 0)], ["Deposit pending", cnt(r => r >= 1)], ["Deposit collected", cnt(r => r >= 2)], ["In shop", cnt(r => r >= 3)], ["Completed", cnt(r => r >= 4)]];
+  const sum = (arr, f) => arr.filter(f).reduce((a, l) => a + (l.value || 0), 0);
+  const status = { open: inR.filter(l => OPEN.includes(l.stage)).length, won: inR.filter(l => WON.includes(l.stage)).length, lost: inR.filter(l => l.stage === "lost").length };
+  const value = { open: sum(inR, l => OPEN.includes(l.stage)), won: sum(inR, l => WON.includes(l.stage)), lost: sum(inR, l => l.stage === "lost") };
+  const BK = [["d1", "1-2 days", 0, 2], ["d3", "3-6 days", 3, 6], ["d7", "7+ days", 7, 29], ["d30", "30+ days", 30, 1e9]], dist = {};
+  for (const l of all) { let k = l.stage; if (["new", "nocontact", "contacted", "quoted", "aged"].includes(k)) { const a = age(l); k = (BK.find(b => a >= b[2] && a <= b[3]) || BK[0])[0]; } (dist[k] = dist[k] || { n: 0, v: 0 }); dist[k].n++; dist[k].v += l.value || 0; }
+  const labels = Object.fromEntries(BK.map(b => [b[0], b[1]]).concat([["interested", "Interested (call back)"], ["deposit", "Deposit pending"], ["booked", "Deposit collected"], ["working", "In shop"], ["done", "Service completed"], ["lost", "NO"]]));
+  const order = ["d1", "d3", "d7", "d30", "interested", "deposit", "booked", "working", "done", "lost"];
+  const nums = await numberHealth(env).catch(() => []);
+  return { success: true, days, start, today, n, status, value, funnel, won: status.won, conv: n ? Math.round(1000 * status.won / n) / 10 : 0,
+    dist: order.filter(k => dist[k]).map(k => ({ k, label: labels[k], n: dist[k].n, v: dist[k].v })),
+    notCalled: notCalled.map(l => ({ id: l.id, name: l.name, service: l.service, mins: Math.round((Date.now() - ms(l.created_at)) / 60000) })),
+    due: due.map(l => ({ id: l.id, name: l.name, what: l.follow_up || "Follow up", date: l.follow_up_date })),
+    waiting: waiting.map(w => ({ id: w.id, name: w.name, mins: Math.round((Date.now() - ms(w.at)) / 60000) })),
+    appts: appts.map(a => ({ id: a.id, name: a.name, service: a.service, at: a.appt_at })),
+    dialsToday: (dialsToday[0] || {}).n || 0, numbers: nums.map(x => ({ label: x.label, status: x.status, reason: x.reasons[0] || x.suggest })) };
+}
+async function dashboardPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Dashboard | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+main{max-width:1300px}.dh{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.dh h2{margin:0;font-size:22px;text-transform:none;letter-spacing:-.3px;color:#fff}
+.g3{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}.g6{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.sm{background:#0d1116;border:1px solid #1d2229;border-radius:14px;padding:14px 16px;text-decoration:none;color:inherit;display:block}.sm small{display:block;color:#8a939e;font-size:12.5px}.sm b{display:block;font-size:28px;line-height:1.15;margin-top:4px;letter-spacing:-.4px}.sm span{font-size:12px;color:#7c838d}.sm.hot b{color:#ff9a6b}.sm:hover{border-color:#2b3641}
+.dn{display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:center}.lg{display:flex;flex-direction:column;gap:8px;font-size:13.5px}.lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px}.lg span{color:#8a939e;margin-left:6px}
+.rg{text-align:center}.rg b{display:block;font-size:12px;color:#8a939e;font-weight:500}.rg strong{font-size:26px}
+.fn div{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;margin:7px 0;font-size:14px}.fn i{display:block;height:22px;border-radius:6px;background:linear-gradient(90deg,#1f6a37,#32cd32)}.fn span.p{color:#8a939e;font-size:12.5px;text-align:right}
+.li{display:flex;flex-direction:column}.li a{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #141a20;color:inherit;text-decoration:none;font-size:14px}.li a:last-child{border:0}.li a span{color:#8a939e;white-space:nowrap}.li a:hover b{color:#4fdc5a}
+.nb2{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #141a20}.nb2:last-child{border:0}.pl{border-radius:999px;padding:2px 10px;font-weight:800;font-size:11px;letter-spacing:.5px;text-transform:uppercase;flex:none;margin-top:2px}.pl.green{background:#0f2c18;color:#4fdc5a}.pl.yellow{background:#2a2410;color:#ffd166}.pl.red{background:#2c1414;color:#ff8a8a}.pl.learning{background:#161c23;color:#9aa4af}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}.fn div{grid-template-columns:110px 1fr 70px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>dashboard</b></h1>${nav("dashboard", tc, true)}</header>
+${bnav("dashboard", tc, true)}
+<main>
+<div class="dh"><h2 id="hi">Dashboard</h2><div class="rb"><button data-d="1">Today</button><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div></div>
+<div class="g6" id="kpi"></div>
+<div class="g3"><div class="card"><h3>Opportunity status</h3><div class="dn" id="st"></div></div><div class="card"><h3>Opportunity value</h3><div class="kp" id="vl"></div></div><div class="card"><h3>Conversion rate</h3><div class="dn" id="cv"></div></div></div>
+<div class="g2"><div class="card"><h3>Funnel</h3><div class="fn" id="fn"></div></div><div class="card"><h3>Where leads are now</h3><div class="dn" id="ds"></div></div></div>
+<div class="g3"><div class="card"><h3>Needs attention</h3><div class="li" id="at"></div></div><div class="card"><h3>Coming up</h3><div class="li" id="ap"></div></div><div class="card"><h3>Number health</h3><div id="nh"></div></div></div>
+<p class="note" id="nt"></p>
+</main>
+<script>
+${RPT_JS}
+const COL=['#4a9be8','#22d3ee','#a78bfa','#32cd32','#f5b942','#ff8a5b','#8b95a3','#6ee7b7','#f472b6','#64748b'];
+function donut(id,parts,center){const tot=parts.reduce((a,p)=>a+p.v,0)||1,R=62,C=2*Math.PI*R;let off=0,s='<svg width="170" height="170" viewBox="0 0 170 170"><g transform="rotate(-90 85 85)"><circle cx="85" cy="85" r="'+R+'" fill="none" stroke="#161c23" stroke-width="22"/>';
+  parts.forEach(p=>{const len=C*p.v/tot;if(p.v>0)s+='<circle cx="85" cy="85" r="'+R+'" fill="none" stroke="'+p.c+'" stroke-width="22" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'"><title>'+p.n+': '+p.v+'</title></circle>';off+=len});
+  s+='</g><text x="85" y="92" text-anchor="middle" fill="#e8eaed" font-size="24" font-weight="700">'+center+'</text></svg>';
+  document.getElementById(id).innerHTML=s+'<div class="lg">'+parts.map(p=>'<div><i style="background:'+p.c+'"></i>'+$(p.n)+'<span>'+p.v+(p.x?' &middot; '+p.x:'')+'</span></div>').join('')+'</div>'}
+function ring(pctv,label,sub){const R=62,C=2*Math.PI*R,len=C*Math.min(100,pctv)/100;return '<div class="rg"><svg width="170" height="170" viewBox="0 0 170 170"><g transform="rotate(-90 85 85)"><circle cx="85" cy="85" r="'+R+'" fill="none" stroke="#161c23" stroke-width="16"/><circle cx="85" cy="85" r="'+R+'" fill="none" stroke="#32cd32" stroke-width="16" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'"/></g><text x="85" y="94" text-anchor="middle" fill="#e8eaed" font-size="26" font-weight="700">'+pctv+'%</text></svg><b>'+label+'</b><strong>'+sub+'</strong></div>'}
+const mn=m=>m<60?m+' min':m<2880?Math.floor(m/60)+' h':Math.round(m/1440)+' days';
+const sd=a=>{const d=new Date(String(a).replace(' ','T'));return isNaN(d)?a:d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})};
+function draw(d){const h=new Date().getHours();document.getElementById('hi').textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+', Bronson';
+  const goal=+(localStorage.getItem('dgoal')||50);
+  document.getElementById('kpi').innerHTML=
+   '<a class="sm" href="/admin/pipeline"><small>New leads</small><b>'+d.n+'</b><span>in this range</span></a>'
+   +'<a class="sm'+(d.notCalled.length?' hot':'')+'" href="/admin/dialer"><small>Not called yet</small><b>'+d.notCalled.length+'</b><span>new leads, last 7 days</span></a>'
+   +'<a class="sm" href="/admin/dials"><small>Dials today</small><b>'+d.dialsToday+'</b><span>goal '+goal+'</span></a>'
+   +'<a class="sm'+(d.waiting.length?' hot':'')+'" href="/admin/messages"><small>Texts waiting on you</small><b>'+d.waiting.length+'</b><span>lead texted last</span></a>'
+   +'<a class="sm" href="/admin/pipeline"><small>Bookings</small><b>'+d.won+'</b><span>'+d.conv+'% of leads</span></a>'
+   +'<a class="sm" href="/admin/meta"><small>Booked revenue</small><b>'+money(d.value.won)+'</b><span>in this range</span></a>';
+  donut('st',[{n:'Open',v:d.status.open,c:'#4a9be8'},{n:'Won',v:d.status.won,c:'#32cd32'},{n:'Lost',v:d.status.lost,c:'#64748b'}],fmt(d.n));
+  document.getElementById('vl').innerHTML=kp('Open pipeline',money(d.value.open),'')+kp('Won',money(d.value.won),'')+kp('Lost',money(d.value.lost),'')+kp('Average job',d.status.won&&d.value.won?money(d.value.won/d.status.won):'-','');
+  document.getElementById('cv').innerHTML=ring(d.conv,'Won revenue',money(d.value.won));
+  const f=d.funnel,mx=Math.max(1,f[0][1]);document.getElementById('fn').innerHTML=f.map((x,i)=>'<div><span>'+x[0]+'</span><span><i style="width:'+Math.max(2,Math.round(100*x[1]/mx))+'%"></i></span><span class="p">'+x[1]+(i?' &middot; '+pct(x[1],f[i-1][1])+'%':'')+'</span></div>').join('');
+  const tot=d.dist.reduce((a,x)=>a+x.n,0);donut('ds',d.dist.map((x,i)=>({n:x.label,v:x.n,c:COL[i%COL.length],x:x.v?money(x.v):''})),fmt(tot));
+  const li=(arr,fn)=>arr.length?arr.map(fn).join(''):'';
+  document.getElementById('at').innerHTML=li(d.notCalled,l=>'<a href="/admin/dialer?lead='+l.id+'"><b>'+$(l.name||'Lead')+'</b><span>not called &middot; '+mn(l.mins)+'</span></a>')+li(d.due,l=>'<a href="/admin/dialer?lead='+l.id+'"><b>'+$(l.name||'Lead')+'</b><span>'+$(l.what)+' &middot; due '+l.date+'</span></a>')+li(d.waiting,l=>'<a href="/admin/messages#id='+l.id+'"><b>'+$(l.name||'Lead')+'</b><span>text waiting &middot; '+mn(l.mins)+'</span></a>')||'<div class="empty good">Nothing needs attention right now.</div>';
+  document.getElementById('ap').innerHTML=d.appts.length?d.appts.map(a=>'<a href="/admin/pipeline#id='+a.id+'"><b>'+$(a.name||'Lead')+' <small style="color:#8a939e;font-weight:400">'+$(a.service||'')+'</small></b><span>'+sd(a.at)+'</span></a>').join(''):'<div class="empty">No appointments booked ahead.</div>';
+  document.getElementById('nh').innerHTML=d.numbers.length?d.numbers.map(n=>'<div class="nb2"><span class="pl '+n.status+'">'+n.status+'</span><div><b>'+$(n.label)+'</b><div class="note">'+$(n.reason)+'</div></div></div>').join('')+'<p class="note"><a href="/admin/numbers" style="color:#8ec0ff">Open number health</a></p>':'<div class="empty">No numbers recorded yet.</div>';
+  document.getElementById('nt').textContent='Range: '+d.start+' to '+d.today+'. Won means Deposit collected, In shop or Service completed. Value is the job value set on each lead.'}
+async function load(){const d=+(document.querySelector('.rb .on')||{dataset:{d:30}}).dataset.d;const j=await (await fetch('/admin/dashboard/data?days='+d)).json();if(j.success)draw(j)}
+document.querySelectorAll('.rb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.rb button').forEach(x=>x.classList.toggle('on',x===b));load()});
+load();setInterval(()=>{if(!document.hidden)load()},60000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
@@ -2762,7 +3418,7 @@ async function dialerLog(env, b, user) {
   const dur = Math.max(0, Math.min(14400, Math.floor(Number(b.duration)) || 0));
   const mmss = `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}`;
   const stmts = [
-    env.DB.prepare("INSERT INTO dial_calls (lead_id, call_sid, duration, by_user) VALUES (?,?,?,?)").bind(b.lead_id, clean(b.sid, 60), dur, user),
+    env.DB.prepare("INSERT INTO dial_calls (lead_id, call_sid, duration, by_user, from_num) VALUES (?,?,?,?,?)").bind(b.lead_id, clean(b.sid, 60), dur, user, normNum(env.TWILIO_FROM) || null),
     env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.lead_id, cur.stage, cur.stage, dur ? `Called (in-app dialer): ${mmss}` : "Called (in-app dialer): not connected", user),
   ];
   // the result picked after the call decides what happened (a voicemail greeting can run a minute or more), so only a call of 3+ minutes counts as contact on its own
@@ -4179,6 +4835,7 @@ export default {
     ctx.waitUntil(dialSessionReminder(env).catch(e => console.error("dial session error", e && e.message)));
     ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
+    ctx.waitUntil(numberHealthAlert(env).catch(e => console.error("number health error", e && e.message)));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -4201,8 +4858,15 @@ export default {
 
     if (onCrm) {
       // the CRM host only serves the dashboard (and its few endpoints), never the marketing site or the form API
-      if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
+      if (p === "/") return adminRoute("/admin/dashboard", request, env);
+      if (p === "/dashboard" || p === "/admin/dashboard") return adminRoute("/admin/dashboard", request, env);
+      if (p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
+      if (p === "/msgstats" || p === "/admin/msgstats") return adminRoute("/admin/msgstats", request, env);
+      if (p === "/dials" || p === "/admin/dials") return adminRoute("/admin/dials", request, env);
+      if (p === "/numbers" || p === "/admin/numbers") return adminRoute("/admin/numbers", request, env);
+      if (p === "/meta" || p === "/admin/meta") return adminRoute("/admin/meta", request, env);
+      if (p === "/reports" || p === "/admin/reports") return adminRoute("/admin/insights", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
@@ -4218,7 +4882,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -4385,7 +5049,7 @@ const CHART_JS = `function bars(id,items){const mx=Math.max(1,...items.map(i=>i.
 const BOOKED = ["booked", "working", "done"];
 async function speedRows(env) {
   await ensureTable(env.DB);
-  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
+  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,referrer,message FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason, to_stage FROM stage_log ORDER BY id ASC LIMIT 30000").all();
   // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
   // Texts, emails, the Contacted button and stage changes do not stop it.
@@ -4424,6 +5088,7 @@ async function speedRows(env) {
     const lostLog = [...gl].reverse().find(g => g.to_stage === "lost"), bookedLog = gl.find(g => BOOKED.includes(g.to_stage));
     const so = sourceOf(l);
     return {
+      camp: l.utm_campaign || "", adname: ((/ad name:\s*([^\u00b7\n]+)/i.exec(l.message || "") || [])[1] || l.utm_term || "").trim(), adset: ((/adset name:\s*([^\u00b7\n]+)/i.exec(l.message || "") || [])[1] || "").trim(), form: ((/form name:\s*([^\u00b7\n]+)/i.exec(l.message || "") || [])[1] || "").trim(),
       id: l.id, name: l.name || l.phone || "Unknown", type: l.type, what: [l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
       src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at), cd: new Date(ms(l.created_at)).toLocaleDateString("en-CA", { timeZone: TZ }),
       contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
@@ -4681,7 +5346,7 @@ async function insightsPage(env, user) {
   for (const r of (await env.DB.prepare("SELECT month, channel, amount FROM ad_spend2").all()).results) (spend[r.channel] = spend[r.channel] || {})[r.month] = r.amount;
   const costs = Object.fromEntries((await env.DB.prepare("SELECT service, cost FROM job_costs").all()).results.map(r => [r.service, r.cost]));
   const payload = JSON.stringify({ rows, today: todayStr(), spend, costs, services: ["Window Tint", "PPF / Clear Bra", "Ceramic Coating", "Paint Correction", "Vinyl Wraps", "Exterior Detailing", "Other"] }).replace(/</g, "\\u003c");
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Insights | Divine Detailers</title>
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Reports | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
 header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
@@ -4696,7 +5361,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;mar
 ${BNAV_CSS}
 @media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}.hb div{grid-template-columns:90px 1fr 48px}}
 </style></head><body>
-<header><h1>Divine Detailers <b>insights</b></h1>${nav("insights", tc, true)}</header>
+<header><h1>Divine Detailers <b>reports</b></h1>${nav("insights", tc, true)}</header>
 ${bnav("insights", tc, true)}
 ${insightTabs("insights")}
 <main>
@@ -4951,8 +5616,33 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE direction = 'in' AND is_read = 0").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
   if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
+  if (p === "/admin/star" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    await ensureTable(env.DB);
+    await env.DB.prepare("UPDATE leads SET starred = ? WHERE id = ?").bind(b.on ? 1 : 0, b.id).run();
+    return json({ success: true });
+  }
+  if (p === "/admin/tags" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id) || !Array.isArray(b.tags)) return json({ success: false }, 400);
+    await ensureTable(env.DB);
+    const tags = [...new Set(b.tags.map(t => String(t || "").replace(/[,<>]/g, " ").trim().slice(0, 24)).filter(Boolean))].slice(0, 12);
+    await env.DB.prepare("UPDATE leads SET tags = ? WHERE id = ?").bind(tags.join(","), b.id).run();
+    return json({ success: true, tags });
+  }
+
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
+  if (p === "/admin/dashboard") return a === OWNER ? dashboardPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/dashboard/data" && request.method === "GET") return a === OWNER ? json(await dashData(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
+  if (p === "/admin/numbers") return a === OWNER ? numbersPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/numbers/check" && request.method === "POST") return a === OWNER ? json({ success: true, results: await twilioNumberCheck(env) }) : json({ success: false }, 403);
+  if (p === "/admin/dials") return a === OWNER ? dialsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/meta") return a === OWNER ? metaPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/dials/data" && request.method === "GET") { if (a !== OWNER) return json({ success: false }, 403); const u = new URL(request.url); return json(await dialsData(env, u.searchParams.get("from"), u.searchParams.get("to"))); }
+  if (p === "/admin/msgstats") return a === OWNER ? msgStatsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/msgstats/data" && request.method === "GET") { if (a !== OWNER) return json({ success: false }, 403); const u = new URL(request.url); return json({ success: true, ...(await msgStatsData(env, u.searchParams.get("from"), u.searchParams.get("to"))) }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/insights") return a === OWNER ? insightsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/adspend" && request.method === "POST") {
