@@ -3094,8 +3094,8 @@ function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||''
 // follow the rep: when what they just said matches the next step, move to it
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
 function gLines(sc,l,svc){const out=[];sc.steps.forEach((s,si)=>{if(!s.n)return;(s.main||[]).forEach(n=>{if(n.k!=='say')return;(n.ps||[]).forEach((p,pi)=>{if(p.t&&!p.note&&!/^if\\b/i.test(p.sub||''))out.push({si:si,sid:s.id,k:s.id+'.'+out.length,t:gplain(p.t,l,svc)})})})});return out}
-function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<2)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
-  L.forEach((x,j)=>{const set=new Set(words(x.t));if(set.size<2)return;const hit=w.filter(y=>set.has(y)).length,need=Math.min(3,set.size),r=hit/Math.min(set.size,Math.max(w.length,2));if(hit>=need&&r>=0.5&&r>bs){bs=r;best=j}});
+function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<1)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
+  L.forEach((x,j)=>{const set=new Set(words(x.t));if(!set.size)return;const hit=w.filter(y=>set.has(y)).length,need=set.size===1?1:set.size<=3?2:3,r=hit/Math.min(set.size,Math.max(w.length,2));if(set.size===1&&w.length>4)return;if(hit>=need&&r>=0.5&&r>bs){bs=r;best=j}});
   if(best>=0){const m=L[best];lastSaid={k:m.k,sid:m.sid,t:m.t,at:Date.now()};L.forEach((x,j)=>{if(x.si===m.si&&j<=best)SAID[x.k]=1});if(L.filter(x=>x.si===m.si).every(x=>SAID[x.k]))COV[m.sid]=1;const mv=m.si!==gi;if(mv)gi=m.si;gMark(mv)}}
 // the line the rep should say next: the first line, at or after the current step, that has not been said or already covered by what the lead told us
 function gNextLine(){const sc=gScript(),l=Q[ix];if(!sc||!l)return null;const svc=gsvc(l),L=gLines(sc,l,svc),open=L.filter(x=>!SAID[x.k]&&!COV[x.sid]);if(!open.length)return{done:true};return open.find(x=>x.si>=gi)||open[0]}
@@ -3285,15 +3285,15 @@ function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc
   return true}
 function anchorId(a){a=String(a||'');if(!a)return '';if(/^(gs|gx)-/.test(a))return a;const sc=gScript();if(sc&&sc.plays.some(p=>p.id===a))return 'gx-'+a;return 'gs-'+a}
 // One answer at a time: it stays put while the rep reads it, and the AI version is folded into the same card
-let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0,lastNext='',detTm=0;const DWELL=5000;
+let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0,lastNext='',detTm=0;const DWELL=2500;
 function leadSaid(text,end){leadBuf=(leadBuf+' '+text).trim();clearTimeout(leadTm);if(end)flushLead();else leadTm=setTimeout(flushLead,900)}
 function flushLead(){clearTimeout(leadTm);const t=leadBuf.trim();leadBuf='';if(!t)return;if(!gScript())objCheck(t);else gDet(t)}
 function sameQ(a,b){const x=words(String(a||'')),y=words(String(b||''));if(!x.length||!y.length)return false;const st=new Set(y),h=x.filter(w=>st.has(w)).length;return h/Math.min(x.length,y.length)>=0.4}
 function markRedo(){const ls=lastSaid;if(!ls||Date.now()-ls.at>20000||!/\\?\\s*$/.test(ls.t))return;const tmp={};gCov(tmp);if(tmp[ls.sid])return;delete SAID[ls.k];delete COV[ls.sid]}
 function showAns(o){const now=Date.now(),key=o.src==='ai'?'ai:'+String(o.q||'').toLowerCase().slice(0,40):String(o.anchor||o.q||'').toLowerCase();
   if(o.src==='ai'&&curAns&&curAns.src!=='ai'&&now-curAns.t<30000&&sameQ(curAns.q,o.q)){curAns.ai=o;drawAns();return}
-  if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p)showAns(p)},DWELL-(now-curAns.t)+60);return}
-  if(curAns&&curAns.key===key){if(o.src==='ai'){Object.assign(curAns,o);drawAns()}return}
+  if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){o.qat=now;pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p&&Date.now()-p.qat<9000)showAns(p)},DWELL-(now-curAns.t)+60);return}
+  if(curAns&&curAns.key===key&&now-curAns.t<30000){if(o.src==='ai'){Object.assign(curAns,o);drawAns()}return}
   if(curAns){ansHist.unshift(curAns);ansHist=ansHist.slice(0,4)}
   markRedo();curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
 function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
@@ -3336,7 +3336,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
-function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&n>=4)pend=null;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
 let known=new Set(),defTitle=document.title;place();mq.addEventListener&&mq.addEventListener('change',place);
