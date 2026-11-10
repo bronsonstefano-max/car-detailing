@@ -2628,6 +2628,10 @@ async function dialerScriptSave(env, b) {
 }
 // ---- Call library: the best real answers from analyzed past calls. The AI coach looks up the closest ones for what the lead just said. Owner only.
 const libMask = t => String(t || "").replace(/jack.?s auto customs|jax auto customs/gi, "{shop}").replace(/\$\s?\d[\d,.]*/g, "{amount}").replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "{email}").replace(/(?<!\w)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)/g, "{phone}").slice(0, 600);
+// answers that name another shop, a place, a promotion, a film brand or a price are dropped, so the coach never repeats facts that are not ours
+const LIB_BLOCK = /jack|jacksonville|beltway|amco|walgreens|o.?reilly|hitek|hypex|llumar|ethos|halloween|georgia|unit \d+|\{shop\}|\$|\bbucks\b|\bdollars?\b|\b(?:two|three|four|five|six|seven|eight|nine)\s+(?:hundred|ninety|eighty|seventy|sixty|fifty|forty|thirty|twenty)\b|\b(?:ninety|eighty|seventy|sixty|fifty|forty|thirty|twenty)[ -](?:one|two|three|four|five|six|seven|eight|nine)\b/i;
+// topics where the answer is a shop fact (place, duration, film, warranty, legal limits, heat numbers): those come from SHOP FACTS, not from other people's calls
+const LIB_FACT_TOPICS = new Set(["location", "how_long", "brand_or_film", "warranty", "legal_tint", "heat_uv_privacy", "hours"]);
 const libSvc = x => { const v = String(x || ""); return /tint/i.test(v) ? "tint" : /coat|ceramic|correct|polish|detail/i.test(v) ? "coating" : "other"; };
 async function dialerLibrary(env, b) {
   await ensureTable(env.DB);
@@ -2636,7 +2640,8 @@ async function dialerLibrary(env, b) {
     if (b.replace) await env.DB.prepare("DELETE FROM call_library").run();
     const rows = b.rows.slice(0, 300).map(r => ({ src: String(r.id || "").slice(0, 40), svc: libSvc(r.service), topic: String(r.topic || "").slice(0, 40), objection: String(r.objection || "").slice(0, 40), kind: String(r.customer_type || r.kind || "").slice(0, 20),
       stage: String(r.stage || r.phase || "").slice(0, 20), lead: libMask(r.lead_said_masked || r.lead_said), rep: libMask(r.rep_response_masked || r.rep_response), better: libMask(r.better_answer), quality: Number(r.quality) || 0, priority: Number(r.priority) || 0, won: r.won ? 1 : 0, reaction: String(r.reaction || "").slice(0, 10) }))
-      .filter(r => r.lead.split(/\s+/).length >= 3 && r.rep.split(/\s+/).length >= 6);
+      .map(r => ({ ...r, better: LIB_BLOCK.test(r.better) ? "" : r.better }))
+      .filter(r => r.lead.split(/\s+/).length >= 3 && r.rep.split(/\s+/).length >= 6 && !LIB_BLOCK.test(r.lead) && !LIB_BLOCK.test(r.rep) && !LIB_FACT_TOPICS.has(r.topic));
     for (let i = 0; i < rows.length; i += 40) await env.DB.batch(rows.slice(i, i + 40).map(r => env.DB.prepare("INSERT INTO call_library (src, svc, topic, objection, kind, stage, lead_said, rep_response, better, quality, priority, won, reaction) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(r.src, r.svc, r.topic, r.objection, r.kind, r.stage, r.lead, r.rep, r.better, r.quality, r.priority, r.won, r.reaction)));
     return json({ success: true, added: rows.length, skipped: b.rows.length - rows.length });
   }
