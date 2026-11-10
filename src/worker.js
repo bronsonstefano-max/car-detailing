@@ -4413,6 +4413,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='practice_score'){practiceFinish(m.score,m.persona);return}
   if(m.type==='practice_error'){setSt(m.message||'Practice problem','bad');return}
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
+  if(m.type==='coach_skip'){cs('AI quiet on "'+String(m.q||'').slice(0,40)+'" ('+(m.why||'')+')');setTimeout(()=>{if(el('cst').textContent.indexOf('AI quiet')===0)cs('Listening')},12000);return}
   if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
@@ -4725,7 +4726,7 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
   // objections, worries and price or "what is it" questions always get an answer: the model must not decide to stay quiet on these
-  const forced = /(not interested|no thanks|no thank you|don'?t (want|need)|not (looking|ready)|free\b|shopping|shop around|just looking|too (much|expensive|pricey)|how much|price|cost|think about|wife|husband|girlfriend|scam|catch|what('s| is)|don'?t know|no idea|never heard|why|expensive|cheaper|competitor|another shop|other shop|quote)/i.test(said);
+  const forced = /(not interested|no thanks|no thank you|don'?t (want|need)|not (looking|ready)|free\b|shopping|shop around|just looking|too (much|expensive|pricey)|how much|price|cost|think about|wife|husband|girlfriend|scam|catch|what('s| is)|don'?t know|no idea|never heard|why|expensive|cheap|lowest|lower price|best price|budget|afford|compare|deal|discount|looking for|competitor|another shop|other shop|quote)/i.test(said);
   const userMsg = forced ? user + "\nThis is an objection, worry or question: you MUST answer it (answer: true). Never return answer false here." : user;
   const res = await coachStream(env, ctx.system, userMsg, onSay, { max: 600, abortFalse: !forced });
   if (res.error) return { error: res.error };
@@ -4960,6 +4961,8 @@ export class CallRoom {
       const ctxMs = Date.now() - t0;
       const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
       if (out && out.error) this.broadcast({ type: "coach_error" });
+      else if (!out || !out.answer || !out.say) this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: !out ? "reply could not be read" : "chose not to answer" });
+      if (out && out.error) { /* shown above */ }
       else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
     finally { this.coachBusy = false; if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
