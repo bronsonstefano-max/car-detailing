@@ -3581,7 +3581,7 @@ export class CallRoom {
     const slot = this.dg[track] = { ready: false, ws: null };
     try {
       if (!this.cfgP) this.cfgP = this.loadCfg(); await this.cfgP;
-      const qs = new URLSearchParams({ model: "nova-3", language: this.env.DEEPGRAM_LANGUAGE || "en", encoding: "mulaw", sample_rate: "8000", channels: "1", interim_results: "true", endpointing: "300", utterance_end_ms: "1000", smart_format: "true", punctuate: "true" });
+      const qs = new URLSearchParams({ model: "nova-3", language: this.env.DEEPGRAM_LANGUAGE || "en", encoding: "mulaw", sample_rate: "8000", channels: "1", tag: track === "outbound" ? "dialer-lead" : "dialer-rep", interim_results: "true", endpointing: "300", utterance_end_ms: "1000", smart_format: "true", punctuate: "true" });
       for (const k of [...DG_KEYTERMS, ...this.terms].slice(0, 100)) qs.append("keyterm", k);
       const resp = await fetch(`${this.env.DEEPGRAM_BASE || "https://api.deepgram.com"}/v1/listen?${qs}`, { headers: { Upgrade: "websocket", Authorization: `Token ${this.env.DEEPGRAM_API_KEY}` } });
       const ws = resp.webSocket;
