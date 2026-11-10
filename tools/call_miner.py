@@ -413,10 +413,17 @@ def claude(model, effort, system_blocks, user, key, max_tokens=8000):
 
 
 def parse_json(text):
-    a, b = text.find("{"), text.rfind("}")
-    if a < 0 or b < a:
+    """The first complete JSON object in the reply, tolerant of stray text after it, raw newlines inside strings and trailing commas."""
+    a = text.find("{")
+    if a < 0:
         raise ValueError("no JSON in the reply")
-    return json.loads(text[a:b + 1])
+    try:
+        return json.JSONDecoder(strict=False).raw_decode(text[a:])[0]
+    except Exception:
+        b = text.rfind("}")
+        if b < a:
+            raise ValueError("no JSON in the reply")
+        return json.loads(re.sub(r",\s*([}\]])", r"\1", text[a:b + 1]), strict=False)
 
 
 def call_stats(turns, rep):
@@ -487,10 +494,18 @@ def cmd_mine(a):
             return
         try:
             user = "Transcript of one call (numbered turns):\n" + numbered(turns)[:90000] + "\n\nReturn the JSON."
-            reply, stop = claude(a.model, a.effort, system, user, key, max_tokens=14000)
-            if stop == "max_tokens":
-                reply, stop = claude(a.model, a.effort, system, user + "\nBe more concise in every text field and tag only the substantive turns.", key, max_tokens=24000)
-            data = parse_json(reply)
+            data, note = None, ""
+            for attempt in range(3):
+                reply, stop = claude(a.model, a.effort, system, user + note, key, max_tokens=14000 if attempt == 0 else 24000)
+                if stop == "max_tokens":
+                    reply, stop = claude(a.model, a.effort, system, user + "\nBe more concise in every text field and tag only the substantive turns." + note, key, max_tokens=24000)
+                try:
+                    data = parse_json(reply)
+                    break
+                except Exception as e:  # noqa
+                    if attempt == 2:
+                        raise
+                    note = "\nYour previous reply was not valid JSON (%s). Return ONLY one valid JSON object: escape quotes and line breaks inside strings, no trailing commas, no text outside the object." % str(e)[:80]
             data["call"] = base
             rep_spk = data.get("rep_speaker")
             data["stats"] = call_stats(turns, rep_spk)
@@ -991,17 +1006,45 @@ def cmd_learn(a):
         print("Need at least 3 real conversations to learn patterns. Skipping the learning step.")
         return
     system = [{"type": "text", "text": LEARN_SYSTEM}]
-    chunks = [calls[i:i + 40] for i in range(0, len(calls), 40)]
-    parts = []
+    size = 15
+    chunks = [calls[i:i + size] for i in range(0, len(calls), size)]
+
+    def ask(user, tokens):
+        """A report that is never empty: a thinking-only or cut-off reply is retried with less thinking and more room."""
+        for effort, mt in ((a.effort, tokens), ("low", tokens * 2), ("low", tokens * 2)):
+            text, stop = claude(a.model, effort, system, user, key, max_tokens=mt)
+            if text and len(text.split()) > 150 and stop != "max_tokens":
+                return text
+            if text and len(text.split()) > 150:
+                return text
+        return ""
+    parts, bad = [], 0
     for n, ch in enumerate(chunks, 1):
-        print("Learning from calls %d-%d of %d..." % ((n - 1) * 40 + 1, (n - 1) * 40 + len(ch), len(calls)))
-        text, _ = claude(a.model, a.effort, system, "Digests of %d calls (JSON):\n%s\n\n%s" % (len(ch), json.dumps([digest(c) for c in ch], ensure_ascii=False), LEARN_ASK), key, max_tokens=8000)
-        parts.append(text)
-    if len(parts) > 1:
-        print("Merging the batches...")
-        text, _ = claude(a.model, a.effort, system, "Below are %d reports, each written from a different batch of calls. Merge them into ONE report with the same 12 sections. Keep counts honest by adding them up across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(parts), "\n\n=====\n\n".join(parts)), key, max_tokens=12000)
-    else:
-        text = parts[0]
+        print("Learning from calls %d-%d of %d..." % ((n - 1) * size + 1, (n - 1) * size + len(ch), len(calls)))
+        text = ask("Digests of %d calls (JSON):\n%s\n\n%s" % (len(ch), json.dumps([digest(c) for c in ch], ensure_ascii=False), LEARN_ASK), 7000)
+        if text:
+            parts.append((len(ch), text))
+        else:
+            bad += 1
+            print("  this batch came back empty twice, skipping it")
+    if not parts:
+        sys.exit("The learning step got no usable reports. Run it again, or use --model claude-opus-5-5.")
+    covered = sum(n for n, _ in parts)
+    # merge in stages so no single request has to hold more than a handful of reports
+    while len(parts) > 1:
+        group, nxt = 6, []
+        for i in range(0, len(parts), group):
+            grp = parts[i:i + group]
+            if len(grp) == 1:
+                nxt.append(grp[0])
+                continue
+            print("Merging %d reports..." % len(grp))
+            merged = ask("Below are %d reports, each written from a different batch of calls (%s calls in total). Merge them into ONE report with the same 12 sections. Add the counts up honestly across batches, drop duplicates, and keep the best quotes.\n\n%s" % (len(grp), sum(n for n, _ in grp), "\n\n=====\n\n".join(t for _, t in grp)), 9000)
+            nxt.append((sum(n for n, _ in grp), merged or "\n\n".join(t for _, t in grp)))
+        parts = nxt
+    text = parts[0][1]
+    if bad:
+        text = "**Note:** %d of %d batches came back empty and are not included, so this report covers %d of %d calls.\n\n%s" % (bad, len(chunks), covered, len(calls), text)
     with open(os.path.join(a.out, "lessons.md"), "w") as fh:
         fh.write("# What we learned from %d calls\n\n%s\n" % (len(calls), text))
     print("Wrote %s" % os.path.join(a.out, "lessons.md"))
