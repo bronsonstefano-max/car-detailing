@@ -3838,12 +3838,12 @@ main.m-idle .rail,main.m-ended .rail{grid-column:1;grid-row:4;position:sticky;to
 main.m-idle .center,main.m-ended .center{grid-column:2;grid-row:4;display:flex;flex-direction:column;gap:16px;min-width:0}
 main.m-idle .rcol,main.m-ended .rcol,main.m-idle .callrow,main.m-ended .callrow{display:none}
 main.m-idle #after,main.m-idle #coach,main.m-idle #nxtrow{display:none}main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
-/* on a call: coach and script, queue tucked away */
-main.m-call{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)}
+/* on a call: the script is the big column on the left, the AI coach sits on the right, queue tucked away */
+main.m-call{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 main.m-call .rail,main.m-call .brief,main.m-call #after,main.m-call #nxtrow{display:none}
 main.m-call .center,main.m-call .callrow{display:contents}
-main.m-call .callbar{grid-column:1/-1;grid-row:4;margin-bottom:16px}main.m-call #coach{grid-column:1;grid-row:5}
-main.m-call .rcol{grid-column:2;grid-row:5;display:flex;flex-direction:column;gap:16px;position:sticky;top:96px;max-height:calc(100dvh - 116px);overflow-y:auto}
+main.m-call .callbar{grid-column:1/-1;grid-row:4;margin-bottom:16px}main.m-call #coach{grid-column:2;grid-row:5}main.m-call .cw{grid-template-columns:minmax(0,1fr)}main.m-call .tr{display:none} /* the transcript is hidden on screen only: the AI coach reads the call itself on the server */
+main.m-call .rcol{grid-column:1;grid-row:5;display:flex;flex-direction:column;gap:16px;position:sticky;top:96px;max-height:calc(100dvh - 116px);overflow-y:auto}
 .callbar{position:sticky;top:12px;z-index:6;flex-direction:row;align-items:center;gap:22px;background:linear-gradient(115deg,#06271b,#0a1712 55%,#0d1116);border:1px solid #1f5a2a;border-radius:22px;padding:14px 22px;box-shadow:0 14px 34px rgba(0,0,0,.55)}
 .cwho{display:flex;gap:14px;align-items:center;min-width:0;flex:1 1 auto}
 .cwho b{display:block;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwho .ph2{color:#9aa3ad;font-size:14.5px;font-variant-numeric:tabular-nums}.cwho .stt{display:inline-block;margin-left:10px;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#aab0b9}.cwho .stt.ok{color:#32cd32}.cwho .stt.warn{color:#ffd166}.cwho .stt.bad{color:#ff8a8a}
@@ -3856,7 +3856,7 @@ main.m-call .rcol{grid-column:2;grid-row:5;display:flex;flex-direction:column;ga
 .cw{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;flex:1}
 .tr{max-height:calc(100dvh - 360px);min-height:300px;font-size:15px;gap:7px;padding:12px}
 .card2{padding:14px 16px;gap:10px;border-left:4px solid #32cd32;border-radius:14px}.aca{gap:10px}.aca div{flex-direction:column;gap:2px}.aca span{min-width:0}.aca p{font-size:16px}.aca p.ask{font-size:23px;line-height:1.25;color:#fff}.aca p.ask::before{content:"\\2192  ";color:#32cd32}
-.rcol .lead{background:#0d1116;margin-bottom:0;padding:12px 14px}.rcol .lead .kv,.rcol .lead .hist,.rcol .lead .bar:last-child{display:none}.rcol .lead .bar:first-child,.rcol .lead .ph{display:none}.rcol .script{font-size:15.5px}
+.rcol .lead{background:#0d1116;margin-bottom:0;padding:12px 14px}.rcol .lead .kv,.rcol .lead .hist,.rcol .lead .bar:last-child{display:none}.rcol .lead .bar:first-child,.rcol .lead .ph{display:none}.rcol .script{font-size:18px;line-height:1.5}
 .rail{border-radius:20px;padding:16px}.rail .rs{display:flex;gap:8px;flex-wrap:wrap}.rs span{background:#121a17;border:1px solid #25402d;border-radius:999px;padding:4px 11px;font-size:12.5px;color:#aab0b9}.rs b{color:#e8eaed}
 .q .it{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;margin-bottom:8px;padding:10px 12px}.q .it .av{display:grid;width:44px;height:44px;font-size:16px}.q .it .tx{min-width:0}.q .it .tx b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15.5px}.q .it .tx small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .q .it .bd{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;border-radius:999px;padding:3px 9px;background:#1a2027;color:#8a9099}.q .it.cur{background:#0f2418}.q .it.cur .bd{background:#32cd32;color:#04120a}
