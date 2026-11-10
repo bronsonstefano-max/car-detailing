@@ -1413,14 +1413,14 @@ const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{disp
 @media(min-width:1024px){
   body{padding-left:228px}
   .navtabs{position:fixed;left:0;top:0;bottom:0;width:228px;z-index:25;display:flex!important;flex-direction:column;flex-wrap:nowrap!important;gap:2px!important;padding:74px 12px 16px;background:#090c10;border-right:1px solid #1d2229;overflow-y:auto}
-  .navtabs::before{content:"Divine Detailers";position:absolute;left:0;right:0;top:0;height:62px;display:flex;align-items:center;padding:0 20px;font-weight:800;font-size:16px;letter-spacing:.2px;color:#e8eaed;border-bottom:1px solid #161b21}
+  .navtabs::before{content:"Divine Detailers";position:absolute;left:0;right:0;top:0;height:62px;display:flex;align-items:center;padding:0 20px;font-weight:800;font-size:16px;letter-spacing:.2px;color:#e8eaed}
   .navtabs a{display:flex!important;align-items:center;gap:8px;position:relative;padding:11px 14px!important;border:0!important;border-radius:10px!important;color:#9aa1ab!important;font-weight:600;font-size:14.5px;background:none!important}
   .navtabs a:hover{background:#10151b!important;color:#e8eaed!important}
   .navtabs a.on{background:#112417!important;color:#32cd32!important}
   .navtabs a.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:#32cd32}
   .navtabs a.so{margin-top:auto;color:#6b727c!important}
   .navtabs .nb{margin-left:auto}
-  header{padding-left:26px}
+  header{padding-left:26px!important;min-height:64px;justify-content:flex-end!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}header>h1{margin-right:auto}
   .emb body{padding-left:0}
 }
 .emb .navtabs,.emb .bnav,.emb .msheet,.emb header{display:none!important}.emb body{padding-left:0!important;padding-bottom:0!important}
@@ -1603,7 +1603,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-cont
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .sum{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:7px 13px}.stat b{display:block;font-size:19px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.g b{color:#32cd32}
 .board{flex:1;display:flex;gap:12px;padding:14px 22px 22px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
-.col.auto{background:#0a0d11;border-style:dashed}.col h2{flex-wrap:wrap}.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
+.col.auto{background:#0a0d11;border-style:dashed}.col h2 small{white-space:nowrap}.col h2{gap:8px}.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
 .col.over{border-color:#32cd32;background:#0d140f}.col h2{font-size:13px;margin:0;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;text-transform:uppercase;letter-spacing:.7px;color:#c3c8cf}
 .col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-aged h2{color:#ffb86b}.col.s-done h2{color:#7fe07f}
 .cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
