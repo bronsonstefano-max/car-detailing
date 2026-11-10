@@ -196,6 +196,8 @@ async function ensureTableRun(db) {
   await db.prepare("ALTER TABLE messages ADD COLUMN from_num TEXT").run().catch(() => {});
   await db.prepare("ALTER TABLE messages ADD COLUMN err TEXT").run().catch(() => {});
   await db.prepare("CREATE TABLE IF NOT EXISTS number_health (num TEXT PRIMARY KEY, level INTEGER NOT NULL DEFAULT 0, at TEXT)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS snippets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+  await db.prepare("ALTER TABLE leads ADD COLUMN unread_flag INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
 }
 
 const clean = (v, n = MAX.default) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, n) : "");
@@ -1612,7 +1614,7 @@ document.addEventListener('change',async e=>{const s=e.target.closest('select.st
 
 async function pipelinePage(env, user = "") {
   await ensureTable(env.DB);
-  const [tc, { results }] = await Promise.all([todayCount(env), env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered,tags,starred,(SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = leads.id) AS calls,(SELECT COUNT(*) FROM messages m WHERE m.lead_id = leads.id) AS texts,(SELECT COUNT(*) FROM messages m WHERE m.lead_id = leads.id AND m.direction = 'in' AND m.is_read = 0) AS unread,(SELECT COUNT(*) FROM stage_log s WHERE s.lead_id = leads.id AND s.reason LIKE 'Note:%') AS nlog FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all()]);
+  const [tc, { results }] = await Promise.all([todayCount(env), env.DB.prepare("SELECT id,created_at,type,name,email,phone,service,also_interested,make,year,model,message,page,referrer,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,stage,value,notes,appt_at,stage_changed_at,follow_up,follow_up_date,duration,recording,answered,tags,starred,(SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = leads.id) AS calls,(SELECT COUNT(*) FROM messages m WHERE m.lead_id = leads.id) AS texts,((SELECT COUNT(*) FROM messages m WHERE m.lead_id = leads.id AND m.direction = 'in' AND m.is_read = 0) + COALESCE(unread_flag, 0)) AS unread,(SELECT COUNT(*) FROM stage_log s WHERE s.lead_id = leads.id AND s.reason LIKE 'Note:%') AS nlog FROM leads WHERE type != 'newsletter' ORDER BY created_at DESC, id DESC LIMIT 1000").all()]);
   // each lead's history is loaded when the lead is opened (it was more than half of this page); the click ids are only used to work out the source here
   const ownP = user === OWNER;
   const data = results.map(l0 => { const l = ownP ? l0 : noAds(l0), t = when(l.created_at), sc = sourceOf(l); const { gclid, gbraid, wbraid, referrer, ...rest } = l; return { ...rest, followup: l.follow_up || "", dur: mmss(l.duration), ago: t.ago, abs: t.abs, src: ownP ? sc.label : "", ad: ownP && sc.ad, detail: ownP ? sc.detail : "" }; });
@@ -1624,7 +1626,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-cont
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .sum{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#10141a;border:1px solid #1d2229;border-radius:10px;padding:7px 13px}.stat b{display:block;font-size:19px;line-height:1.1}.stat span{font-size:12px;color:#8a9099}.stat.g b{color:#32cd32}
 .board{flex:1;display:flex;gap:12px;padding:14px 22px 22px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
-.col.auto{background:#0a0d11;border-style:dashed}.col h2 small{white-space:nowrap}.col h2{gap:8px}.col{flex:1 0 190px;max-width:330px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
+.col.auto{background:#0a0d11;border-style:dashed}.col h2 small{white-space:nowrap}.col h2{gap:8px}.col{flex:1 0 280px;max-width:380px;background:#0b0e12;border:1px solid #1b2027;border-radius:14px;display:flex;flex-direction:column;max-height:100%;scroll-snap-align:start}
 .col.over{border-color:#32cd32;background:#0d140f}.col h2{font-size:13px;margin:0;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;text-transform:uppercase;letter-spacing:.7px;color:#c3c8cf}
 .col h2 small{color:#7c838d;font-weight:500;text-transform:none;letter-spacing:0}.col.s-lost h2{color:#c48a8a}.col.s-aged h2{color:#ffb86b}.col.s-done h2{color:#7fe07f}
 .cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:60px}
@@ -2021,7 +2023,7 @@ async function messageThreads(env, url) {
       (SELECT body FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_body,
       (SELECT direction FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_dir,
       (SELECT at FROM messages WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) last_at,
-      (SELECT COUNT(*) FROM messages WHERE lead_id = l.id AND direction = 'in' AND is_read = 0) unread
+      ((SELECT COUNT(*) FROM messages WHERE lead_id = l.id AND direction = 'in' AND is_read = 0) + COALESCE(l.unread_flag, 0)) unread
     FROM leads l WHERE EXISTS (SELECT 1 FROM messages WHERE lead_id = l.id) ORDER BY last_at DESC, l.id DESC LIMIT 200`).all()).results || [];
   return json({ success: true, on: twilioOn(env), threads: rs.map(r => ({ ...r, last_at: isoUtc(r.last_at) })) });
 }
@@ -2031,7 +2033,7 @@ async function messageThread(env, url) {
   if (!Number.isInteger(id)) return json({ success: false }, 400);
   const lead = await env.DB.prepare("SELECT id, name, phone, email, service, stage, year, make, model, value, appt_at, follow_up, follow_up_date, created_at, utm_medium, utm_campaign, tags, starred, notes FROM leads WHERE id = ?").bind(id).first();
   if (!lead) return json({ success: false }, 404);
-  await env.DB.prepare("UPDATE messages SET is_read = 1 WHERE lead_id = ? AND direction = 'in' AND is_read = 0").bind(id).run();
+  await env.DB.batch([env.DB.prepare("UPDATE messages SET is_read = 1 WHERE lead_id = ? AND direction = 'in' AND is_read = 0").bind(id), env.DB.prepare("UPDATE leads SET unread_flag = 0 WHERE id = ?").bind(id)]);
   const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
   const ms = await q("SELECT id, direction, body, status, auto, by_user, at FROM messages WHERE lead_id = ? ORDER BY id DESC LIMIT 300", id);
   // calls (dialer calls matched to their recording), notes, call results and stage moves share one timeline with the texts
@@ -2093,7 +2095,9 @@ h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex
 .empty{margin:auto;color:#7c838d;text-align:center;padding:20px}
 .cmp{display:flex;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line,#1b2128);align-items:flex-end;background:#0b0f13}
 .cmp textarea{flex:1;min-width:0;background:#0d1217;border:1px solid #1d252e;color:#fff;border-radius:14px;padding:11px 13px;font:inherit;font-size:15px;resize:none;max-height:140px;min-height:44px}
-.cmp button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 20px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp button:disabled{opacity:.4}
+.cmp #sd{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:0 20px;font:inherit;font-weight:800;min-height:44px;cursor:pointer}.cmp #sd:disabled{opacity:.4}.cmp #snb{min-height:44px}
+.cmp{position:relative}.snp{position:absolute;bottom:calc(100% + 6px);left:16px;width:min(440px,calc(100% - 32px));max-height:340px;overflow-y:auto;background:#0e141a;border:1px solid #232b34;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.6);padding:8px;display:flex;flex-direction:column;gap:4px;z-index:30}.snp[hidden]{display:none}.snp input{width:100%;background:#0b1015;border:1px solid #1d252e;color:#fff;border-radius:9px;padding:8px 10px;font:inherit;font-size:13.5px}.snp [data-sn]{text-align:left;background:none;border:0;border-radius:9px;padding:8px 10px;color:inherit;font:inherit;cursor:pointer;display:flex;flex-direction:column;gap:2px}.snp [data-sn]:hover{background:#141d26}.snp [data-sn] b{font-size:13.5px}.snp [data-sn] span{color:#8a939e;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.snp .mg{background:none;border:0;color:#8ec0ff;font:inherit;font-size:13px;cursor:pointer;padding:8px 10px;text-align:left}
+#sndlg{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:16px;padding:18px;width:min(560px,94vw);max-height:90vh;overflow:auto}#sndlg::backdrop{background:rgba(0,0,0,.65)}.sdh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:17px}.snr{display:flex;flex-direction:column;gap:6px;border:1px solid #1d242c;border-radius:12px;padding:10px;margin-bottom:10px}.snr input,.snr textarea{background:#0b1015;border:1px solid #1d252e;color:#fff;border-radius:9px;padding:8px 10px;font:inherit;font-size:14px;width:100%;resize:vertical}.snb2{display:flex;gap:8px}
 .warn{background:#2a1d0e;color:#ffb86b;padding:10px 16px;font-size:13.5px;border-bottom:1px solid #3a2a14}.err{color:#ff8a8a;padding:0 16px 6px;font-size:13px;min-height:0}
 .info{border-left:1px solid var(--line,#1b2128);overflow-y:auto;min-height:0;background:#090c10;padding:16px;display:flex;flex-direction:column;gap:14px}.info[hidden]{display:none}
 .ic0{display:flex;gap:12px;align-items:center}.ic0 .av{width:52px;height:52px;font-size:18px;grid-row:auto}.ic0 b{display:block;font-size:17px}.ic0 span{color:#7c838d;font-size:12.5px}
@@ -2162,19 +2166,37 @@ function drawInfo(j){const l=j.lead,car=[l.year,l.make,l.model].filter(Boolean).
 info.addEventListener('click',async e=>{if(e.target.id==='nadd'&&D){const t=document.getElementById('nin').value.trim();if(!t)return;e.target.disabled=true;try{await fetch('/admin/note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:D.lead.id,text:t})})}catch(_){}lastSig='';await open(D.lead.id,false);return}const b=e.target.closest('[data-rt]');if(!b||!D)return;D.lead.tags=D.lead.tags.filter(t=>t!==b.dataset.rt);await saveTags();drawInfo(D)});
 info.addEventListener('keydown',async e=>{if(e.target.id!=='tin'||e.key!=='Enter'||!D)return;e.preventDefault();const v=e.target.value.trim();if(!v)return;if(D.lead.tags.indexOf(v)<0)D.lead.tags.push(v);await saveTags();drawInfo(D);const t=document.getElementById('tin');if(t)t.focus()});
 async function saveTags(){try{const r=await fetch('/admin/tags',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:D.lead.id,tags:D.lead.tags})});const j=await r.json();if(j.success)D.lead.tags=j.tags}catch(_){}}
+let SN=[],SNF=[];async function loadSn(){try{const j=await (await fetch('/admin/snippets')).json();if(j.success){SN=j.snippets;SNF=j.fields}}catch(_){}}
+function snMenu(f){const p=document.getElementById('snp');if(!p)return;const fl=(f||'').toLowerCase(),a=SN.filter(x=>!fl||x.name.toLowerCase().indexOf(fl)>=0||x.body.toLowerCase().indexOf(fl)>=0);
+  p.innerHTML='<input id="snq" placeholder="Search snippets" autocomplete="off" value="'+$(f||'')+'">'+(a.length?a.map(x=>'<button type="button" data-sn="'+x.id+'"><b>'+$(x.name)+'</b><span>'+$(x.body)+'</span></button>').join(''):'<div class="empty">No snippets match.</div>')+'<button type="button" class="mg" id="snm">Manage snippets</button>';p.hidden=false;
+  const q=document.getElementById('snq');q.focus();q.setSelectionRange(q.value.length,q.value.length);q.oninput=()=>snMenu(q.value);q.onkeydown=e=>{if(e.key==='Escape'){p.hidden=true;document.getElementById('tx').focus()}else if(e.key==='Enter'){const f1=p.querySelector('[data-sn]');if(f1)f1.click()}}}
+document.addEventListener('click',async e=>{const p=document.getElementById('snp');if(!p)return;const b=e.target.closest('[data-sn]');
+  if(b&&p.contains(b)){let t='';try{const j=await (await fetch('/admin/snippets/render?id='+b.dataset.sn+'&lead='+(cur?cur.id:''))).json();t=j.text||''}catch(_){}const tx=document.getElementById('tx');if(tx&&t){tx.setRangeText((tx.value&&!/\s$/.test(tx.value)?' ':'')+t,tx.selectionStart,tx.selectionEnd,'end');tx.focus()}p.hidden=true;return}
+  if(e.target.id==='snm'){p.hidden=true;snManage();return}
+  if(!p.hidden&&!e.target.closest('#snp')&&e.target.id!=='snb')p.hidden=true});
+function snManage(){let d=document.getElementById('sndlg');if(!d){d=document.createElement('dialog');d.id='sndlg';document.body.appendChild(d)}
+  const row=x=>'<div class="snr" data-id="'+(x?x.id:'')+'"><input class="snn" placeholder="Name" maxlength="60" value="'+$(x?x.name:'')+'"><textarea class="snt" rows="3" placeholder="Text. Use {first}, {service}, {vehicle}, {appointment}, {shop}, {address}">'+$(x?x.body:'')+'</textarea><div class="snb2"><button type="button" class="ib g" data-save="1">'+(x?'Save':'Add snippet')+'</button>'+(x?'<button type="button" class="ib" data-del="1">Delete</button>':'')+'</div></div>';
+  d.innerHTML='<div class="sdh"><b>Text snippets</b><button type="button" class="ib" id="sdx">Close</button></div><p class="note" style="margin:0 0 10px">Fields fill in for each lead: '+SNF.map(f=>'{'+f+'}').join(' ')+'</p>'+row(null)+SN.map(row).join('');
+  d.querySelector('#sdx').onclick=()=>d.close();
+  d.onclick=async e=>{const r=e.target.closest('.snr');if(!r)return;const id=r.dataset.id?+r.dataset.id:null;
+    if(e.target.dataset.del){await fetch('/admin/snippets',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,delete:true})});await loadSn();snManage();return}
+    if(e.target.dataset.save){const name=r.querySelector('.snn').value.trim(),body=r.querySelector('.snt').value.trim();if(!name||!body)return;await fetch('/admin/snippets',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,name:name,body:body})});await loadSn();snManage()}};
+  if(!d.open)d.showModal()}
 async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const lm=j.messages.length?j.messages[j.messages.length-1]:{};const sig=j.messages.length+':'+(lm.id||'')+(lm.status||'')+j.optout+':'+j.events.length+':'+j.lead.stage+':'+j.lead.starred+':'+j.lead.tags.join();
   if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;D=j;on=j.on;
   const box=pane.querySelector('.msgs'),atEnd=!box||box.scrollHeight-box.scrollTop-box.clientHeight<80;const draft=pane.querySelector('textarea')?pane.querySelector('textarea').value:'';
   const car=[j.lead.year,j.lead.make,j.lead.model].filter(Boolean).join(' ');
-  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><span class="av" style="width:40px;height:40px">'+$(ini(j.lead))+'</span><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><button type="button" class="ib'+(j.lead.starred?' on':'')+'" id="stb">'+(j.lead.starred?'&#9733; Starred':'&#9734; Star')+'</button><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+j.lead.id:'tel:'+$(j.lead.phone||''))+'">Call</a><button type="button" class="ib" id="inb">Info</button></div>'
+  pane.innerHTML='<div class="ph"><button class="bk" id="bk">Back</button><span class="av" style="width:40px;height:40px">'+$(ini(j.lead))+'</span><div class="t"><b>'+$(nm(j.lead))+'</b><span>'+$([j.lead.service,car].filter(Boolean).join(' · ')||j.lead.phone)+'</span></div><button type="button" class="ib'+(j.lead.starred?' on':'')+'" id="stb">'+(j.lead.starred?'&#9733; Starred':'&#9734; Star')+'</button><button type="button" class="ib" id="mub" title="Mark as unread and close">Mark unread</button><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+j.lead.id:'tel:'+$(j.lead.phone||''))+'">Call</a><button type="button" class="ib" id="inb">Info</button></div>'
    +(!on?'<div class="warn">Texting is not set up yet. Add the Twilio keys in Cloudflare to send texts from here.</div>':'')+(j.optout?'<div class="warn">This person replied STOP. They cannot be texted.</div>':'')
    +'<div class="msgs" id="ms">'+timeline(j)+'</div><div class="err" id="er"></div>'
-   +'<div class="cmp"><textarea id="tx" rows="1" placeholder="Type a message"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
+   +'<div class="cmp"><div class="snp" id="snp" hidden></div><button type="button" class="ib" id="snb" title="Insert a saved text (or type / )">Snippets</button><textarea id="tx" rows="1" placeholder="Type a message, or / for snippets"'+(on&&!j.optout?'':' disabled')+'></textarea><button id="sd"'+(on&&!j.optout?'':' disabled')+'>Send</button></div>';
   const ms=document.getElementById('ms');if(!keep||atEnd)ms.scrollTop=ms.scrollHeight;const tx=document.getElementById('tx');tx.value=draft;
   document.getElementById('bk').onclick=()=>{app.classList.remove('open');cur=null;D=null;history.replaceState(null,'','#');loadList()};
   document.getElementById('stb').onclick=()=>toggleStar(j.lead.id,!D.lead.starred);
   document.getElementById('inb').onclick=()=>{showInfo=!showInfo;try{localStorage.setItem('mi',showInfo?'1':'0')}catch(_){}info.hidden=!showInfo;app.classList.toggle('noinfo',!showInfo)};
-  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+  document.getElementById('sd').onclick=send;tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}else if(e.key==='/'&&!tx.value){e.preventDefault();snMenu('')}});
+  document.getElementById('snb').onclick=()=>{const p=document.getElementById('snp');if(p.hidden)snMenu('');else p.hidden=true};
+  document.getElementById('mub').onclick=async()=>{const id=cur.id;try{await fetch('/admin/markunread',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})})}catch(_){}cur=null;D=null;lastSig='';app.classList.remove('open');pane.innerHTML='<div class="empty" id="ph0">Marked unread. Pick a conversation.</div>';history.replaceState(null,'','#');info.hidden=true;loadList()};
   const ti=document.activeElement&&document.activeElement.id==='tin';if(!ti)drawInfo(j);
   app.classList.add('open');if(!keep)history.replaceState(null,'','#id='+id);loadList()}catch(_){}}
 async function send(){if(busy||!cur)return;const tx=document.getElementById('tx'),er=document.getElementById('er'),b=tx.value.trim();if(!b)return;busy=true;document.getElementById('sd').disabled=true;er.textContent='';
@@ -2184,11 +2206,29 @@ async function send(){if(busy||!cur)return;const tx=document.getElementById('tx'
 tl.addEventListener('click',e=>{const s=e.target.closest('[data-star]');if(s){e.stopPropagation();const id=+s.dataset.star,t=TH.find(x=>x.id===id);toggleStar(id,!(t&&t.starred));return}const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)});
 tl.addEventListener('keydown',e=>{if(e.key==='Enter'){const b=e.target.closest('.th,.fd');if(b)open(+b.dataset.id)}});
 let qt;q.addEventListener('input',()=>{clearTimeout(qt);const v=q.value.trim();if(!v){loadList();return}qt=setTimeout(async()=>{try{const r=await fetch('/admin/threads?find='+encodeURIComponent(v));const j=await r.json();tl.innerHTML=(j.found&&j.found.length?j.found.map(l=>'<div class="th fd" data-id="'+l.id+'" role="button" tabindex="0"><span class="av">'+$(ini(l))+'</span><span class="nm"><span>'+$(nm(l))+'</span></span><span class="tm"></span><span class="sn">'+$([l.phone,l.service].filter(Boolean).join(' · '))+'</span></div>').join(''):'<div class="empty">No lead found.</div>')}catch(_){}},250)});
-const hmm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hmm)open(+hmm[1]);
+loadSn();const hmm=/^#id=(\\d+)$/.exec(location.hash);loadList();if(hmm)open(+hmm[1]);
 setInterval(()=>{if(document.hidden||q.value.trim())return;loadList();if(cur&&!(document.activeElement&&document.activeElement.id==='tin'))open(cur.id,true)},6000);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
+// reusable texts. The starter set only goes in the first time; after that they are yours to edit or delete. {first}, {service}, {vehicle}, {appointment}, {shop}, {address} fill in per lead.
+async function snippetList(env) {
+  let rows = (await env.DB.prepare("SELECT id, name, body FROM snippets ORDER BY name COLLATE NOCASE").all()).results || [];
+  const seeded = await env.DB.prepare("SELECT 1 FROM dial_settings WHERE k = 'snippets_seeded'").first().catch(() => null);
+  if (!rows.length && !seeded) {
+    const base = [
+      ["Intro", "Hey {first}, it's from {shop}. I saw you asked about {service} for {vehicle}. Do you have a minute to talk?"],
+      ["Missed you", "Hey {first}, I just tried to call you about {service} for {vehicle}. What's a good time to reach you?"],
+      ["Quote follow-up", "Hey {first}, just checking in on the quote for {vehicle}. Any questions I can answer?"],
+      ["Appointment reminder", "Hey {first}, a reminder about {appointment} at {shop}. Reply here if anything changes."],
+      ["Address", "We're at {address}. See you soon!"],
+    ];
+    await env.DB.batch(base.map(([n, t]) => env.DB.prepare("INSERT INTO snippets (name, body) VALUES (?, ?)").bind(n, t)));
+    await env.DB.prepare("INSERT OR IGNORE INTO dial_settings (k, v) VALUES ('snippets_seeded', '1')").run();
+    rows = (await env.DB.prepare("SELECT id, name, body FROM snippets ORDER BY name COLLATE NOCASE").all()).results || [];
+  }
+  return rows;
+}
 // ---- Message statistics (owner only): delivery, replies, response times and what each automation earns
 const addDays = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 async function msgStatsData(env, from, to) {
@@ -3721,7 +3761,9 @@ function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
    +'<button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button><button class="btn skip" id="sk2" type="button">Skip to next lead</button>';
   el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
 function syncCb(){const b=el('cb2');if(b)b.disabled=!dev||!inHours()||(state!=='idle'&&state!=='ended')}
-let mt='script',bt='brief',itab='ov',INFO={};
+let mt='script',bt='brief',itab='ov',INFO={},SNIPD=[];
+fetch('/admin/snippets').then(r=>r.json()).then(j=>{if(j.success){SNIPD=j.snippets;if(typeof renderInfo==='function')try{renderInfo()}catch(_){}}}).catch(()=>{});
+document.addEventListener('change',async e=>{const sel=e.target.closest&&e.target.closest('select[data-sn]');if(!sel||!sel.value)return;const l=Q[ix];let t='';try{const j=await (await fetch('/admin/snippets/render?id='+sel.value+'&lead='+(l?l.id:''))).json();t=j.text||''}catch(_){}const tb=document.querySelector('.tbox');if(tb&&t){tb.value=(tb.value?tb.value+' ':'')+t;tb.focus()}sel.value=''});
 const fmtT=iso=>{try{return new Date(iso).toLocaleString('en-US',{timeZone:ET,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}catch(_){return ''}};
 const dur=n=>Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
 async function loadInfo(id,force){if(!id)return;if(!force&&INFO[id]){renderInfo();return}try{const j=await (await fetch('/admin/dialer/lead?id='+id)).json();if(j.success){INFO[id]=j}}catch(_){}renderInfo()}
@@ -3743,7 +3785,7 @@ function infoHtml(d){if(!d)return '<p class="empty">Loading lead info...</p>';co
     h+='<div class="lst">'+(d.calls.length?d.calls.map(c=>'<div class="row"><div class="top"><b>'+(c.kind==='callrail'?'Call'+(c.direction?' ('+$(c.direction)+')':''):'Call')+(c.secs?' \u00b7 '+dur(c.secs):(c.kind==='dialer'?' \u00b7 no answer':''))+'</b><span>'+$(fmtT(c.at))+(c.by?' \u00b7 '+$(c.by):'')+'</span></div>'+(c.summary?'<p>'+$(c.summary)+'</p>':'')+(c.rec?'<audio controls preload="none" src="'+$(c.rec)+'"></audio>':'')+(c.turns&&c.turns.length?'<details><summary>Transcript</summary><div class="tl">'+c.turns.map(t=>'<div class="'+(t.who==='lead'?'l':'r')+'"><b>'+(t.who==='lead'?'Lead':'You')+':</b> '+$(t.text)+'</div>').join('')+'</div></details>':'')+'</div>').join(''):'<p class="empty">No calls yet.</p>')+'</div>'}
   else if(itab==='tx'){
     h+=(F.optout?'<div class="warnb"><b>Replied STOP.</b> Texting is turned off for this number.</div>':'')+'<div class="thr">'+(d.texts.length?d.texts.map(m=>'<div class="bub '+(m.direction==='in'?'in':'out')+'">'+$(m.body)+'<small>'+$(fmtT(m.at))+(m.auto?' \u00b7 automatic':'')+(m.status==='failed'||m.status==='undelivered'?' \u00b7 not delivered':'')+'</small></div>').join(''):'<p class="empty">No texts yet.</p>')+'</div>'
-     +(F.optout?'':'<textarea class="tbox" rows="3" placeholder="Write a text"></textarea><div class="bar"><button class="btn g sm" data-act="send" type="button">Send text</button><span class="note nm"></span></div>')}
+     +(F.optout?'':'<select data-sn class="snsel" style="width:100%;margin-bottom:6px"><option value="">Insert a snippet...</option>'+SNIPD.map(x=>'<option value="'+x.id+'">'+$(x.name)+'</option>').join('')+'</select><textarea class="tbox" rows="3" placeholder="Write a text"></textarea><div class="bar"><button class="btn g sm" data-act="send" type="button">Send text</button><span class="note nm"></span></div>')}
   else{h+='<div class="lst">'+(d.activity.length?d.activity.map(a=>'<div class="row"><div class="top"><b>'+$(a.reason)+'</b><span>'+$(fmtT(a.at))+(a.by?' \u00b7 '+$(a.by):'')+'</span></div>'+(a.from&&a.to&&a.from!==a.to?'<p class="empty">'+$(a.from)+' \u2192 '+$(a.to)+'</p>':'')+'</div>').join(''):'<p class="empty">Nothing yet.</p>')+'</div>'}
   return h}
 function renderInfo(){const l=Q[ix];if(!l)return;const h=infoHtml(INFO[l.id]);['info','infoc'].forEach(id=>{const e=el(id);if(e&&!e.hidden){const keep={};e.querySelectorAll('textarea').forEach(t=>keep[t.className]=t.value);e.innerHTML=h;e.querySelectorAll('textarea').forEach(t=>{if(keep[t.className])t.value=keep[t.className]})}})}
@@ -4937,7 +4979,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -5668,9 +5710,35 @@ async function adminRoute(p, request, env) {
     await env.DB.batch([env.DB.prepare("DELETE FROM automation_steps WHERE automation_id = ?").bind(b.id), env.DB.prepare("DELETE FROM automation_runs WHERE automation_id = ?").bind(b.id), env.DB.prepare("DELETE FROM automations WHERE id = ?").bind(b.id)]);
     return json({ success: true });
   }
-  if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE direction = 'in' AND is_read = 0").first()) || {}).n || 0 }); }
+  if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT (SELECT COUNT(*) FROM messages WHERE direction = 'in' AND is_read = 0) + (SELECT COUNT(*) FROM leads WHERE unread_flag = 1) n").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
   if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
+  if (p === "/admin/markunread" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    if (!Number.isInteger(b.id)) return json({ success: false }, 400);
+    await ensureTable(env.DB);
+    await env.DB.prepare("UPDATE leads SET unread_flag = 1 WHERE id = ?").bind(b.id).run();
+    return json({ success: true });
+  }
+  if (p === "/admin/snippets" && request.method === "GET") { await ensureTable(env.DB); return json({ success: true, snippets: await snippetList(env), fields: AUTO_FIELDS }); }
+  if (p === "/admin/snippets" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    await ensureTable(env.DB);
+    if (b.delete && Number.isInteger(b.id)) { await env.DB.prepare("DELETE FROM snippets WHERE id = ?").bind(b.id).run(); return json({ success: true }); }
+    const name = clean(b.name, 60), body = String(b.body || "").trim().slice(0, 1000);
+    if (!name || !body) return json({ success: false, message: "Give the snippet a name and some text." }, 400);
+    if (Number.isInteger(b.id)) await env.DB.prepare("UPDATE snippets SET name = ?, body = ? WHERE id = ?").bind(name, body, b.id).run();
+    else await env.DB.prepare("INSERT INTO snippets (name, body) VALUES (?, ?)").bind(name, body).run();
+    return json({ success: true, snippets: await snippetList(env) });
+  }
+  if (p === "/admin/snippets/render" && request.method === "GET") {
+    const u = new URL(request.url), sid = Number(u.searchParams.get("id")), lid = Number(u.searchParams.get("lead"));
+    await ensureTable(env.DB);
+    const sn = await env.DB.prepare("SELECT body FROM snippets WHERE id = ?").bind(sid).first();
+    if (!sn) return json({ success: false }, 404);
+    const lead = Number.isInteger(lid) ? await env.DB.prepare("SELECT name, service, year, make, model, appt_at FROM leads WHERE id = ?").bind(lid).first() : null;
+    return json({ success: true, text: renderAuto(sn.body, lead || {}, env) });
+  }
   if (p === "/admin/note" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const r = await addLeadNote(env, b.id, b.text, a);
