@@ -1370,7 +1370,7 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav>${PUSH_NAV}`;
+  return `<nav class="navtabs"><a href="/admin/today" class="${on === "today" ? "on" : ""}">Today${badge(n)}</a><a href="/admin" class="${on === "leads" ? "on" : ""}">Leads</a><a href="/admin/pipeline" class="${on === "pipeline" ? "on" : ""}">Pipeline</a><a href="/admin/messages" class="${on === "messages" ? "on" : ""}">Messages<i class="nb unr" hidden></i></a>${owner ? `<a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/missed" class="${on === "missed" ? "on" : ""}">Missed dials</a><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Insights</a><a href="/admin/dialer" class="${on === "dialer" ? "on" : ""}">Dial</a><a href="/admin/calendar" class="${on === "calendar" ? "on" : ""}">Calendar</a><a href="/admin/automations" class="${on === "automations" ? "on" : ""}">Automations</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self)document.documentElement.classList.add("emb")</script>${PUSH_NAV}`;
 }
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
@@ -1408,6 +1408,20 @@ async function todayCount(env) {
   } catch { return 0; }
 }
 const BNAV_CSS = `article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+@media(min-width:1024px){
+  body{padding-left:228px}
+  .navtabs{position:fixed;left:0;top:0;bottom:0;width:228px;z-index:25;display:flex!important;flex-direction:column;flex-wrap:nowrap!important;gap:2px!important;padding:74px 12px 16px;background:#090c10;border-right:1px solid #1d2229;overflow-y:auto}
+  .navtabs::before{content:"Divine Detailers";position:absolute;left:0;right:0;top:0;height:62px;display:flex;align-items:center;padding:0 20px;font-weight:800;font-size:16px;letter-spacing:.2px;color:#e8eaed;border-bottom:1px solid #161b21}
+  .navtabs a{display:flex!important;align-items:center;gap:8px;position:relative;padding:11px 14px!important;border:0!important;border-radius:10px!important;color:#9aa1ab!important;font-weight:600;font-size:14.5px;background:none!important}
+  .navtabs a:hover{background:#10151b!important;color:#e8eaed!important}
+  .navtabs a.on{background:#112417!important;color:#32cd32!important}
+  .navtabs a.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:#32cd32}
+  .navtabs a.so{margin-top:auto;color:#6b727c!important}
+  .navtabs .nb{margin-left:auto}
+  header{padding-left:26px}
+  .emb body{padding-left:0}
+}
+.emb .navtabs,.emb .bnav,.emb .msheet,.emb header{display:none!important}.emb body{padding-left:0!important;padding-bottom:0!important}
 @media(max-width:700px){
   .navtabs{display:none!important}
   .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:#0a0d11;border-top:1px solid #1d2229;padding:0 6px calc(4px + env(safe-area-inset-bottom,0px));gap:2px}
@@ -2860,6 +2874,7 @@ main.m-call .rcol{grid-column:2;grid-row:5;display:flex;flex-direction:column;ga
 .bcall{min-height:80px;font-size:24px;border-radius:20px;width:100%}
 .skip{align-self:center}
 }
+#navdr{position:fixed;inset:0;z-index:70}#navdr[hidden]{display:none}#navdr .nbd{position:absolute;inset:0;background:rgba(0,0,0,.55)}#navdr .npn{position:absolute;top:0;right:0;bottom:0;width:min(940px,94vw);background:#07090c;border-left:1px solid #232932;display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.5)}#navdr .nh{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid #1d2229;background:#0b2012;color:#7fe08a}#navdr iframe{flex:1;width:100%;border:0;background:#07090c}
 ${BNAV_CSS}
 @media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
 </style></head><body>
@@ -3366,6 +3381,12 @@ function nudgeCheck(){const box=el('nudge');if(!box)return;if(state!=='live'||de
   const dep=(l&&vv('dep',l,gsvc(l)))||'The deposit';
   box.hidden=false;box.innerHTML='<b>'+(hot?'Buying signal. Close now.':'You gave the price. Close now.')+'</b>Offer two open days, then say: &ldquo;'+$(dep)+' comes off your total and it is refundable. Debit or credit?&rdquo;'}
 setInterval(nudgeCheck,2000);
+// browsing the CRM during a call: links open in a side panel so the call never drops
+(function(){let dr=null;const live=()=>state==='live'||state==='connecting';
+function open(u){if(!dr){dr=document.createElement('div');dr.id='navdr';dr.innerHTML='<div class="nbd"></div><div class="npn"><div class="nh"><b>Your call is still connected</b><button type="button" class="btn sm" id="ndc">Back to call</button></div><iframe id="ndf" title="CRM"></iframe></div>';document.body.appendChild(dr);dr.querySelector('.nbd').onclick=()=>{dr.hidden=true};dr.querySelector('#ndc').onclick=()=>{dr.hidden=true}}
+  dr.hidden=false;dr.querySelector('#ndf').src=u}
+document.addEventListener('click',e=>{if(!live())return;const a=e.target.closest('a[href]');if(!a||a.closest('#navdr'))return;const h=a.getAttribute('href')||'';if(h.charAt(0)!=='/'||h.indexOf('/logout')===0||a.target==='_blank')return;e.preventDefault();open(h)},true);
+window.addEventListener('beforeunload',e=>{if(live()){e.preventDefault();e.returnValue=''}})})();
 function addLine(who,text,final,low){if(final){nudgeNote(who,text);gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&n>=4)pend=null;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>1200){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial')+(low?' low':'');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
 function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
