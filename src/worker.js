@@ -1222,8 +1222,8 @@ h1{margin:0;font-size:22px}h1 b{color:#32cd32}p{margin:0;color:#8a9099;font-size
 input{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:12px;padding:14px;font:inherit;min-height:50px}input:focus{outline:2px solid #32cd32;outline-offset:1px}
 button{background:#32cd32;border:0;color:#04120a;border-radius:12px;padding:14px;font:inherit;font-weight:700;min-height:50px;cursor:pointer}.err{background:#3b1d1d;color:#ff9a9a;border-radius:10px;padding:10px 12px;font-size:14px}</style></head>
 <body><form class="box" method="post" action="/login"><h1>Divine Detailers <b>CRM</b></h1><p>Sign in to see your leads.</p>${err ? `<div class="err" role="alert">${esc(err)}</div>` : ""}
-<div><label for="u">Username</label><input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(user)}" ${user ? "" : "autofocus"} required></div>
-<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" ${user ? "autofocus" : ""} required></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
+<div><label for="u">Username</label><input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text" value="${esc(user)}" ${user ? "" : "autofocus"} required></div>
+<div><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" ${user ? "autofocus" : ""} required><label style="display:flex;align-items:center;gap:8px;margin:8px 0 0;text-transform:none;letter-spacing:0;font-size:13px;color:#8a9099;cursor:pointer"><input type="checkbox" style="width:auto;min-height:0" onchange="document.getElementById('p').type=this.checked?'text':'password'"> Show password</label></div><input type="hidden" name="next" value="${esc(next || "/")}"><button type="submit">Sign in</button></form></body></html>`;
 const htmlRes = (body, status = 200, extra = {}) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex", ...extra } });
 async function loginRoute(p, request, env) {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
@@ -1233,7 +1233,7 @@ async function loginRoute(p, request, env) {
   if (request.method !== "POST") return htmlRes(loginHtml("", safeNext(url.searchParams.get("next"))));
   const form = await request.formData().catch(() => null);
   const next = safeNext(form && form.get("next"));
-  const pass = String((form && form.get("password")) || "");
+  const pass0 = String((form && form.get("password")) || ""), pass = pass0.trim(); // phone keyboards often add a space after a word
   const user = String((form && form.get("username")) || "").trim().toLowerCase();
   // slow down guessing: 8 failures per 15 minutes per address
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
@@ -1243,8 +1243,8 @@ async function loginRoute(p, request, env) {
     const r = await env.DB.prepare("SELECT COUNT(*) n FROM login_fails WHERE ip = ? AND at > ?").bind(ip, since).first();
     if (r && r.n >= 8) return htmlRes(loginHtml("Too many tries. Wait a few minutes and try again.", next), 429);
   }
-  let pw = passwordOf(env, user), ok = !!pw && same(pass, pw);
-  if (!pw && !Object.hasOwn(USERS, user)) { const u = await dbUser(env, user); if (u) { const h = await hashPw(pass, u.salt); ok = same(h, u.hash); pw = u.hash; } }
+  let pw = passwordOf(env, user), ok = !!pw && (same(pass, pw) || same(pass0, pw));
+  if (!pw && !Object.hasOwn(USERS, user)) { const u = await dbUser(env, user); if (u) { ok = same(await hashPw(pass, u.salt), u.hash); pw = u.hash; } }
   if (!ok) {
     if (env.DB) await env.DB.prepare("INSERT INTO login_fails (ip, at) VALUES (?, ?)").bind(ip, Math.floor(Date.now() / 1000)).run();
     return htmlRes(loginHtml("That username or password is not right.", next, user), 401);
@@ -2866,7 +2866,7 @@ draw();
 }
 async function usersApi(env, request) {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS crm_users (username TEXT PRIMARY KEY, salt TEXT NOT NULL, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-  const b = await request.json().catch(() => ({})), name = String(b.username || "").trim().toLowerCase(), pw = String(b.password || "");
+  const b = await request.json().catch(() => ({})), name = String(b.username || "").trim().toLowerCase(), pw = String(b.password || "").trim();
   const list = async () => ((await env.DB.prepare("SELECT username, created_at FROM crm_users ORDER BY username").all()).results || []).map(r => ({ username: r.username, at: isoUtc(r.created_at) }));
   if (!/^[a-z0-9]{3,20}$/.test(name)) return json({ success: false, message: "Use 3 to 20 letters or numbers for the username." }, 400);
   if (Object.hasOwn(USERS, name) || name === OWNER) return json({ success: false, message: "That username is already used." }, 400);
