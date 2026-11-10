@@ -1778,6 +1778,7 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
   '<div class="acts"><button class="btn go" id="fsave">Save</button>'+(IS_OWNER?'<button class="btn ghost" id="fdel" type="button">Delete lead</button>':'')+'</div></div>';
   dlg.showModal();
+  fetch('/admin/note?id='+id).then(r=>r.json()).then(j=>{if(!j.success)return;const ta=document.getElementById('fn');if(ta&&ta.value===(l.notes||'')){ta.value=j.notes||''}l.notes=j.notes||''}).catch(()=>{});
   const wireHist=()=>{const hm=document.getElementById('hmore');if(hm)hm.onclick=()=>{dlg.querySelectorAll('.tlist [hidden]').forEach(e=>e.hidden=false);hm.remove()}};wireHist();
   const CALLS=fetch('/admin/calls?id='+l.id).then(r=>r.json());
   CALLS.then(j=>{if(!j.history||dlg.dataset.id!=String(l.id))return;l.log=j.history;const hb=document.getElementById('hist');if(hb){hb.innerHTML=histHtml(l);wireHist()}});
@@ -2028,7 +2029,7 @@ async function messageThread(env, url) {
   await ensureTable(env.DB);
   const id = Number(url.searchParams.get("id"));
   if (!Number.isInteger(id)) return json({ success: false }, 400);
-  const lead = await env.DB.prepare("SELECT id, name, phone, email, service, stage, year, make, model, value, appt_at, follow_up, follow_up_date, created_at, utm_medium, utm_campaign, tags, starred FROM leads WHERE id = ?").bind(id).first();
+  const lead = await env.DB.prepare("SELECT id, name, phone, email, service, stage, year, make, model, value, appt_at, follow_up, follow_up_date, created_at, utm_medium, utm_campaign, tags, starred, notes FROM leads WHERE id = ?").bind(id).first();
   if (!lead) return json({ success: false }, 404);
   await env.DB.prepare("UPDATE messages SET is_read = 1 WHERE lead_id = ? AND direction = 'in' AND is_read = 0").bind(id).run();
   const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
@@ -2154,10 +2155,11 @@ function drawInfo(j){const l=j.lead,car=[l.year,l.make,l.model].filter(Boolean).
   info.innerHTML='<div class="ic0"><span class="av">'+$(ini(l))+'</span><div><b>'+$(nm(l))+'</b><span>'+$(l.phone||'')+'</span></div></div>'
    +'<div class="sec"><h4>Details</h4><div class="kv">'+kv('Stage','<span class="pill2">'+$(l.stage_label)+'</span>')+kv('Phone',l.phone?'<a href="tel:'+$(l.phone)+'">'+$(l.phone)+'</a>':'')+kv('Email',l.email?'<a href="mailto:'+$(l.email)+'">'+$(l.email)+'</a>':'')+kv('Service',$(l.service||''))+kv('Vehicle',$(car))+kv('Value',l.value?'$'+Number(l.value).toLocaleString('en-US'):'')+kv('Appointment',$(ap))+kv('Follow up',$((l.follow_up||'')+(l.follow_up_date?' '+l.follow_up_date:'')))+kv('Source',$(l.utm_medium==='paid_social'?'Facebook / Meta ads':(l.utm_campaign||'')))+kv('Came in',$(day(l.created_at)))+'</div></div>'
    +'<div class="sec"><h4>Tags</h4><div class="tg" id="tg">'+l.tags.map(t=>'<span>'+$(t)+'<button type="button" data-rt="'+$(t)+'" aria-label="Remove">&times;</button></span>').join('')+'<input id="tin" placeholder="+ add tag" maxlength="24"></div></div>'
+   +'<div class="sec"><h4>Notes</h4>'+(l.notes?'<div class="sm" style="max-height:180px;overflow-y:auto">'+String(l.notes).split('\\n').filter(Boolean).reverse().map(n=>'<div style="padding:4px 0;border-bottom:1px solid #141a20">'+$(n)+'</div>').join('')+'</div>':'<div class="note">No notes yet.</div>')+'<textarea id="nin" rows="2" placeholder="Add a note" style="width:100%;background:#0b1015;border:1px solid #1d252e;color:#fff;border-radius:10px;padding:8px 10px;font:inherit;font-size:13.5px;resize:vertical"></textarea><button type="button" class="ib" id="nadd">Add note</button></div>'
    +(j.notes&&j.notes.length?'<div class="sec"><h4>Call notes</h4>'+j.notes.map(n=>'<div class="sm"><small>'+$(n.at)+'</small>'+$(n.summary)+'</div>').join('')+'</div>':'')
    +'<div class="sec"><h4>Actions</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="ib g" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(l.phone||''))+'">Call</a><a class="ib" href="/admin/pipeline#id='+l.id+'">Open lead</a></div></div>';
   info.hidden=!showInfo;app.classList.toggle('noinfo',!showInfo)}
-info.addEventListener('click',async e=>{const b=e.target.closest('[data-rt]');if(!b||!D)return;D.lead.tags=D.lead.tags.filter(t=>t!==b.dataset.rt);await saveTags();drawInfo(D)});
+info.addEventListener('click',async e=>{if(e.target.id==='nadd'&&D){const t=document.getElementById('nin').value.trim();if(!t)return;e.target.disabled=true;try{await fetch('/admin/note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:D.lead.id,text:t})})}catch(_){}lastSig='';await open(D.lead.id,false);return}const b=e.target.closest('[data-rt]');if(!b||!D)return;D.lead.tags=D.lead.tags.filter(t=>t!==b.dataset.rt);await saveTags();drawInfo(D)});
 info.addEventListener('keydown',async e=>{if(e.target.id!=='tin'||e.key!=='Enter'||!D)return;e.preventDefault();const v=e.target.value.trim();if(!v)return;if(D.lead.tags.indexOf(v)<0)D.lead.tags.push(v);await saveTags();drawInfo(D);const t=document.getElementById('tin');if(t)t.focus()});
 async function saveTags(){try{const r=await fetch('/admin/tags',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:D.lead.id,tags:D.lead.tags})});const j=await r.json();if(j.success)D.lead.tags=j.tags}catch(_){}}
 async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const lm=j.messages.length?j.messages[j.messages.length-1]:{};const sig=j.messages.length+':'+(lm.id||'')+(lm.status||'')+j.optout+':'+j.events.length+':'+j.lead.stage+':'+j.lead.starred+':'+j.lead.tags.join();
@@ -3431,14 +3433,36 @@ async function dialerOfferSave(env, b) {
   await env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES ('offer', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(JSON.stringify(out)).run();
   return json({ success: true });
 }
-async function dialerNote(env, b, user) {
+// Every note written anywhere in the CRM goes through here: it is added to the lead's Notes (leads.notes, stamped with the time and who wrote it) and logged on the timeline
+async function addLeadNote(env, id, text, user) {
   await ensureTable(env.DB);
-  const text = String(b.text || "").trim().slice(0, 1000);
-  if (!Number.isInteger(b.id) || !text) return json({ success: false, message: "Write a note first." }, 400);
-  const cur = await env.DB.prepare("SELECT stage FROM leads WHERE id = ?").bind(b.id).first();
-  if (!cur) return json({ success: false }, 404);
-  await env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, cur.stage, "Note: " + text, user).run();
-  return json({ success: true });
+  text = String(text || "").trim().slice(0, 1000);
+  if (!Number.isInteger(id) || !text) return { ok: false, status: 400, message: "Write a note first." };
+  const cur = await env.DB.prepare("SELECT stage, notes FROM leads WHERE id = ?").bind(id).first();
+  if (!cur) return { ok: false, status: 404 };
+  const stamp = new Date().toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  let notes = (cur.notes ? String(cur.notes).replace(/\s+$/, "") + "\n" : "") + `${stamp} \u00b7 ${user || "someone"}: ${text}`;
+  if (notes.length > 6000) notes = notes.slice(notes.length - 6000).replace(/^[^\n]*\n/, "");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE leads SET notes = ? WHERE id = ?").bind(notes, id),
+    env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(id, cur.stage, cur.stage, "Note: " + text, user),
+  ]);
+  return { ok: true, notes };
+}
+async function dialerNote(env, b, user) {
+  const r = await addLeadNote(env, b.id, b.text, user);
+  return r.ok ? json({ success: true, notes: r.notes }) : json({ success: false, message: r.message || "Could not save the note." }, r.status || 400);
+}
+// older dialer notes only lived on the timeline: copy them into the lead's Notes once so every screen shows the same notes
+async function backfillNotes(env) {
+  if (await env.DB.prepare("SELECT 1 FROM dial_settings WHERE k = 'notes_backfill'").first().catch(() => null)) return;
+  const rows = (await env.DB.prepare("SELECT s.lead_id, s.reason, s.by_user, s.at, l.notes FROM stage_log s JOIN leads l ON l.id = s.lead_id WHERE s.reason LIKE 'Note: %' OR s.reason LIKE 'Call note: %' ORDER BY s.lead_id, s.at LIMIT 5000").all()).results || [];
+  const by = new Map();
+  for (const r of rows) { if (!by.has(r.lead_id)) by.set(r.lead_id, { notes: String(r.notes || ""), add: [] }); const g = by.get(r.lead_id), t = String(r.reason).replace(/^(Call )?note: /i, "").trim(); if (!t || g.notes.includes(t)) continue; const when = new Date(String(r.at).replace(" ", "T") + "Z").toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); g.add.push(`${when} \u00b7 ${r.by_user || "someone"}: ${t}`); }
+  const stmts = [];
+  for (const [id, g] of by) if (g.add.length) stmts.push(env.DB.prepare("UPDATE leads SET notes = ? WHERE id = ?").bind(((g.notes ? g.notes.replace(/\s+$/, "") + "\n" : "") + g.add.join("\n")).slice(-6000), id));
+  for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+  await env.DB.prepare("INSERT OR IGNORE INTO dial_settings (k, v) VALUES ('notes_backfill', '1')").run();
 }
 async function dialerLog(env, b, user) {
   await ensureTable(env.DB);
@@ -3702,7 +3726,7 @@ const fmtT=iso=>{try{return new Date(iso).toLocaleString('en-US',{timeZone:ET,mo
 const dur=n=>Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
 async function loadInfo(id,force){if(!id)return;if(!force&&INFO[id]){renderInfo();return}try{const j=await (await fetch('/admin/dialer/lead?id='+id)).json();if(j.success){INFO[id]=j}}catch(_){}renderInfo()}
 function infoHtml(d){if(!d)return '<p class="empty">Loading lead info...</p>';const L=d.lead,F=d.facts,sub=(k,n,c)=>'<button type="button" data-it="'+k+'" class="'+(itab===k?'on':'')+'">'+n+(c?'<small>'+c+'</small>':'')+'</button>';
-  let h='<div class="itabs">'+sub('ov','Overview')+sub('nt','Notes',d.notes.length||'')+sub('cl','Calls',d.calls.length||'')+sub('tx','Texts',d.texts.length||'')+sub('ac','Activity',d.activity.length||'')+'</div>';
+  let h='<div class="itabs">'+sub('ov','Overview')+sub('nt','Notes',(L.notes?String(L.notes).split('\\n').filter(Boolean).length:'')||'')+sub('cl','Calls',d.calls.length||'')+sub('tx','Texts',d.texts.length||'')+sub('ac','Activity',d.activity.length||'')+'</div>';
   const car=[L.year,L.make,L.model].filter(Boolean).join(' ');
   if(itab==='ov'){
     h+=(F.optout?'<div class="warnb"><b>Replied STOP.</b> Do not text this person.</div>':'')
@@ -3714,7 +3738,7 @@ function infoHtml(d){if(!d)return '<p class="empty">Loading lead info...</p>';co
      +'<a class="btn sm" href="/admin/pipeline#id='+L.id+'" style="text-decoration:none;display:inline-flex;align-items:center;align-self:flex-start">Open lead / book</a>'}
   else if(itab==='nt'){
     h+='<textarea class="nbox" rows="3" placeholder="Add an internal note (only you can see it)"></textarea><div class="bar"><button class="btn g sm" data-act="note" type="button">Add note</button><span class="note nm"></span></div><div class="lst">'
-     +(d.notes.length?d.notes.map(n=>'<div class="row"><div class="top"><b>'+$(n.by||'')+'</b><span>'+$(fmtT(n.at))+'</span></div><p>'+$(n.text)+'</p></div>').join(''):'<p class="empty">No notes yet.</p>')+'</div>'}
+     +(L.notes?String(L.notes).split('\\n').filter(Boolean).reverse().map(n=>'<div class="row"><p>'+$(n)+'</p></div>').join(''):'<p class="empty">No notes yet.</p>')+'</div>'}
   else if(itab==='cl'){
     h+='<div class="lst">'+(d.calls.length?d.calls.map(c=>'<div class="row"><div class="top"><b>'+(c.kind==='callrail'?'Call'+(c.direction?' ('+$(c.direction)+')':''):'Call')+(c.secs?' \u00b7 '+dur(c.secs):(c.kind==='dialer'?' \u00b7 no answer':''))+'</b><span>'+$(fmtT(c.at))+(c.by?' \u00b7 '+$(c.by):'')+'</span></div>'+(c.summary?'<p>'+$(c.summary)+'</p>':'')+(c.rec?'<audio controls preload="none" src="'+$(c.rec)+'"></audio>':'')+(c.turns&&c.turns.length?'<details><summary>Transcript</summary><div class="tl">'+c.turns.map(t=>'<div class="'+(t.who==='lead'?'l':'r')+'"><b>'+(t.who==='lead'?'Lead':'You')+':</b> '+$(t.text)+'</div>').join('')+'</div></details>':'')+'</div>').join(''):'<p class="empty">No calls yet.</p>')+'</div>'}
   else if(itab==='tx'){
@@ -4866,6 +4890,7 @@ export default {
     ctx.waitUntil(ageLeads(env).catch(e => console.error("aging error", e && e.message)));
     ctx.waitUntil(remindAppointments(env).catch(e => console.error("appointment reminder error", e && e.message)));
     ctx.waitUntil(numberHealthAlert(env).catch(e => console.error("number health error", e && e.message)));
+    ctx.waitUntil(backfillNotes(env).catch(e => console.error("notes backfill error", e && e.message)));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -4912,7 +4937,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -5646,6 +5671,17 @@ async function adminRoute(p, request, env) {
   if (p === "/admin/unread" && request.method === "GET") { await ensureTable(env.DB); return json({ n: ((await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE direction = 'in' AND is_read = 0").first()) || {}).n || 0 }); }
   if (p === "/admin/threads" && request.method === "GET") return messageThreads(env, new URL(request.url));
   if (p === "/admin/thread" && request.method === "GET") return messageThread(env, new URL(request.url));
+  if (p === "/admin/note" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    const r = await addLeadNote(env, b.id, b.text, a);
+    return r.ok ? json({ success: true, notes: r.notes }) : json({ success: false, message: r.message || "Could not save the note." }, r.status || 400);
+  }
+  if (p === "/admin/note" && request.method === "GET") {
+    const id = Number(new URL(request.url).searchParams.get("id"));
+    if (!Number.isInteger(id)) return json({ success: false }, 400);
+    const l = await env.DB.prepare("SELECT notes FROM leads WHERE id = ?").bind(id).first();
+    return l ? json({ success: true, notes: l.notes || "" }) : json({ success: false }, 404);
+  }
   if (p === "/admin/star" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     if (!Number.isInteger(b.id)) return json({ success: false }, 400);
