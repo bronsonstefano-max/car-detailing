@@ -1358,7 +1358,7 @@ function askOutcome(){const d=document.getElementById('odlg');if(!d||d.open)retu
   OUTC.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.onclick=async()=>{b.disabled=true;try{await fetch('/admin/outcome',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:p.id,outcome:v})})}catch(_){}done()};g.appendChild(b)});
   document.getElementById('os').onclick=done;try{d.show()}catch(_){}}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(askOutcome,400)});window.addEventListener('focus',()=>setTimeout(askOutcome,400));window.addEventListener('pageshow',()=>setTimeout(askOutcome,600));setTimeout(askOutcome,800);
-document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');const id=(h&&+h.dataset.id)||window.DD_LEAD;if(!id)return;e.preventDefault();if(a.dataset.busy)return;a.dataset.busy='1';const t=a.textContent;a.textContent='Calling your phone...';
+document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');const id=(h&&+h.dataset.id)||window.DD_LEAD;if(!id)return;e.preventDefault();if((typeof IS_OWNER!=='undefined'&&IS_OWNER)||document.querySelector('a[href="/admin/dialer"]')){location.href='/admin/dialer?lead='+id;return}if(a.dataset.busy)return;a.dataset.busy='1';const t=a.textContent;a.textContent='Calling your phone...';
   fetch('/admin/dial',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})}).then(r=>r.json()).catch(()=>({})).then(j=>{if(j.success){a.textContent='Answer your phone and press 1';setTimeout(()=>{a.textContent=t;delete a.dataset.busy},15000)}else{a.textContent=t;delete a.dataset.busy;if(confirm((j.message||'Could not start the call.')+'\\n\\nCall without recording?'))location.href=a.getAttribute('href')}})},true);
 `;
 
@@ -1799,7 +1799,6 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
   '<div id="hist">'+histHtml(l)+'</div>'+
   '<div id="cr"></div>'+
   '<div id="cn"></div>'+
-  '<div class="rp"><label>One-tap reply</label><select id="tp">'+tplFor(l).map(t=>'<option value="'+t.id+'">'+$(t.label)+'</option>').join('')+'</select><div id="tap" style="display:none"><label>Appointment date and time'+(l.appt_at?' (saved)':'')+'</label><input id="tad" type="datetime-local" style="color-scheme:dark"></div><textarea id="tb" rows="3"></textarea><div class="acts">'+(tel?'<a class="btn call" id="tsms" href="#">Text</a>':'')+(l.email?'<a class="btn" id="tmail" href="#">Email</a>':'')+'<button type="button" class="btn" id="tcopy">Copy</button></div></div>'+
   '<div><label>Stage</label><div class="chips" id="fchips">'+S.map(([k,n])=>'<button type="button" data-k="'+k+'" class="'+(k===l.stage?'on':'')+'">'+n+'</button>').join('')+'</div></div><div><label>Next step <span id="fuh" style="text-transform:none;letter-spacing:0;color:#586069"></span></label><div class="fu-chips" id="fuc"></div></div><div class="g2"><div><label>Follow up on</label><input id="fd" type="date" value="'+$(l.follow_up_date||'')+'" style="color-scheme:dark"></div><div><label>Job value ($)</label><input id="fv" type="number" min="0" step="1" inputmode="numeric" value="'+(l.value||'')+'" placeholder="0"></div></div>'+
   '<div><label>Notes</label><textarea id="fn" placeholder="Called, left voicemail... quoted full front PPF...">'+$(l.notes||'')+'</textarea></div>'+
   '<div class="acts"><button class="btn go" id="fsave">Save</button>'+(IS_OWNER?'<button class="btn ghost" id="fdel" type="button">Delete lead</button>':'')+'</div></div>';
@@ -1818,20 +1817,6 @@ function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;co
     const mmss=n=>n==null?'':Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
     c.innerHTML='<label>Recordings ('+j.recordings.length+')</label>'+j.recordings.map(r=>'<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin:6px 0;padding:8px 10px;background:#0d1116;border:1px solid #232932;border-radius:10px"><span style="font-size:14px">'+(r.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(r.at)+(r.duration!=null?' &middot; '+mmss(r.duration):'')+'</span><a class="rec" href="'+$(r.url)+'" target="_blank" rel="noopener" style="white-space:nowrap">Listen</a></div>').join('')});
   CALLS.then(j=>{const b=document.getElementById('cn');if(!b||dlg.dataset.id!=String(l.id)||!j.notes||!j.notes.length)return;b.innerHTML='<label>Call summary and transcript</label>'+j.notes.map(n=>'<div style="margin:6px 0 10px"><b style="font-size:13px">'+(n.direction==='inbound'?'Inbound call':'Call')+' &middot; '+$(n.at)+'</b>'+(n.summary?'<p style="margin:6px 0">'+$(n.summary)+'</p>':'')+(n.transcript?'<details><summary style="cursor:pointer;color:#32cd32">Transcript</summary><pre style="white-space:pre-wrap;font:13px/1.5 system-ui;color:#c3c8cf;margin:6px 0">'+$(n.transcript)+'</pre></details>':'')+(!n.summary&&!n.transcript?'<p style="color:#8a9099;margin:6px 0">'+(n.done?'No transcript was available for this call (CallRail Conversation Intelligence may not be turned on).':'Transcript is being prepared (usually a few minutes)...')+'</p>':'')+'</div>').join('')}).catch(()=>{});
-  const tp=document.getElementById('tp'),tb=document.getElementById('tb');
-  const ap=document.getElementById('tap'),ad=document.getElementById('tad');
-  function fmtAppt(v){const m=/^(\\d{4})-(\\d\\d)-(\\d\\d)T(\\d\\d):(\\d\\d)/.exec(v||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}
-  function tfill(){const t=TPL.find(x=>x.id===tp.value),need=t.body.indexOf('{appointment}')>=0;ap.style.display=need?'':'none';const when=fmtAppt(ad.value),f=tplFill(t,l,when);tb.value=f.body;tb.dataset.subj=f.subject;
-    for(const id of ['tsms','tmail']){const e=document.getElementById(id);if(e){e.style.opacity=need&&!when?'.4':'';e.style.pointerEvents=need&&!when?'none':''}}sync()}
-  if(l.appt_at)ad.value=l.appt_at;ad.oninput=tfill;
-  function sync(){const sm=document.getElementById('tsms'),ml=document.getElementById('tmail');if(sm)sm.href=smsHref(l.phone,tb.value);if(ml)ml.href=mailHref(l.email,tb.dataset.subj||'',tb.value)}
-  async function logTouch(kind){const id=tp.value,label=kind+': '+TPL.find(x=>x.id===id).label;
-    const r=id==='scheduled'&&ad.value?await save(l.id,{label,appt:ad.value},'/admin/appt'):id==='reminder'&&l.appt_at?await save(l.id,{label,sent:'reminder'},'/admin/appt'):await save(l.id,{label},'/admin/touch');
-    if(r&&r.stage){apply(l,r);if(id==='scheduled'&&ad.value)l.appt_at=ad.value;if(r.log)l.log=r.log.concat(l.log||[]);draw()}}
-  tp.onchange=tfill;tb.oninput=sync;tfill();
-  const sm=document.getElementById('tsms'),ml=document.getElementById('tmail');
-  if(sm)sm.onclick=()=>{logTouch('Texted')};if(ml)ml.onclick=()=>{logTouch('Emailed')};
-  document.getElementById('tcopy').onclick=async e=>{try{await navigator.clipboard.writeText(tb.value);e.target.textContent='Copied'}catch(_){tb.select()}};
   let stg=l.stage,pick=(stg===l.stage?'':'');
   function drawFu(){const fuc=document.getElementById('fuc');fuc.innerHTML='';(FU[stg]||[]).forEach(([lab,mv])=>{const b=document.createElement('button');b.type='button';b.dataset.l=lab;b.className=(mv?'mv ':'')+(pick===lab?'on':'');b.innerHTML=$(lab)+(mv?'<small>moves to '+$(SN(mv))+'</small>':'');fuc.appendChild(b)});document.getElementById('fuh').textContent=(stg===l.stage&&l.followup?'(now: '+l.followup+')':'')}
   document.getElementById('fuc').onclick=e=>{const b=e.target.closest('button[data-l]');if(!b)return;pick=pick===b.dataset.l?'':b.dataset.l;drawFu()};
@@ -3900,7 +3885,7 @@ main.m-call .rcol{grid-column:2;grid-row:5;display:flex;flex-direction:column;ga
 .tabs button{padding:7px 16px}.tabs button.on{box-shadow:0 4px 14px rgba(50,205,50,.22)}
 header h1{letter-spacing:-.2px}
 .bbody{display:flex;flex-direction:column;gap:20px}
-#navdr{position:fixed;top:0;bottom:0;left:228px;right:0;z-index:20;background:#07090c}#navdr[hidden]{display:none}#navdr iframe{width:100%;height:100%;border:0;background:#07090c;display:block}
+#gnx{display:none!important}#navdr{position:fixed;top:0;bottom:0;left:228px;right:0;z-index:20;background:#07090c}#navdr[hidden]{display:none}#navdr iframe{width:100%;height:100%;border:0;background:#07090c;display:block}
 #fbox{position:fixed;right:20px;bottom:20px;width:350px;max-width:calc(100vw - 24px);z-index:80;background:linear-gradient(180deg,#0e1a12,#0a110d);border:1px solid #1f6a37;border-radius:20px;box-shadow:0 22px 60px rgba(0,0,0,.65),0 0 0 1px rgba(50,205,50,.08);padding:14px;display:flex;flex-direction:column;gap:10px}#fbox[hidden]{display:none}
 #fbox .fh{display:flex;align-items:center;gap:10px}#fbox .av{width:40px;height:40px;font-size:15px}#fbox .fn{flex:1;min-width:0}#fbox .fn b{display:block;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#fbox .fn small{color:#7fe08a;font-size:12.5px}#fbox .timer{font-size:22px;min-width:0}
 #fbox .fs{background:#0b0f13;border:1px solid #1b2530;border-radius:12px;padding:9px 11px}#fbox .fs i{display:block;font-style:normal;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#4fdc5a;margin-bottom:3px}#fbox .fs p{margin:0;font-size:15px;line-height:1.35;color:#fff;font-weight:650;max-height:96px;overflow:auto}#fbox .fl2 p{font-size:13.5px;color:#aab0b9;font-weight:500;max-height:54px}
@@ -4018,7 +4003,7 @@ function drawLead(){const l=Q[ix];const box=el('lead');
    +(lines.length?'<div class="kv">'+lines.map(x=>'<span>'+$(x)+'</span>').join('')+'</div>':'')
    +((l.texts&&l.texts.length)||(l.history&&l.history.length)?'<div class="hist">'+(l.texts||[]).map(t=>'<span>'+(t.direction==='in'?'They texted: ':'You texted: ')+$(t.body)+'</span>').join('')+(l.history||[]).slice(0,3).map(h=>'<span>'+$(h.reason)+'</span>').join('')+'</div>':'')
    +'<div class="bar"><a class="btn sm" href="/admin/pipeline#id='+l.id+'" style="text-decoration:none;display:inline-flex;align-items:center">Open lead / book</a></div>';
-  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};LH={};LH={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh=''}
+  if(gLead!==l.id){gLead=l.id;gi=0;gPlay=null;gHot='';OVR={};FACTS={goals:[]};COV={};SAID={};LH={};LH={};BR={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh=''}
   sk=svcOf(l);{const sv=gsvc(l);if(sv&&GS[sv]===undefined)gLoad(sv).then(()=>{if(Q[ix]===l){drawScript();drawBrief(l)}})}
   drawScript();drawBrief(l);drawCtl()}
 function drawCtl(){setMode();drawQ();syncCb();const l=Q[ix],c=el('ctl'),kp=el('kp');if(!l){return}
@@ -4160,25 +4145,37 @@ function gMark(scroll){if(gScript()&&Q[ix])gCov();gNext();const sc=gScript();if(
   sc.steps.forEach((s,i)=>{const e=document.getElementById('gs-'+s.id);if(!e)return;e.classList.toggle('cur',i===gi);e.classList.toggle('done',!!COV[s.id])});
   document.querySelectorAll('#script .gobjs button').forEach(b=>b.classList.toggle('hot',b.dataset.p===gHot&&Date.now()-gHotAt<45000));
   const ph=sc.steps[gi]&&sc.steps[gi].phase;document.querySelectorAll('#script .gline [data-a]').forEach(b=>b.classList.toggle('here',b.dataset.a==='gp-'+ph));
-  if(scroll&&Date.now()-gUserAt>5000){const e=sc.steps[gi]&&document.getElementById('gs-'+sc.steps[gi].id);if(e)gScrollTo(e)}}
+  /* the script on the right never scrolls by itself: only the coach box follows the call. Tapping Open or a step chip still jumps to it. */}
 // objections the lead just raised light up their playbook
 const OBJRX=[['p-expensive',/(too (much|expensive)|expensive|that.?s a lot|can.?t afford|too pricey)/],['p-wife',/(my wife|my husband|my girlfriend|talk to my)/],['p-think',/(think about it|let me think|need to think)/],['p-text',/(text (it|me)|send (it|me)|email (it|me))/],['p-calendar',/(my (calendar|schedule)|check my|i.?m driving)/],['p-shop',/(shopping around|other (quotes|shops)|more quotes|compar)/],['p-catch',/(what.?s the catch|too good|why so cheap)/],['a-price',/(how much|what.?s the price|price)/],['a-location',/(where are you|too far|how far|located)/],['a-booked',/(already (booked|got|did|have)|someone else)/],['a-scratch',/(scratch proof|stop scratch|rock chip)/],['a-wax',/(i wax|waxing|i just wax)/]];
 function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||'').toLowerCase();for(const [id,rx] of OBJRX){if(rx.test(t)&&sc.plays.some(p=>p.id===id||(id==='p-expensive'&&p.id==='p-shop'))){gHot=sc.plays.some(p=>p.id===id)?id:'p-shop';gHotAt=Date.now();gMark(false);return}}}
 // follow the rep: when what they just said matches the next step, move to it
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
 function gLines(sc,l,svc){const out=[];sc.steps.forEach((s,si)=>{if(!s.n)return;(s.main||[]).forEach(n=>{if(n.k!=='say')return;(n.ps||[]).forEach((p,pi)=>{if(p.t&&!p.note&&!/^if\\b/i.test(p.sub||''))out.push({si:si,sid:s.id,k:s.id+'.'+out.length,t:gplain(p.t,l,svc)})})})});return out}
-function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;const w=words(text);if(w.length<1)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
+function gFollow(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return;brFollow(text);const w=words(text);if(w.length<1)return;const svc=gsvc(l),L=gLines(sc,l,svc);let best=-1,bs=0;
   L.forEach((x,j)=>{const set=new Set(words(x.t));if(!set.size)return;const hs=w.filter(y=>set.has(y)),hit=hs.length,need=set.size===1?1:set.size<=3?2:3;if(set.size===1&&w.length>4)return;if(hit<need||hit/Math.max(w.length,2)<0.5)return;
-    const acc=LH[x.k]||(LH[x.k]=new Set());hs.forEach(y=>acc.add(y));const r=acc.size/set.size;if(r>=(set.size<=3?1:0.7)&&r>bs){bs=r;best=j}});
+    // words only add up across a sentence split by pauses (15 seconds), and a line more than one step ahead needs nearly all its words in a single breath, so common words said over a long call never add up to a skipped step
+    const nowT=Date.now();let en=LH[x.k];if(!en||!en.s||nowT-en.t>15000)en=LH[x.k]={s:new Set(),t:nowT};en.t=nowT;const far=x.si>gi+1,acc=far?new Set():en.s;hs.forEach(y=>acc.add(y));const r=acc.size/set.size;if(r>=(set.size<=3?1:far?0.9:0.7)&&r>bs){bs=r;best=j}});
   if(best>=0){const m=L[best];lastSaid={k:m.k,sid:m.sid,t:m.t,at:Date.now()};L.forEach((x,j)=>{if(x.si===m.si&&j<=best)SAID[x.k]=1});if(L.filter(x=>x.si===m.si).every(x=>SAID[x.k]))COV[m.sid]=1;const mv=m.si!==gi;if(mv)gi=m.si;gMark(mv)}}
 // the line the rep should say next: the first line, at or after the current step, that has not been said or already covered by what the lead told us
-function gNextLine(){const sc=gScript(),l=Q[ix];if(!sc||!l)return null;const svc=gsvc(l),L=gLines(sc,l,svc),open=L.filter(x=>!SAID[x.k]&&!COV[x.sid]);if(!open.length)return{done:true};return open.find(x=>x.si>=gi)||open[0]}
+// follow-ups under a question ("If yes, swirls..." / "If no..."): once the lead answers yes or no, the lines for that answer come next, before the script moves on
+let BR={};
+const brPol=c=>{const t=String(c||'').toLowerCase().replace(/^\\s*if\\s+/,'').trim();return /^(no|nope|none|not|never|brand new|haven)/.test(t)?'no':/^(yes|yeah|yep|sure|they say yes|they have|they do)/.test(t)?'yes':null};
+function brOpts(s,l,svc){const out=[];(s.main||[]).forEach(n=>{if(n.k!=='outcomes')return;(n.opts||[]).forEach(o=>{const pol=brPol(o.cond);if(!pol)return;const lines=[];(o.nodes||[]).forEach(x=>{if(x.k!=='say')return;(x.ps||[]).forEach(p=>{if(p.t&&!p.note)lines.push(gplain(p.t,l,svc))})});if(lines.length)out.push({pol:pol,cond:gplain(o.cond,l,svc),lines:lines})})});return out}
+function brPick(text){const sc=gScript(),l=Q[ix];if(!sc||!l||!lastSaid||Date.now()-lastSaid.at>90000)return;const s=sc.steps[gi];if(!s||s.id!==lastSaid.sid||BR[s.id])return;
+  const t=String(text||'').toLowerCase(),no=/\\b(no|nope|nah|not really|none|never|haven't|don't|doesn't|brand new)\\b/.test(t),yes=/\\b(yes|yeah|yep|yup|sure|a little|a bit|some|kind of|sort of|definitely|absolutely|correct|i do|we do)\\b/.test(t);
+  const pol=no&&!yes?'no':yes&&!no?'yes':(yes&&no?(/^\\s*(no|nope|nah)\\b/.test(t)?'no':'yes'):null);if(!pol)return;
+  const o=brOpts(s,l,gsvc(l)).find(x=>x.pol===pol);if(o){BR[s.id]={si:gi,sid:s.id,cond:o.cond,lines:o.lines,said:{}};gMark(false)}}
+function brNext(){const sc=gScript();if(!sc)return null;const s=sc.steps[gi],b=s&&BR[s.id];if(!b)return null;const i=b.lines.findIndex((x,j)=>!b.said[j]);return i<0?null:{si:b.si,sid:b.sid,k:b.sid+'.b'+i,t:b.lines[i],branch:true,sub:b.cond,bi:i}}
+function brFollow(text){const sc=gScript();if(!sc)return;const s=sc.steps[gi],b=s&&BR[s.id];if(!b)return;const w=words(text);if(w.length<1)return;
+  b.lines.forEach((ln,j)=>{if(b.said[j])return;const set=new Set(words(ln));if(!set.size)return;const hit=w.filter(y=>set.has(y)).length,need=set.size<=3?2:3;if(hit>=need&&hit/Math.max(w.length,2)>=0.5){const k=b.sid+'.b'+j;const acc=LH[k]||(LH[k]=new Set());w.filter(y=>set.has(y)).forEach(y=>acc.add(y));if(acc.size/set.size>=(set.size<=3?1:0.7)){for(let q=0;q<=j;q++)b.said[q]=1;gMark(false)}}})}
+function gNextLine(){const sc=gScript(),l=Q[ix];if(!sc||!l)return null;const bn=brNext();if(bn)return bn;const svc=gsvc(l),L=gLines(sc,l,svc),open=L.filter(x=>!SAID[x.k]&&!COV[x.sid]);if(!open.length)return{done:true};return open.find(x=>x.si>=gi)||open[0]}
 function sendPos(nl){const t=nl&&nl.t?nl.t:'';if(t===lastPos||!cws||cws.readyState!==1)return;lastPos=t;try{const sc=gScript(),s=nl&&sc?sc.steps[nl.si]:null;cws.send(JSON.stringify({type:'pos',next:t,step:s?s.n+' '+topicOf(gsvc(Q[ix]),s):''}))}catch(_){}}
 const TOPIC={tint:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle',s07:'Windows',s08:'Current tint',s09:'Main goal',s10:'Darkness',s11:'Other shops',s12:'Recap',s13:'Process',s14:'Questions',s15:'Why us',s16:'Questions',s17:'Timing',s18:'Price',s19:'Book the day',s20:'Contact info',s21:'Deposit',s22:'Referral',s23:'Wrap up'},
  coating:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle & color',s07:'Paint condition',s08:'What they know',s09:'Storage & washing',s10:'How long keeping',s11:'Past coatings',s12:'Recap',s13:'The prep',s14:'Questions',s15:'The coating',s16:'Questions',s17:'Free add ons',s18:'Timing',s19:'Price',s20:'Book the day',s21:'Contact info',s22:'Deposit',s23:'Wrap up'}};
 let COV={},gOpenPh='',SAID={},LH={},lastPos='',lastSaid=null,priceAt=0,depAsked=false,sigAt=0;
 const topicOf=(svc,s)=>(TOPIC[svc]&&TOPIC[svc][s.id])||s.tag||s.id;
-function gCov(m){m=m||COV;const l=Q[ix],svc=gsvc(l),F=FACTS;if(!svc)return;if(vehOf(l))m.s06=1;
+function gCov(m){m=m||COV;const l=Q[ix],svc=gsvc(l),F=FACTS;if(!svc)return; // the vehicle step is never skipped because the CRM already has the car: it is the confirmation line, so it must be said
   if(svc==='tint'){if(F.windows)m.s07=1;if(F.goals.length)m.s09=1;if(F.shade)m.s10=1;if(F.time)m.s17=1}
   else{if(F.goals.length)m.s07=1;if(F.time)m.s18=1}}
 function gSugIdx(sc){return sc.steps.findIndex(s=>s.n&&!COV[s.id])}
@@ -4333,7 +4330,7 @@ function coachStop(){if(cws){try{cws.close()}catch(_){}cws=null}}
 let coachAiOn=false,lastAns={};
 const INTENTS=[
  {id:'what',rx:/(what('s| is| does)? (a |an |the )?(ceramic )?(coating|tint)|how does (it|that|this) work|what (does|do) (it|that|they) do|explain (it|that|this)|tell me (more )?about|what exactly)/,tint:{steps:['s15','s13']},coating:{steps:['s15','s13']}},
- {id:'scratch',rx:/(scratch|swirl|chip|dings?|dent|scuff)/,coating:{plays:['a-scratch'],steps:['s13']}},
+ {id:'scratch',rx:/(deep(er)? (scratch|scrape|gouge)|gouge|scratch.?proof|scratch.?resist|(stop|stops|prevent|prevents|protect (from|against)|protects (from|against))[^.?!]{0,25}scratch)/,coating:{plays:['a-scratch'],steps:['s13']}}, // the "not scratch proof" answer is only for deep scratches or asking if it stops scratches: a lead who just says they have swirl marks is answering discovery
  {id:'price',rx:/(how much|what('s| is) the (price|cost)|\\bprice\\b|\\bcost\\b|quote|ballpark)/,tint:{plays:['a-price']},coating:{plays:['a-price']}},
  {id:'time',rx:/(how long (does|will|would|is) (it|that|the)|how many hours|take all day|how much time)/,tint:{steps:['s13']},coating:{steps:['s20']}},
  {id:'warranty',rx:/(warrant|guarantee|how long (does|will) (it|that) last|lifetime)/,tint:{steps:['s15']},coating:{steps:['s15']}},
@@ -4352,7 +4349,7 @@ function openDisc(sc){return sc.steps.map((st,i)=>({st,i})).filter(o=>o.st.phase
 function nextStep(sc){let i=sc.steps.findIndex((st,k)=>k>gi&&st.n&&!COV[st.id]);if(i<0)i=sc.steps.findIndex(st=>st.n&&!COV[st.id]);return i}
 function nextAsk(sc,l,svc){const od=openDisc(sc),i=od.length?od[0].i:nextStep(sc),s=sc.steps[i];if(!s)return null;const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps.find(x=>x.t);return p?{t:gplain(p.t,l,svc),id:s.id}:null}
 const isQ=t=>/\\?|^\\s*(what|how|why|where|when|who|do|does|did|can|could|is|are|will|would)\\b/i.test(String(t||''));
-function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;if(!coachAiOn&&isQ(text))markRedo();const svc=gsvc(l),t=String(text||'').toLowerCase();
+function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;brPick(text);if(!coachAiOn&&isQ(text))markRedo();const svc=gsvc(l),t=String(text||'').toLowerCase();
   const fresh=id=>{const n=Date.now();if(lastAns[id]&&n-lastAns[id]<20000)return false;lastAns[id]=n;return true};
   // pushback first, then questions
   for(const [id,rx] of OBJ2){if(rx.test(t)){const pid=sc.plays.some(p=>p.id===id)?id:(id==='p-expensive'&&sc.plays.some(p=>p.id==='p-shop')?'p-shop':'');if(!pid||!fresh(pid))continue;
@@ -4382,10 +4379,10 @@ function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   let h='<div class="bar">'+pill+(q?'<span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span>':'')+'</div>';
   if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
   h+='<p class="say">'+$(a.say||'')+'</p>';
-  if(a.ask&&!sameQ(a.ask,lastNext))h+='<div class="aca"><div><span>ASK</span><p class="ask">'+$(a.ask)+'</p></div></div>';
+  if(a.ask)h+='<div class="aca"><div><span>ASK</span><p class="ask">'+$(a.ask)+'</p></div></div>';
   const more=(a.lines&&a.lines.length?'<div class="alines">'+a.lines.map(x=>'<div>'+(x.h?'<b>'+$(x.h)+'</b>':'')+$(x.t)+'</div>').join('')+'</div>':'')+((a.ack||a.comment)&&a.src==='ai'?'<div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(a.ack||'')+'</p></div><div><span>COMMENT</span><p>'+$(a.comment||'')+'</p></div></div>':'');
   if(more)h+='<details class="more" data-k="m"'+(a.openM?' open':'')+'><summary>More wording</summary>'+more+'</details>';
-  if(ai)h+='<details class="more tai" data-k="a"'+(a.openA?' open':'')+'><summary>AI version for this lead</summary><p class="say sm">'+$(ai.say||'')+'</p>'+(ai.ask?'<p class="ask sm">&rarr; '+$(ai.ask)+'</p>':'')+(ai.needs_eyes?'<div class="warnb">Not in your script. Confirm before you state it.</div>':'')+'</details>';
+  if(ai)h+='<details class="more tai" data-k="a"'+(a.openA===false?'':' open')+'><summary>AI version for this lead</summary><p class="say sm">'+$(ai.say||'')+'</p>'+(ai.ask?'<p class="ask sm">&rarr; '+$(ai.ask)+'</p>':'')+(ai.needs_eyes?'<div class="warnb">Not in your script. Confirm before you state it.</div>':'')+'</details>';
   h+='<div class="bar">'+(a.anchor?'<button type="button" class="btn sm" data-open="'+$(anchorId(a.anchor))+'">Open in script</button>':'')+'<button type="button" class="btn sm" data-x="1">Dismiss</button></div>';
   return h}
 function drawAns(){const box=el('cards');if(!box)return;clearTimeout(detTm);if(curAns)detTm=setTimeout(gNext,40500);
@@ -4394,7 +4391,7 @@ function drawAns(){const box=el('cards');if(!box)return;clearTimeout(detTm);if(c
   box.innerHTML=(curAns?'<div class="card2 ans'+(curAns.src==='ai'?'':' det')+(curAns.used?' used':'')+'">'+ansHtml(curAns)+'</div>':'')
    +'';gNext()}
 el('cards').addEventListener('toggle',e=>{const d=e.target;if(!curAns||!d||!d.dataset)return;if(d.dataset.k==='m')curAns.openM=d.open;if(d.dataset.k==='a')curAns.openA=d.open},true);
-el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.said){const nl=gNextLine();if(nl&&!nl.done){const sc=gScript(),L=gLines(sc,Q[ix],gsvc(Q[ix]));SAID[nl.k]=1;if(L.filter(x=>x.si===nl.si).every(x=>SAID[x.k]))COV[nl.sid]=1;gi=nl.si;gMark(false)}return}
+el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.said){const nl=gNextLine();if(nl&&nl.branch){const bb=BR[nl.sid];if(bb)for(let q=0;q<=nl.bi;q++)bb.said[q]=1;gMark(false);return}if(nl&&!nl.done){const sc=gScript(),L=gLines(sc,Q[ix],gsvc(Q[ix]));SAID[nl.k]=1;if(L.filter(x=>x.si===nl.si).every(x=>SAID[x.k]))COV[nl.sid]=1;gi=nl.si;gMark(false)}return}
   if(b.dataset.skip){COV[b.dataset.skip]=1;gMark(false);return}
   if(b.dataset.x){curAns=null;pend=null;drawAns();return}
   if(b.dataset.h){const h=ansHist.splice(Number(b.dataset.h),1)[0];if(h){if(curAns)ansHist.unshift(curAns);curAns=h;curAns.t=Date.now()-DWELL;drawAns()}return}
@@ -4404,7 +4401,7 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
   const svc=gsvc(l),nl=gNextLine(),det=!!(curAns&&!curAns.used&&Date.now()-curAns.t<40000),od=openDisc(sc);let h='';
   if(nl&&nl.done)h='<span class="gl">Script complete</span><span class="gq big">Before you hang up: deposit taken and a date set? If not, offer the payment link and a specific day. If they need a callback, set an exact day and time.</span>';
   else if(nl){const s=sc.steps[nl.si],cond=[].concat.apply([],(s.main||[]).map(n=>(n.ps||[]).filter(p=>p.t&&!p.note&&/^if\\b/i.test(p.sub||'')).map(p=>({sub:p.sub,t:gplain(p.t,l,svc)})))),nt=[].concat.apply([],(s.main||[]).map(n=>(n.ps||[]).filter(p=>p.note).map(p=>gplain(p.note,l,svc))))[0];lastNext=nl.t;
-    h='<span class="gl">'+(det?'Then back to the script':'Say this next')+'</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b><span class="gq big">'+$(nl.t)+'</span>'+(nt&&!det?'<span class="gtip"><b>Coach</b> '+$(nt)+'</span>':'')+(!det?cond.map(c=>'<span class="gtip"><b>'+$(c.sub)+'</b> '+$(c.t)+'</span>').join(''):'')
+    h='<span class="gl">'+(nl.branch?'Their answer: '+$(nl.sub):det?'Then back to the script':'Say this next')+'</span><b>'+$(s.n)+' &middot; '+$(topicOf(svc,s))+'</b><span class="gq big">'+$(nl.t)+'</span>'+(nt&&!det?'<span class="gtip"><b>Coach</b> '+$(nt)+'</span>':'')+(!det?cond.map(c=>'<span class="gtip"><b>'+$(c.sub)+'</b> '+$(c.t)+'</span>').join(''):'')
      +'<span class="gb"><button type="button" class="btn sm g" data-said="1">Said it</button><button type="button" class="btn sm" data-skip="'+$(s.id)+'">Skip step</button><button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button></span>'}
   if(od.length&&!det)h+='<div class="gts"><span class="gl">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('')+'</div>';
   box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
@@ -4634,7 +4631,11 @@ Ground rules:
 - After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
 - The transcript is live speech-to-text over a phone line and contains mistakes: similar-sounding words (tint heard as tent, coating as coding, XPEL as expel), wrong car names, garbled numbers. Work out what the lead most likely meant from the car-detailing context. If a word that matters (a price, a date, a car, which service) is unclear, or the line is marked unclear audio, make "say" a short clarifying question ("Sorry, did you say the sides and the back?") instead of guessing.
-- Stay out of the way. If the lead just answered the rep's last question, gave the information the script was asking for, or made small talk ("yeah", "ok", "good, you?"), return {"answer": false}: the script already covers it. Step in only for a question the script does not directly ask, an objection or worry, new information that changes the plan, an unusual request, or a buying signal.
+- When the lead says they do not know about the product ("I don't know anything", "not really", "no idea", "never heard of it", "what is that"), always step in: this is not a normal answer. "say" is a warm one-breath reassurance plus a plain-English explanation of the product in at most two short sentences (what it is and the main benefit: protection, gloss, easier washing for a coating; heat, privacy, UV for tint), using only wording and facts from the SCRIPT, OFFER or SHOP FACTS, with no numbers or claims that are not there. "ask" is then the NEXT SCRIPT LINE so the call keeps moving. Set "answered" true.
+- Your answer is the main thing the rep reads, so step in on ANYTHING that does not simply move the call forward: any question (even one the script covers), confusion or a request to repeat ("hello?", "what?", "wait, what is that?"), "I don't know", an objection or worry, a comparison, an off-topic remark or story, a joke, a complaint, new information that changes the plan, an unusual request, or a buying signal. When unsure, answer. Return {"answer": false} only when the lead plainly gave the information the rep just asked for, or said a bare "yeah", "ok", "good, you?".
+- Always follow the shop's A.C.A. method in every answer: ACKNOWLEDGE what the lead said in a few words ("Yeah, black shows them the most"), COMMENT with one short remark from the script that fits what they actually said, then ASK one question. The acknowledge and comment go in "say", the question goes in "ask". Never skip the acknowledgment, never stack two questions, never fire questions back to back.
+- A lead saying they have swirl marks, light scratches, dull spots or chips is a normal discovery answer: acknowledge it, comment briefly (for example that coating plus correction brings the gloss back), and ask the next question. Use the "not scratch proof" explanation only when the lead mentions deep scratches or asks whether the coating stops or prevents scratches.
+- Every answer has the same shape: first a short natural reply to exactly what the lead said, then "ask": the next question from the script that fits where the call really is. The NEXT SCRIPT LINE you are given is only a hint of where the rep is and can be wrong: read the transcript, never repeat a question the lead already answered, and pick the right next question yourself.
 - When REAL ANSWERS from past calls are given, they show how this shop's best closers handled the same moment. Use their approach and tone in your own words. Never copy prices, names or claims from them: {amount} and {shop} are blanks, and the OFFER always wins.
 - After you handle it, "ask" is the NEXT SCRIPT LINE given to you, word for word (or the closest natural bridge into it), so the call returns to the script.
 - Closing tactics that won on hundreds of real calls: (1) state the deposit as coming off the total and give the out-the-door number, then ask "debit or credit?" instead of "if that's okay" or "does that sound good?"; (2) offer both ways to pay in one breath: card over the phone, or a secure link they can Apple Pay; (3) if payment hits a snag, stay on the line ("I'll wait") instead of letting them go; (4) after any "okay", "sounds good" or a named date, stop pitching, lock the date and take the deposit; (5) never accept "call us when you're ready": hold the slot with the deposit link or set an exact time; (6) when the quote is higher than the ad, explain the scope first (vehicle size, extra windows, removal) and then give the number; (7) give a reason or a trade for a lower price (drop an add-on, a lever the OFFER allows), never an unprompted or stacked discount; (8) when a spouse, partner or parent has to approve, ask what questions they would have, answer them now, and hold the date with the refundable deposit; (9) never mention quotas, being desperate, or "that's just our policy"; (10) never improvise legal limits, windshield rules or film numbers: use only the SHOP FACTS, otherwise say the installer will confirm.
@@ -4935,7 +4936,8 @@ export class CallRoom {
   }
   async askCoach() {
     const said = this.leadBuf.join(" ").trim(); this.leadBuf = []; const low = this.leadLow; this.leadLow = false;
-    if (this.ended || said.split(/\s+/).length < 3 || /^(yeah|yes|ok|okay|uh huh|mm+|sure|right|no|nope|thanks|thank you)[.!, ]*$/i.test(said)) return;
+    // only bare acknowledgments are ignored: any question, confusion ("hello?", "what?"), worry, objection or off-topic remark gets an answer
+    if (this.ended || !said || /^(yeah|yes|ok|okay|uh huh|mm+|sure|right|no|nope|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh)[.!, ]*$/i.test(said) || (said.split(/\s+/).length < 3 && !/[?]|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b/i.test(said))) return;
     if (this.coachBusy) { this.coachNext = said; return; }
     this.coachBusy = true;
     const t0 = Date.now();
