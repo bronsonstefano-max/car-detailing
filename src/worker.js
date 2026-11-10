@@ -2009,7 +2009,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-cont
 h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}.navtabs a.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
 .app{flex:1;min-height:0;display:grid;grid-template-columns:330px 1fr}
 .list{border-right:1px solid #1b1f25;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
-.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
+.fl{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid #1b1f25;flex-wrap:wrap}.fl select{flex:1 1 90px;min-width:0;background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:9px;padding:7px 8px;font:inherit;font-size:13px;color-scheme:dark}.sr{padding:10px;border-bottom:1px solid #1b1f25;display:flex;gap:8px}.sr input{flex:1;min-width:0;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
 .th{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #151a21;color:inherit;font:inherit;padding:12px 14px;cursor:pointer}.th.on{background:#10151b}
 .th b{display:flex;justify-content:space-between;gap:8px}.th small{color:#7c838d;font-weight:400;white-space:nowrap}.th p{margin:3px 0 0;color:#98a0aa;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .un{background:#32cd32;color:#04120a;border-radius:999px;font-size:11px;font-weight:800;padding:1px 7px;margin-left:6px}
@@ -2030,7 +2030,7 @@ ${BNAV_CSS}
 </style></head><body>
 <header><h1>Divine Detailers <b>messages</b></h1>${nav("messages", tc, owner)}</header>
 ${bnav("messages", tc, owner)}
-<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div id="tl"></div></div>
+<div class="app" id="app"><div class="list"><div class="sr"><input id="q" placeholder="Search a lead to text" autocomplete="off"></div><div class="fl" id="fl"></div><div id="tl"></div></div>
 <div class="pane" id="pane"><div class="empty" id="ph0">Pick a conversation, or search for a lead to start one.</div></div></div>
 <script>
 const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2038,8 +2038,18 @@ const app=document.getElementById('app'),tl=document.getElementById('tl'),pane=d
 let cur=null,on=true,busy=false,lastSig='';
 function ago(iso){const d=new Date(iso),n=Date.now(),s=Math.max(0,(n-d)/1000);if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
 function nm(l){return l.name||l.phone||'Lead'}
-async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;
-  tl.innerHTML=j.threads.length?j.threads.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">No texts yet. Search for a lead above to start one.</div>'}catch(_){}}
+let TH=[],FL={sort:'recent',show:'all',svc:'all'};try{Object.assign(FL,JSON.parse(localStorage.getItem('mf')||'{}'))}catch(_){}
+const svcOf=t=>/tint/i.test(t.service||'')?'Window Tint':/coat/i.test(t.service||'')?'Ceramic Coating':(t.service||'Other');
+function drawFl(){const sv=[...new Set(TH.map(svcOf))].sort();const opt=(v,l,c)=>'<option value="'+$(v)+'"'+(c===v?' selected':'')+'>'+$(l)+'</option>';
+  document.getElementById('fl').innerHTML='<select data-k="sort" aria-label="Sort">'+[['recent','Newest first'],['oldest','Oldest first'],['unread','Unread first'],['name','Name A-Z']].map(x=>opt(x[0],x[1],FL.sort)).join('')+'</select><select data-k="show" aria-label="Show">'+[['all','All texts'],['unread','Unread'],['read','Read'],['theirs','They texted last'],['mine','I texted last']].map(x=>opt(x[0],x[1],FL.show)).join('')+'</select><select data-k="svc" aria-label="Service">'+opt('all','All services',FL.svc)+sv.map(x=>opt(x,x,FL.svc)).join('')+'</select>'}
+function drawList(){let a=TH.slice();
+  if(FL.show==='unread')a=a.filter(t=>t.unread>0);else if(FL.show==='read')a=a.filter(t=>!t.unread);else if(FL.show==='theirs')a=a.filter(t=>t.last_dir==='in');else if(FL.show==='mine')a=a.filter(t=>t.last_dir==='out');
+  if(FL.svc!=='all')a=a.filter(t=>svcOf(t)===FL.svc);
+  const T=t=>new Date(t.last_at).getTime()||0;
+  if(FL.sort==='oldest')a.sort((x,y)=>T(x)-T(y));else if(FL.sort==='unread')a.sort((x,y)=>(y.unread>0)-(x.unread>0)||T(y)-T(x));else if(FL.sort==='name')a.sort((x,y)=>nm(x).localeCompare(nm(y)));else a.sort((x,y)=>T(y)-T(x));
+  tl.innerHTML=a.length?a.map(t=>'<button class="th'+(cur&&cur.id===t.id?' on':'')+'" data-id="'+t.id+'"><b><span>'+$(nm(t))+(t.unread?'<span class="un">'+t.unread+'</span>':'')+'</span><small>'+ago(t.last_at)+'</small></b><p>'+(t.last_dir==='out'?'You: ':'')+$(t.last_body)+'</p></button>').join(''):'<div class="empty">'+(TH.length?'No conversations match these filters.':'No texts yet. Search for a lead above to start one.')+'</div>'}
+document.getElementById('fl').addEventListener('change',e=>{const k=e.target.dataset.k;if(!k)return;FL[k]=e.target.value;try{localStorage.setItem('mf',JSON.stringify(FL))}catch(_){}drawList()});
+async function loadList(){try{const r=await fetch('/admin/threads');if(!r.ok)return;const j=await r.json();on=j.on;TH=j.threads;if(!document.getElementById('fl').children.length||document.activeElement.closest&&!document.activeElement.closest('#fl'))drawFl();drawList()}catch(_){}}
 async function open(id,keep){try{const r=await fetch('/admin/thread?id='+id);if(!r.ok)return;const j=await r.json();const sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id+j.messages[j.messages.length-1].status:'')+j.optout;
   if(keep&&cur&&cur.id===id&&sig===lastSig)return;lastSig=sig;cur=j.lead;on=j.on;
   const box=pane.querySelector('.msgs'),atEnd=!box||box.scrollHeight-box.scrollTop-box.clientHeight<80;const draft=pane.querySelector('textarea')?pane.querySelector('textarea').value:'';
