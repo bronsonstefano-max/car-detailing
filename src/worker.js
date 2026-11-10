@@ -1381,11 +1381,11 @@ var y0=null;document.addEventListener('touchstart',function(e){y0=null;if(window
 document.addEventListener('touchmove',function(e){if(y0==null)return;if(e.touches[0].clientY-y0>120&&window.scrollY<=0){y0=null;go()}},{passive:true});
 document.addEventListener('touchend',function(){y0=null},{passive:true});})();</script>`;
 function nav(on, n = 0, owner = false) {
-  const ins = on === "insights" || on === "speed" || on === "rate" || on === "msgstats", t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
-  return `<nav class="navtabs">${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Insights</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
+  const ins = ["insights", "speed", "rate", "msgstats", "dials", "meta"].includes(on), t = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${label}${extra}</a>`;
+  return `<nav class="navtabs">${t("/admin/today", "today", "Today", badge(n))}${t("/admin", "leads", "Leads")}${t("/admin/pipeline", "pipeline", "Pipeline")}${t("/admin/messages", "messages", "Messages", '<i class="nb unr" hidden></i>')}${owner ? `${t("/admin/dialer", "dialer", "Dial")}${t("/admin/calendar", "calendar", "Calendar")}${t("/admin/automations", "automations", "Automations")}<a href="/admin/insights" class="${ins ? "on" : ""}">Reports</a>` : ""}<a href="/logout" class="so">Sign out</a></nav><script>if(window.top!==window.self){document.documentElement.classList.add("emb");document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest('a[href^="/admin/dialer"]');if(a){e.preventDefault();parent.postMessage({ddgo:a.getAttribute("href")},location.origin)}},true)}</script>${PUSH_NAV}`;
 }
 // one Insights section: overview, speed to lead and contact rate share this tab bar
-const insightTabs = on => `<div class="itabs"><a href="/admin/insights" class="${on === "insights" ? "on" : ""}">Overview</a><a href="/admin/speed" class="${on === "speed" ? "on" : ""}">Speed to lead</a><a href="/admin/rate" class="${on === "rate" ? "on" : ""}">Contact rate</a><a href="/admin/msgstats" class="${on === "msgstats" ? "on" : ""}">Messages</a><a href="/admin/ads" class="${on === "ads" ? "on" : ""}">Google Ads upload</a></div>`;
+const insightTabs = on => `<div class="itabs">${[["insights", "/admin/insights", "Overview"], ["meta", "/admin/meta", "Meta Ads"], ["dials", "/admin/dials", "Dials"], ["speed", "/admin/speed", "Speed to lead"], ["rate", "/admin/rate", "Contact rate"], ["msgstats", "/admin/msgstats", "Messages"], ["ads", "/admin/ads", "Google Ads upload"]].map(([k, h, l]) => `<a href="${h}" class="${on === k ? "on" : ""}">${l}</a>`).join("")}</div>`;
 // phone: thumb-reach tab bar fixed to the bottom of the screen
 function bnav(on, n = 0, owner = false) {
   const ic = {
@@ -1403,10 +1403,10 @@ function bnav(on, n = 0, owner = false) {
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
   };
   const tab = (href, key, label, extra = "") => `<a href="${href}" class="${on === key ? "on" : ""}">${ic[key]}${label}${extra}</a>`;
-  const moreKeys = ["speed", "rate", "msgstats", "insights", "calendar", "automations", "dialer"];
+  const moreKeys = ["speed", "rate", "msgstats", "dials", "meta", "insights", "calendar", "automations", "dialer"];
   const row = (href, key, label, svg) => `<a href="${href}" class="${on === key ? "on" : ""}">${svg}${label}</a>`;
   return `<nav class="bnav" aria-label="Sections">${tab("/admin/today", "today", "Today", badge(n))}${tab("/admin", "leads", "Leads")}${tab("/admin/pipeline", "pipeline", "Pipeline")}<a href="/admin/messages" class="${on === "messages" ? "on" : ""}">${ic.texts}Texts<i class="nb unr" hidden></i></a>${owner ? `<button type="button" id="morebtn" class="${moreKeys.includes(on) ? "on" : ""}">${ic.more}More</button>` : ""}</nav>
-${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Insights", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
+${owner ? `<div class="msheet" id="msheet"><div class="bd"></div><div class="sh"><div class="grab"></div>${row("/admin/dialer", "dialer", "Dial", ic.phone)}${row("/admin/calendar", "calendar", "Calendar", ic.calendar)}${row("/admin/automations", "automations", "Automations", ic.bolt)}${row("/admin/insights", "insights", "Reports", ic.insights)}${row("/logout", "out", "Sign out", ic.out)}</div></div>` : ""}
 <script>(function(){var els=document.querySelectorAll('.unr');function go(){fetch('/admin/unread').then(function(r){return r.ok?r.json():null}).then(function(j){if(!j)return;els.forEach(function(e){e.textContent=j.n>99?'99+':j.n;e.hidden=!j.n})}).catch(function(){})}go();setInterval(function(){if(!document.hidden)go()},30000);
 var m=document.getElementById('msheet'),b=document.getElementById('morebtn');if(m&&b){b.onclick=function(){m.classList.add('open')};m.querySelector('.bd').onclick=function(){m.classList.remove('open')}}})();</script>`;
 }
@@ -1426,7 +1426,7 @@ const BNAV_CSS = `/* Divine Detailers design system: dark tokens shared by every
 html{scrollbar-color:#2a323b #0a0d11;scrollbar-width:thin}::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#242c35;border-radius:8px;border:2px solid #0a0d11}::-webkit-scrollbar-track{background:transparent}
 :focus-visible{outline:2px solid #32cd32;outline-offset:2px}::selection{background:#1f6a37;color:#fff}button,a{-webkit-tap-highlight-color:transparent}select,input,textarea{color-scheme:dark}
 header{border-bottom-color:var(--line)!important}
-article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0}.itabs a{color:#9aa1ab;text-decoration:none;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid #232932;background:#0d1116}.itabs a.on{background:#112417;border-color:#1f6a37;color:#32cd32}@media(max-width:700px){.itabs{padding:10px 14px 0}}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
+article.lead[hidden]{display:none!important}.bnav,.msheet{display:none}.itabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0;max-width:1100px;margin:0 auto}.itabs a{color:#9aa1ab;text-decoration:none;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid #232932;background:#0d1116}.itabs a.on{background:#112417;border-color:#1f6a37;color:#32cd32}@media(max-width:700px){.itabs{padding:10px 14px 0}}.nb{font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px}.nb[hidden]{display:none}.navtabs a.on .nb{background:#04120a;color:#32cd32}
 @media(min-width:1024px){
   body{padding-left:228px}
   .navtabs{position:fixed;left:0;top:0;bottom:0;width:228px;z-index:25;display:flex!important;flex-direction:column;flex-wrap:nowrap!important;gap:2px!important;padding:74px 12px 16px;background:#090c10;border-right:1px solid #1d2229;overflow-y:auto}
@@ -2304,6 +2304,200 @@ const iso=d=>d.toLocaleDateString('en-CA',{timeZone:'America/New_York'});
 function preset(n){const t=new Date();T.value=iso(t);F.value=iso(new Date(t.getTime()-(n-1)*864e5));document.querySelectorAll('.rb button').forEach(b=>b.classList.toggle('on',+b.dataset.d===n));load()}
 document.querySelectorAll('.rb button').forEach(b=>b.onclick=()=>preset(+b.dataset.d));[F,T].forEach(i=>i.onchange=()=>{document.querySelectorAll('.rb button').forEach(b=>b.classList.remove('on'));load()});
 preset(30);setInterval(()=>{if(!document.hidden)load()},120000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// shared look and helpers for the report pages (cards, KPI blocks, SVG charts)
+const RPT_CSS = `main{max-width:1100px;margin:0 auto;padding:16px 22px 50px;display:flex;flex-direction:column;gap:18px}
+.rb{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rb input[type=date],.rb select,.rb input[type=number]{background:#10141a;border:1px solid #232932;color:#fff;border-radius:10px;padding:9px 10px;font:inherit;min-height:42px}.rb button{background:#10141a;border:1px solid #232932;color:#cfd3d9;border-radius:999px;padding:9px 14px;cursor:pointer;font:inherit;min-height:42px}.rb button.on{background:#32cd32;border-color:#32cd32;color:#04120a;font-weight:700}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.card{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}.card h3{margin:0;font-size:13px;letter-spacing:.9px;text-transform:uppercase;color:#aab0b9;display:flex;align-items:center;gap:8px}
+.kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}.k small{display:block;color:#8a939e;font-size:12.5px;margin-bottom:4px}.k b{display:block;font-size:30px;line-height:1.1;letter-spacing:-.5px}.k b i{font-style:normal;font-size:14px;color:#8a939e;font-weight:600;margin-left:4px}
+.dl{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 6px;margin-top:6px}.dl.up{background:#0f2c18;color:#4fdc5a}.dl.dn{background:#2c1414;color:#ff8a8a}.dl.fl{background:#1a2027;color:#8a939e}.dls{color:#6f7782;font-size:12px;margin-left:6px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;margin:8px 0 0}h2 small{text-transform:none;letter-spacing:0;color:#7c838d;font-weight:400;font-size:12.5px;margin-left:6px}
+.ch{background:#0d1116;border:1px solid #1d2229;border-radius:16px;padding:14px 16px}.ch svg{width:100%;height:auto;display:block}
+.tbw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:#7c838d;text-align:left;padding:8px 10px;border-bottom:1px solid #1d2229;white-space:nowrap}td{padding:10px;border-bottom:1px solid #141a20}td a{color:#8ec0ff;text-decoration:none}
+.note{color:#7c838d;font-size:12.5px}.empty{color:#7c838d;padding:16px 0;text-align:center}.warn{color:#ffb86b}.good{color:#4fdc5a}
+.hb div{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:6px 0}.hb i{display:block;height:10px;border-radius:6px;background:#32cd32}
+@media(max-width:700px){main{padding:8px 14px 24px}.k b{font-size:26px}}`;
+const RPT_JS = `const $=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=(a,b)=>b?Math.round(1000*a/b)/10:0,fmt=n=>n>=10000?(n/1000).toFixed(1).replace(/\\.0$/,'')+'K':Number(n).toLocaleString('en-US'),money=n=>'$'+Math.round(n||0).toLocaleString('en-US'),m2=n=>'$'+(n>=100?Math.round(n).toLocaleString('en-US'):n.toFixed(2));
+const dur=s=>{if(s==null)return '-';if(s<60)return s+' sec';const m=Math.round(s/60);if(m<60)return m+' min';const h=Math.floor(m/60);if(h<48)return h+' h '+(m%60)+' min';return Math.round(h/24)+' days'};
+const iso=d=>d.toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+function delta(c,p,inv){if(!p&&!c)return '<span class="dl fl">0%</span>';if(!p)return '<span class="dl fl">new</span>';const d=Math.round(100*(c-p)/p);if(!d)return '<span class="dl fl">0%</span>';const good=inv?d<0:d>0;return '<span class="dl '+(good?'up':'dn')+'">'+(d>0?'&#9650; ':'&#9660; ')+Math.abs(d)+'%</span>'}
+const kp=(l,v,sub,dl)=>'<div class="k"><small>'+l+'</small><b>'+v+(sub?'<i>'+sub+'</i>':'')+'</b>'+(dl?dl+'<span class="dls">vs previous</span>':'')+'</div>';
+function chart(id,days,series,opt){const W=900,H=230,L=40,B=26,Tp=12,n=days.length,bw=(W-L-10)/n,mx=Math.max(opt.min||1,...days.map((d,i)=>Math.max(...series.map(s=>s.v[i]))));const y=v=>Tp+(H-B-Tp)*(1-v/mx);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';for(let k=0;k<=4;k++){const v=mx*k/4;s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="#1b2128"/><text x="'+(L-6)+'" y="'+(y(v)+4)+'" fill="#6f7782" font-size="11" text-anchor="end">'+(opt.unit==='%'?Math.round(v)+'%':Math.round(v))+'</text>'}
+  const sw=bw/(series.length)*0.78;days.forEach((d,i)=>{series.forEach((se,j)=>{const v=se.v[i],x=L+i*bw+(bw-sw*series.length)/2+j*sw,col=se.hot&&se.hot(v)?'#ff7a7a':se.c;s+='<rect x="'+x+'" y="'+y(v)+'" width="'+Math.max(1,sw-1)+'" height="'+Math.max(0,(H-B)-y(v))+'" rx="2" fill="'+col+'"><title>'+d+': '+(opt.unit==='%'?v+'%':v)+' '+se.n+'</title></rect>'});if(n<=14||i%Math.ceil(n/12)===0)s+='<text x="'+(L+i*bw+bw/2)+'" y="'+(H-8)+'" fill="#6f7782" font-size="11" text-anchor="middle">'+(String(d).length>8?String(d).slice(5):d)+'</text>'});
+  if(opt.line!=null)s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y(opt.line)+'" y2="'+y(opt.line)+'" stroke="#ff5d5d" stroke-dasharray="6 5"/>';
+  if(opt.legend)s+=series.map((se,j)=>'<rect x="'+(L+j*110)+'" y="2" width="10" height="10" rx="2" fill="'+se.c+'"/><text x="'+(L+j*110+15)+'" y="11" fill="#aab0b9" font-size="11">'+se.n+'</text>').join('');
+  document.getElementById(id).innerHTML=s+'</svg>'}
+function rangeUI(load){const F=document.getElementById('f'),T=document.getElementById('t');window.RF=F;window.RT=T;
+  function preset(n){const t=new Date();T.value=iso(t);F.value=iso(new Date(t.getTime()-(n-1)*864e5));document.querySelectorAll('.rb button[data-d]').forEach(b=>b.classList.toggle('on',+b.dataset.d===n));load()}
+  document.querySelectorAll('.rb button[data-d]').forEach(b=>b.onclick=()=>preset(+b.dataset.d));[F,T].forEach(i=>i.onchange=()=>{document.querySelectorAll('.rb button[data-d]').forEach(b=>b.classList.remove('on'));load()});preset(30)}`;
+
+// ---- Dials report (owner only): how many dials, how many connected, and how many dials it takes to book
+function rptRange(from, to) {
+  const okd = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+  to = okd(to) ? to : todayStr(); from = okd(from) ? from : addDays(to, -29); if (from > to) from = to;
+  let days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+  if (days > 366) { from = addDays(to, -365); days = 366; }
+  const pTo = addDays(from, -1), pFrom = addDays(pTo, -(days - 1));
+  return { from, to, days, pFrom, pTo };
+}
+async function dialsData(env, from, to) {
+  await ensureTable(env.DB);
+  const R = rptRange(from, to), { days } = R;
+  from = R.from; to = R.to;
+  const lo = addDays(R.pFrom, -1) + " 00:00:00", hi = addDays(to, 2) + " 00:00:00";
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const dials = await q("SELECT d.id, d.lead_id, d.duration, d.by_user, d.started_at FROM dial_calls d JOIN leads l ON l.id = d.lead_id WHERE d.started_at >= ? AND d.started_at < ? AND COALESCE(l.ip,'') != 'demo' ORDER BY d.started_at ASC, d.id ASC LIMIT 60000", lo, hi);
+  const logs = await q("SELECT lead_id, from_stage, to_stage, reason, by_user, at FROM stage_log WHERE at >= ? AND at < ? AND (reason LIKE 'Call result:%' OR to_stage = 'booked') ORDER BY at ASC, id ASC LIMIT 60000", lo, hi);
+  const ms = s => Date.parse(String(s).replace(" ", "T") + "Z");
+  const ed = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }), eh = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+  const minS = contactMinSecs(env), byLead = new Map();
+  for (const d of dials) { d.t = ms(d.started_at); d.d = ed.format(new Date(d.t)); d.h = Number(eh.format(new Date(d.t))); d.out = ""; if (!byLead.has(d.lead_id)) byLead.set(d.lead_id, []); byLead.get(d.lead_id).push(d); }
+  for (const g of logs) {
+    const m = /^call result: (.+)$/i.exec(g.reason || ""); if (!m) continue;
+    const arr = byLead.get(g.lead_id) || [], t = ms(g.at); let best = null;
+    for (const d of arr) if (d.t <= t + 60000 && t - d.t < 6 * 36e5) best = d;
+    if (best) best.out = m[1];
+  }
+  const REACH = new Set(["Answered", "Interested", "Callback", "Booked", "Deposit pending", "Quote sent", "Not interested"]), NO = new Set(["Left a voicemail", "Voicemail", "No answer", "Lead hung up", "Wrong number"]);
+  for (const d of dials) d.ok = d.out ? (REACH.has(d.out) ? true : NO.has(d.out) ? false : d.duration > minS) : d.duration > minS;
+  // bookings: the first time a lead reached Deposit collected
+  const seen = new Set(), closes = [];
+  for (const g of logs) { if (g.to_stage === "booked" && g.from_stage !== "booked" && !seen.has(g.lead_id)) { seen.add(g.lead_id); closes.push({ lead: g.lead_id, d: ed.format(new Date(ms(g.at))), t: ms(g.at), by: g.by_user || "" }); } }
+  const before = closes.length ? await q(`SELECT lead_id, started_at FROM dial_calls WHERE lead_id IN (${closes.map(() => "?").join(",")})`, ...closes.map(c => c.lead)) : [];
+  for (const c of closes) c.n = before.filter(b => b.lead_id === c.lead && ms(b.started_at) <= c.t + 60000).length;
+  const agg = (f, t) => {
+    const ds = dials.filter(x => x.d >= f && x.d <= t), cs = closes.filter(x => x.d >= f && x.d <= t);
+    const perDay = {}; for (let i = 0; i < days; i++) perDay[addDays(f, i)] = { dials: 0, reached: 0, closes: 0 };
+    ds.forEach(x => { const p = perDay[x.d]; if (p) { p.dials++; if (x.ok) p.reached++; } }); cs.forEach(x => { const p = perDay[x.d]; if (p) p.closes++; });
+    const hr = Array.from({ length: 24 }, () => ({ dials: 0, reached: 0 })); ds.forEach(x => { hr[x.h].dials++; if (x.ok) hr[x.h].reached++; });
+    const out = {}; ds.forEach(x => { const k = x.out || (x.ok ? "Connected (no result picked)" : (x.duration ? "Short call (no result picked)" : "Not connected")); out[k] = (out[k] || 0) + 1; });
+    const who = {}; const W = k => (who[k] = who[k] || { dials: 0, reached: 0, talk: 0, closes: 0 });
+    ds.forEach(x => { const w = W(x.by_user || "Not recorded"); w.dials++; if (x.ok) { w.reached++; w.talk += x.duration || 0; } }); cs.forEach(x => { W(x.by || "Not recorded").closes++; });
+    const leads = new Set(ds.map(x => x.lead_id)); let firstReach = [], neverReached = 0;
+    for (const id of leads) { const arr = ds.filter(x => x.lead_id === id), i = arr.findIndex(x => x.ok); if (i >= 0) firstReach.push(i + 1); else neverReached++; }
+    return { dials: ds.length, reached: ds.filter(x => x.ok).length, talk: ds.filter(x => x.ok).reduce((a, x) => a + (x.duration || 0), 0), closes: cs.length, leads: leads.size, perDay, hr, out, who,
+      neverReached, avgToReach: firstReach.length ? Math.round(10 * firstReach.reduce((a, b) => a + b, 0) / firstReach.length) / 10 : null,
+      dist: [0, 1, 2, 3, 4, 5].map(n => cs.filter(x => n === 5 ? x.n >= 5 : x.n === n).length) };
+  };
+  return { success: true, from, to, days, prevFrom: R.pFrom, prevTo: R.pTo, cur: agg(from, to), prev: agg(R.pFrom, R.pTo), today: dials.filter(x => x.d === todayStr()).length };
+}
+async function dialsPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Dials | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+.gl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.gl input{width:90px}.pb{flex:1;min-width:140px;height:10px;border-radius:6px;background:#161c23;overflow:hidden}.pb i{display:block;height:100%;background:#32cd32}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>dials</b></h1>${nav("dials", tc, true)}</header>
+${bnav("dials", tc, true)}
+${insightTabs("dials")}
+<main>
+<div class="rb"><input type="date" id="f"><span class="note">to</span><input type="date" id="t"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+<p class="note" id="rn"></p>
+<div class="card"><h3>Today</h3><div class="gl"><div class="k"><b id="td">0</b><small>dials so far</small></div><div class="pb"><i id="tp" style="width:0"></i></div><label class="note">Daily goal <input type="number" id="gl" min="1" max="500" value="50" style="background:#10141a;border:1px solid #232932;color:#fff;border-radius:8px;padding:6px 8px;font:inherit"></label></div></div>
+<div class="g2"><div class="card"><h3>Dials</h3><div class="kp" id="a"></div></div><div class="card"><h3>Closing</h3><div class="kp" id="b"></div></div></div>
+<h2>Dials per day<small>green = someone picked up</small></h2><div class="ch" id="c1"></div>
+<div class="g2"><div><h2>Dials by hour<small>Eastern</small></h2><div class="ch" id="c2"></div></div><div><h2>Connect rate by hour<small>needs 5+ dials in the hour</small></h2><div class="ch" id="c3"></div></div></div>
+<div class="g2"><div><h2>How calls ended</h2><div class="card hb" id="oc"></div></div><div><h2>Dials before a booking</h2><div class="card"><div class="tbw"><table id="ds"></table></div></div></div></div>
+<h2>By person</h2><div class="card"><div class="tbw"><table id="bp"></table></div></div>
+<p class="note">A dial is one call placed from the Dial page. Connected means the result you picked after the call was a real conversation, or, when none was picked, the call lasted longer than 45 seconds. A booking is the first time a lead reaches Deposit collected, and it is credited to whoever moved it. Dials per booking is all dials in the range divided by bookings in the range.</p>
+</main>
+<script>
+${RPT_JS}
+function draw(d){const c=d.cur,p=d.prev;document.getElementById('rn').textContent=d.from+' to '+d.to+' ('+d.days+' days), compared with '+d.prevFrom+' to '+d.prevTo+'.';
+  const dpd=Math.round(10*c.dials/d.days)/10,pdpd=Math.round(10*p.dials/d.days)/10;
+  document.getElementById('a').innerHTML=kp('Dials',fmt(c.dials),'',delta(c.dials,p.dials))+kp('Dials per day',dpd,'',delta(dpd,pdpd))+kp('Connected',fmt(c.reached),pct(c.reached,c.dials)+'%',delta(c.reached,p.reached))+kp('Talk time',dur(c.talk),'',delta(c.talk,p.talk))+kp('Leads called',fmt(c.leads),'',delta(c.leads,p.leads))+kp('Dials per lead',c.leads?(Math.round(10*c.dials/c.leads)/10):'-','');
+  const dpc=c.closes?Math.round(10*c.dials/c.closes)/10:null,pdpc=p.closes?Math.round(10*p.dials/p.closes)/10:null;
+  document.getElementById('b').innerHTML=kp('Bookings',c.closes,'',delta(c.closes,p.closes))+kp('Dials per booking',dpc==null?'-':dpc,'',dpc!=null&&pdpc!=null?delta(dpc,pdpc,true):'')+kp('Connects per booking',c.closes?Math.round(10*c.reached/c.closes)/10:'-','')+kp('Dials to reach a lead',c.avgToReach==null?'-':c.avgToReach,'')+kp('Never reached',c.neverReached,'leads')+kp('Talk time per connect',c.reached?dur(Math.round(c.talk/c.reached)):'-','');
+  const days=Object.keys(c.perDay);
+  chart('c1',days,[{n:'not connected',v:days.map(k=>c.perDay[k].dials-c.perDay[k].reached),c:'#3b4552'},{n:'connected',v:days.map(k=>c.perDay[k].reached),c:'#32cd32'}],{legend:true});
+  const hrs=Array.from({length:24},(_,h)=>h),lab=h=>(h%12||12)+(h<12?'a':'p');
+  chart('c2',hrs.map(lab),[{n:'dials',v:hrs.map(h=>c.hr[h].dials),c:'#4a9be8'}],{});
+  chart('c3',hrs.map(lab),[{n:'connect rate',v:hrs.map(h=>c.hr[h].dials>=5?pct(c.hr[h].reached,c.hr[h].dials):0),c:'#a78bfa'}],{unit:'%',min:10});
+  const oc=Object.entries(c.out).sort((a,b)=>b[1]-a[1]),mx=Math.max(1,...oc.map(o=>o[1]));
+  document.getElementById('oc').innerHTML=oc.length?oc.map(o=>'<div><span>'+$(o[0])+'</span><span><i style="width:'+Math.max(3,Math.round(100*o[1]/mx))+'%"></i></span><span>'+o[1]+'</span></div>').join(''):'<span class="note">No dials in this range.</span>';
+  const L=['No dial recorded','1 dial','2 dials','3 dials','4 dials','5 or more'];
+  document.getElementById('ds').innerHTML=c.closes?'<tr><th>Dials before booking</th><th>Bookings</th><th>Share</th></tr>'+L.map((l,i)=>'<tr><td>'+l+'</td><td>'+c.dist[i]+'</td><td>'+pct(c.dist[i],c.closes)+'%</td></tr>').join(''):'<tr><td class="empty">No bookings in this range.</td></tr>';
+  const who=Object.entries(c.who).sort((a,b)=>b[1].dials-a[1].dials);
+  document.getElementById('bp').innerHTML=who.length?'<tr><th>Person</th><th>Dials</th><th>Connected</th><th>Connect rate</th><th>Talk time</th><th>Bookings</th><th>Dials per booking</th></tr>'+who.map(([k,w])=>'<tr><td style="text-transform:capitalize">'+$(k)+'</td><td>'+w.dials+'</td><td>'+w.reached+'</td><td>'+pct(w.reached,w.dials)+'%</td><td>'+dur(w.talk)+'</td><td>'+w.closes+'</td><td>'+(w.closes?Math.round(10*w.dials/w.closes)/10:'-')+'</td></tr>').join(''):'<tr><td class="empty">No dials in this range.</td></tr>';
+  const g=+document.getElementById('gl').value||50;document.getElementById('td').textContent=d.today;document.getElementById('tp').style.width=Math.min(100,Math.round(100*d.today/g))+'%'}
+let LAST=null;async function load(){const r=await fetch('/admin/dials/data?from='+RF.value+'&to='+RT.value);const j=await r.json();if(j.success){RF.value=j.from;RT.value=j.to;LAST=j;draw(j)}}
+try{document.getElementById('gl').value=localStorage.getItem('dgoal')||50}catch(_){}
+document.getElementById('gl').onchange=e=>{try{localStorage.setItem('dgoal',e.target.value)}catch(_){}if(LAST)draw(LAST)};
+rangeUI(load);setInterval(()=>{if(!document.hidden)load()},60000);
+</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+}
+
+// ---- Meta Ads report (owner only): what the Facebook and Instagram leads turned into. Spend is typed in by month because the CRM is not connected to Meta's ad account yet.
+async function metaPage(env, user) {
+  await ensureTable(env.DB);
+  const tc = await todayCount(env);
+  const rows = (await speedRows(env)).filter(r => r.channel === "meta").map(r => ({ id: r.id, name: r.name, cd: r.cd, created: r.created, service: r.service, stage: r.stage, booked: r.booked, value: r.value, secs: r.secs, reached: r.reached, attempts: r.attempts, camp: r.camp, adset: r.adset, ad: r.adname, form: r.form, lost: r.lost, open: r.open, h: r.h }));
+  const spend = {};
+  for (const r of (await env.DB.prepare("SELECT month, amount FROM ad_spend2 WHERE channel = 'meta'").all()).results || []) spend[r.month] = r.amount;
+  const payload = JSON.stringify({ rows, spend, today: todayStr() }).replace(/</g, "\\u003c");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Meta Ads report | Divine Detailers</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg,#07090c);color:var(--text,#e8eaed)}
+header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
+h1{font-size:19px;margin:0}h1 b{color:#32cd32}.navtabs{display:flex;gap:6px;flex-wrap:wrap}.navtabs a{color:#aab0b9;text-decoration:none;padding:8px 14px;border-radius:999px;border:1px solid #232932}
+${RPT_CSS}
+.sp{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}.sp label{display:block;color:#7c838d;font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}.sp input{width:100%;background:#10141a;border:1px solid #232932;color:#fff;border-radius:8px;padding:8px 10px;font:inherit}
+.btnc{background:#32cd32;color:#04120a;text-decoration:none;font-weight:800;border-radius:9px;padding:6px 12px;font-size:13px}
+${BNAV_CSS}
+@media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}}
+</style></head><body>
+<header><h1>Divine Detailers <b>meta ads</b></h1>${nav("meta", tc, true)}</header>
+${bnav("meta", tc, true)}
+${insightTabs("meta")}
+<main>
+<div class="rb"><input type="date" id="f"><span class="note">to</span><input type="date" id="t"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+<div class="g2"><div class="card"><h3>Results</h3><div class="kp" id="k1"></div></div><div class="card"><h3>What they turned into</h3><div class="kp" id="k2"></div></div></div>
+<h2>Leads per day</h2><div class="ch" id="c1"></div>
+<h2>Funnel<small>how many Meta leads make it through each step</small></h2><div class="ch" id="c2"></div>
+<h2>Performance<small>group by</small> <select id="gb" style="background:#10141a;border:1px solid #232932;color:#fff;border-radius:8px;padding:6px 8px;font:inherit"><option value="camp">Campaign</option><option value="adset">Ad set</option><option value="ad">Ad</option><option value="form">Form</option><option value="service">Service</option></select></h2>
+<div class="card"><div class="tbw"><table id="tb"></table></div></div>
+<h2>Not called yet<small>Meta leads in this range nobody has dialed. Oldest first.</small></h2><div class="card"><div class="tbw"><table id="nc"></table></div></div>
+<h2>Ad spend<small>type what you spent on Meta each month; it is saved automatically and used for cost per lead and return</small></h2><div class="card"><div class="sp" id="sp"></div></div>
+<p class="note">Impressions, clicks and click-through rate live inside Meta, so they are not shown here yet (connecting Meta's Ads API would add them). Everything above is counted from your CRM: leads from Meta forms, the calls made from the dialer, and bookings. Spend per campaign is estimated by splitting the month's spend by each campaign's share of leads. Booked means Deposit collected, In shop or Service completed.</p>
+</main>
+<script type="application/json" id="data">${payload}</script>
+<script>
+${RPT_JS}
+const D=JSON.parse(document.getElementById('data').textContent),R=D.rows;let SPD=D.spend||{};
+const med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);return Math.round(b.length%2?b[i]:(b[i-1]+b[i])/2)};
+const dt=s=>new Date(s+'T00:00:00Z');
+function spendFor(f,t){let tot=0;for(const m in SPD){const y=+m.slice(0,4),mo=+m.slice(5,7),dim=new Date(Date.UTC(y,mo,0)).getUTCDate(),first=m+'-01',last=m+'-'+String(dim).padStart(2,'0'),lo=f>first?f:first,hi=t<last?t:last;if(lo>hi)continue;tot+=SPD[m]*(((dt(hi)-dt(lo))/864e5)+1)/dim}return tot}
+function monthsIn(f,t){const out=[];let d=dt(f.slice(0,7)+'-01');const end=dt(t);while(d<=end){out.push(d.toISOString().slice(0,7));d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1))}return out}
+function drawSpend(f,t){const ms=monthsIn(f,t);document.getElementById('sp').innerHTML=ms.map(m=>'<div><label>'+m+'</label><input type="number" min="0" step="1" data-m="'+m+'" value="'+(SPD[m]||'')+'" placeholder="$0"></div>').join('')}
+document.getElementById('sp').addEventListener('change',async e=>{const i=e.target.closest('input[data-m]');if(!i)return;const v=Math.max(0,Number(i.value)||0);SPD[i.dataset.m]=v;try{await fetch('/admin/adspend',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({month:i.dataset.m,channel:'meta',amount:v})})}catch(_){}draw()});
+const keyOf={camp:r=>r.camp||'(no campaign)',adset:r=>r.adset||'(no ad set)',ad:r=>r.ad||'(no ad name)',form:r=>r.form||'(no form)',service:r=>r.service||'Not set'};
+function draw(){const f=RF.value,t=RT.value,L=R.filter(r=>r.cd>=f&&r.cd<=t),n=L.length,called=L.filter(r=>r.secs!=null),reached=L.filter(r=>r.reached),bk=L.filter(r=>r.booked),rev=bk.reduce((a,r)=>a+(r.value||0),0),sp=spendFor(f,t),nc=L.filter(r=>r.secs==null&&r.open);
+  document.getElementById('k1').innerHTML=kp('Leads',fmt(n),'')+kp('Ad spend',sp?money(sp):'-','')+kp('Cost per lead',sp&&n?m2(sp/n):'-','')+kp('Cost per booking',sp&&bk.length?m2(sp/bk.length):'-','')+kp('Return on ad spend',sp&&rev?(rev/sp).toFixed(1)+'x':'-','');
+  const m=med(called.map(r=>r.secs));
+  document.getElementById('k2').innerHTML=kp('Called',pct(called.length,n)+'%',called.length+' of '+n)+kp('Reached',pct(reached.length,called.length)+'%',reached.length+' of '+called.length)+kp('Booked',bk.length,pct(bk.length,n)+'%')+kp('Booked revenue',money(rev),'')+kp('Median time to first call',m==null?'-':dur(m),'');
+  const days=[];for(let d=dt(f);d<=dt(t);d=new Date(d.getTime()+864e5))days.push(d.toISOString().slice(0,10));
+  chart('c1',days,[{n:'leads',v:days.map(d=>L.filter(r=>r.cd===d).length),c:'#4a9be8'},{n:'booked',v:days.map(d=>L.filter(r=>r.cd===d&&r.booked).length),c:'#32cd32'}],{legend:true});
+  chart('c2',['Leads','Called','Reached','Booked'],[{n:'leads',v:[n,called.length,reached.length,bk.length],c:'#32cd32'}],{});
+  const g=document.getElementById('gb').value,groups={};L.forEach(r=>{const k=keyOf[g](r);(groups[k]=groups[k]||[]).push(r)});
+  const rows=Object.entries(groups).sort((a,b)=>b[1].length-a[1].length);
+  document.getElementById('tb').innerHTML=rows.length?'<tr><th>Name</th><th>Leads</th><th>Not called</th><th>Called</th><th>Reached</th><th>Booked</th><th>Booked rate</th><th>Revenue</th><th>Est. spend</th><th>Cost per lead</th><th>Cost per booking</th><th>Return</th></tr>'+rows.map(([k,x])=>{const c=x.filter(r=>r.secs!=null).length,rc=x.filter(r=>r.reached).length,b=x.filter(r=>r.booked),rv=b.reduce((a,r)=>a+(r.value||0),0),es=n?sp*x.length/n:0;return '<tr><td>'+$(k)+'</td><td>'+x.length+'</td><td'+(x.length-c?' class="warn"':'')+'>'+(x.length-c)+'</td><td>'+pct(c,x.length)+'%</td><td>'+pct(rc,c)+'%</td><td>'+b.length+'</td><td>'+pct(b.length,x.length)+'%</td><td>'+money(rv)+'</td><td>'+(es?money(es):'-')+'</td><td>'+(es?m2(es/x.length):'-')+'</td><td>'+(es&&b.length?m2(es/b.length):'-')+'</td><td>'+(es&&rv?(rv/es).toFixed(1)+'x':'-')+'</td></tr>'}).join(''):'<tr><td class="empty">No Meta leads in this range.</td></tr>';
+  const ncs=nc.sort((a,b)=>new Date(a.created)-new Date(b.created)).slice(0,25);
+  document.getElementById('nc').innerHTML=ncs.length?'<tr><th>Lead</th><th>Service</th><th>Campaign</th><th>Waiting</th><th></th></tr>'+ncs.map(r=>'<tr><td><a href="/admin/pipeline#id='+r.id+'">'+$(r.name)+'</a></td><td>'+$(r.service)+'</td><td>'+$(r.camp||'')+'</td><td class="warn">'+dur(Math.round((Date.now()-new Date(r.created).getTime())/1000))+'</td><td><a class="btnc" href="/admin/dialer?lead='+r.id+'">Call</a></td></tr>').join(''):'<tr><td class="empty good">Every Meta lead in this range has been called.</td></tr>';
+  drawSpend(f,t)}
+document.getElementById('gb').onchange=draw;
+rangeUI(draw);
 </script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
 }
 
@@ -4428,6 +4622,9 @@ export default {
       if (p === "/" || p === "/today" || p === "/admin/today") return adminRoute("/admin/today", request, env);
       if (p === "/speed" || p === "/admin/speed") return adminRoute("/admin/speed", request, env);
       if (p === "/msgstats" || p === "/admin/msgstats") return adminRoute("/admin/msgstats", request, env);
+      if (p === "/dials" || p === "/admin/dials") return adminRoute("/admin/dials", request, env);
+      if (p === "/meta" || p === "/admin/meta") return adminRoute("/admin/meta", request, env);
+      if (p === "/reports" || p === "/admin/reports") return adminRoute("/admin/insights", request, env);
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
@@ -4443,7 +4640,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -4610,7 +4807,7 @@ const CHART_JS = `function bars(id,items){const mx=Math.max(1,...items.map(i=>i.
 const BOOKED = ["booked", "working", "done"];
 async function speedRows(env) {
   await ensureTable(env.DB);
-  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,referrer FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
+  const { results: leads } = await env.DB.prepare("SELECT id,created_at,type,name,phone,service,make,year,model,answered,stage,stage_changed_at,value,gclid,gbraid,wbraid,utm_medium,utm_source,utm_campaign,utm_term,referrer,message FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' ORDER BY created_at DESC, id DESC LIMIT 3000").all();
   const { results: logs } = await env.DB.prepare("SELECT lead_id, at, by_user, reason, to_stage FROM stage_log ORDER BY id ASC LIMIT 30000").all();
   // The clock only stops when the lead is actually called: the Call button, a logged call outcome, or the auto-dial reaching the lead.
   // Texts, emails, the Contacted button and stage changes do not stop it.
@@ -4649,6 +4846,7 @@ async function speedRows(env) {
     const lostLog = [...gl].reverse().find(g => g.to_stage === "lost"), bookedLog = gl.find(g => BOOKED.includes(g.to_stage));
     const so = sourceOf(l);
     return {
+      camp: l.utm_campaign || "", adname: ((/ad name:\s*([^\u00b7\n]+)/i.exec(l.message || "") || [])[1] || l.utm_term || "").trim(), adset: ((/adset name:\s*([^\u00b7\n]+)/i.exec(l.message || "") || [])[1] || "").trim(), form: ((/form name:\s*([^\u00b7\n]+)/i.exec(l.message || "") || [])[1] || "").trim(),
       id: l.id, name: l.name || l.phone || "Unknown", type: l.type, what: [l.service, [l.year, l.make, l.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
       src: sourceOf(l).label, ad: sourceOf(l).ad, created: iso(l.created_at), created_abs: fmt(l.created_at), cd: new Date(ms(l.created_at)).toLocaleDateString("en-CA", { timeZone: TZ }),
       contact: contact ? iso(contact) : "", contact_abs: contact ? fmt(contact) : "", by, how,
@@ -4906,7 +5104,7 @@ async function insightsPage(env, user) {
   for (const r of (await env.DB.prepare("SELECT month, channel, amount FROM ad_spend2").all()).results) (spend[r.channel] = spend[r.channel] || {})[r.month] = r.amount;
   const costs = Object.fromEntries((await env.DB.prepare("SELECT service, cost FROM job_costs").all()).results.map(r => [r.service, r.cost]));
   const payload = JSON.stringify({ rows, today: todayStr(), spend, costs, services: ["Window Tint", "PPF / Clear Bra", "Ceramic Coating", "Paint Correction", "Vinyl Wraps", "Exterior Detailing", "Other"] }).replace(/</g, "\\u003c");
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Insights | Divine Detailers</title>
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${PWA_HEAD}<title>Reports | Divine Detailers</title>
 <style>
 *{box-sizing:border-box}body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#07090c;color:#e8eaed}
 header{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1b1f25}
@@ -4921,7 +5119,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:#c3c8cf;mar
 ${BNAV_CSS}
 @media(max-width:700px){header{padding:12px 14px}h1{font-size:17px}main{padding:8px 14px 20px}.hb div{grid-template-columns:90px 1fr 48px}}
 </style></head><body>
-<header><h1>Divine Detailers <b>insights</b></h1>${nav("insights", tc, true)}</header>
+<header><h1>Divine Detailers <b>reports</b></h1>${nav("insights", tc, true)}</header>
 ${bnav("insights", tc, true)}
 ${insightTabs("insights")}
 <main>
@@ -5194,6 +5392,9 @@ async function adminRoute(p, request, env) {
 
   if (p.startsWith("/admin/send/")) { const sid = Number(p.slice(12)); return Number.isInteger(sid) && sid > 0 ? sendPage(env, sid, new URL(request.url).searchParams.get("n"), a) : new Response("Not found", { status: 404 }); }
   if (p.startsWith("/admin/go/")) { const gid = Number(p.slice(10)); return Number.isInteger(gid) && gid > 0 ? goPage(env, gid, a) : new Response("Not found", { status: 404 }); }
+  if (p === "/admin/dials") return a === OWNER ? dialsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/meta") return a === OWNER ? metaPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/dials/data" && request.method === "GET") { if (a !== OWNER) return json({ success: false }, 403); const u = new URL(request.url); return json(await dialsData(env, u.searchParams.get("from"), u.searchParams.get("to"))); }
   if (p === "/admin/msgstats") return a === OWNER ? msgStatsPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/msgstats/data" && request.method === "GET") { if (a !== OWNER) return json({ success: false }, 403); const u = new URL(request.url); return json({ success: true, ...(await msgStatsData(env, u.searchParams.get("from"), u.searchParams.get("to"))) }); }
   if (p === "/admin/speed") return a === OWNER ? speedPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
