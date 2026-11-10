@@ -2589,18 +2589,22 @@ async function recordingProxy(env, sid, request) {
   for (const k of ["content-range", "content-length"]) if (r.headers.get(k)) out[k] = r.headers.get(k);
   return new Response(r.body, { status: r.status, headers: out });
 }
-// the next days the shop can take a job, read from the CRM calendar (booked leads plus Urable jobs). A day is full at DAILY_JOB_CAP jobs (default 3); CLOSED_DAYS (default Sun) are skipped.
-async function openDays(env, n = 6) {
+// the next days the shop can take a job, read from the CRM calendar (booked leads plus Urable jobs), counted per service:
+// COATING_DAILY_CAP (default 2) ceramic coatings and TINT_DAILY_CAP (default 4) tint jobs per day. CLOSED_DAYS (default Sun) are skipped.
+const jobKind = t => /coat|ceramic/i.test(t || "") ? "coating" : /tint/i.test(t || "") ? "tint" : "other";
+async function openDays(env, n = 6, svc = "tint") {
   try {
-    const cap = Number(env.DAILY_JOB_CAP) || 3, closed = String(env.CLOSED_DAYS || "Sun").toLowerCase().split(/[\s,]+/).filter(Boolean).map(x => x.slice(0, 3));
+    const cap = svc === "coating" ? (Number(env.COATING_DAILY_CAP) || 2) : (Number(env.TINT_DAILY_CAP) || 4);
+    const closed = String(env.CLOSED_DAYS || "Sun").toLowerCase().split(/[\s,]+/).filter(Boolean).map(x => x.slice(0, 3));
     const base = todayStr(), cnt = {};
-    const leads = (await env.DB.prepare("SELECT appt_at, urable_ref FROM leads WHERE COALESCE(appt_at,'') != '' AND stage NOT IN ('lost') AND appt_at >= ?").bind(base).all().catch(() => ({ results: [] }))).results || [];
+    const leads = (await env.DB.prepare("SELECT appt_at, urable_ref, service FROM leads WHERE COALESCE(appt_at,'') != '' AND stage NOT IN ('lost') AND appt_at >= ?").bind(base).all().catch(() => ({ results: [] }))).results || [];
     const refs = new Set(leads.map(l => l.urable_ref).filter(Boolean));
-    for (const l of leads) { const d = String(l.appt_at).slice(0, 10); cnt[d] = (cnt[d] || 0) + 1; }
+    const add = (d, text) => { if (jobKind(text) === svc) cnt[d] = (cnt[d] || 0) + 1; };
+    for (const l of leads) add(String(l.appt_at).slice(0, 10), l.service);
     const cal = await urableCalendar(env).catch(() => ({ items: [] }));
-    for (const it of cal.items || []) { if (!it.appt_at || refs.has(it.ref)) continue; const d = String(it.appt_at).slice(0, 10); if (d >= base) cnt[d] = (cnt[d] || 0) + 1; }
+    for (const it of cal.items || []) { if (!it.appt_at || refs.has(it.ref)) continue; const d = String(it.appt_at).slice(0, 10); if (d >= base) add(d, (it.service || "") + " " + (it.name || "")); }
     const out = [], ord = d => d + (d % 100 >= 11 && d % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][d % 10] || "th");
-    for (let i = 1; i <= 30 && out.length < n; i++) {
+    for (let i = 1; i <= 45 && out.length < n; i++) {
       const t = new Date(base + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + i);
       const wd = t.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }), key = t.toISOString().slice(0, 10);
       if (closed.includes(wd.slice(0, 3).toLowerCase())) continue;
@@ -2636,7 +2640,7 @@ async function dialerQueue(env, url) {
   const ids = rows.map(r => r.id);
   const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
   const texts = ids.length ? (await env.DB.prepare(`SELECT lead_id, direction, body, at FROM messages WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 300`).bind(...ids).all()).results || [] : [];
-  return json({ success: true, counts, open: await openDays(env), leads: rows.map(r => ({ ...r, created_at: isoUtc(r.created_at), last_try: r.last_try ? isoUtc(r.last_try) : null, history: notes.filter(n => n.lead_id === r.id).slice(0, 4).map(n => ({ reason: n.reason, at: isoUtc(n.at) })), texts: texts.filter(t => t.lead_id === r.id).slice(0, 3).map(t => ({ direction: t.direction, body: String(t.body).slice(0, 200), at: isoUtc(t.at) })) })) });
+  return json({ success: true, counts, open: { tint: await openDays(env, 6, "tint"), coating: await openDays(env, 6, "coating") }, leads: rows.map(r => ({ ...r, created_at: isoUtc(r.created_at), last_try: r.last_try ? isoUtc(r.last_try) : null, history: notes.filter(n => n.lead_id === r.id).slice(0, 4).map(n => ({ reason: n.reason, at: isoUtc(n.at) })), texts: texts.filter(t => t.lead_id === r.id).slice(0, 3).map(t => ({ direction: t.direction, body: String(t.body).slice(0, 200), at: isoUtc(t.at) })) })) });
 }
 async function dialerLead(env, id) {
   await ensureTable(env.DB);
@@ -3115,8 +3119,8 @@ el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)ret
 function next(){if(state==='live'||state==='connecting')return;outSaved=true;outPick='';state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
 function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')}
-let OPEN_DAYS=[];let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
-async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_DAYS=(q.open||[]).map(d=>d.say);if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
+let OPEN_BY={tint:[],coating:[]};let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
+async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
 el('qf').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
 const stLab=k=>(QF.find(f=>f[0]===k)||[0,k])[1]||'';
 function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
@@ -3223,9 +3227,9 @@ function gMap(sc,svc){const sug=gSugIdx(sc),cur=sc.steps[gi],show=gOpenPh||(cur&
 const swp=t=>{let s=String(t||'');(OF.swaps||[]).forEach(p=>{if(p&&p.f)s=s.split(p.f).join(p.t||'')});return s};
 function gfmt(t,l,svc){let h=$(swp(t));
   h=h.replace(/\\{(\\w+)\\}/g,(m,n)=>{const k='{'+n+'}',v=OVR[k]||vv(n,l,svc);return v?'<span class="ph ok" data-e="'+k+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+k+'">'+$('['+(LBL[n]||n)+']')+'</span>'});
-  let di=0;h=h.replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n0)=>{const n=n0.replace(/&amp;/g,'&'),v=n==='DATE'?(OPEN_DAYS[di++]||''):sv(n,l,svc);return v?'<span class="ph ok" data-e="'+$(n)+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+$(n)+'">'+$(n.toLowerCase())+'</span>'});
+  let di=0;const od=OPEN_BY[svc]||[];h=h.replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n0)=>{const n=n0.replace(/&amp;/g,'&'),v=n==='DATE'?(od[di++]||''):sv(n,l,svc);return v?'<span class="ph ok" data-e="'+$(n)+'">'+$(v)+'</span>':'<span class="ph un" data-e="'+$(n)+'">'+$(n.toLowerCase())+'</span>'});
   return h}
-function gplain(t,l,svc){let di=0;return swp(t).replace(/\\{(\\w+)\\}/g,(m,n)=>OVR['{'+n+'}']||vv(n,l,svc)||'...').replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n)=>(n==='DATE'?(OPEN_DAYS[di++]||''):sv(n,l,svc))||'...')}
+function gplain(t,l,svc){let di=0;const od=OPEN_BY[svc]||[];return swp(t).replace(/\\{(\\w+)\\}/g,(m,n)=>OVR['{'+n+'}']||vv(n,l,svc)||'...').replace(/\\[\\[([^\\]]+)\\]\\]/g,(m,n)=>(n==='DATE'?(od[di++]||''):sv(n,l,svc))||'...')}
 function gnode(n,l,svc){const f=t=>gfmt(t,l,svc);
   if(n.k==='pill')return '';
   if(n.k==='cond')return '<div class="gcond"><b>If</b> '+f(n.t)+'</div>';
@@ -3553,7 +3557,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)document.t
 async function init(){
   try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
   await loadAudio();await coachStatus();await loadOffer();
-  try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_DAYS=(q.open||[]).map(d=>d.say);if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){}
+  try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){}
   ix=0;Q.forEach(l=>known.add(l.id));drawQF();drawLead();drawQ();drawScript();setInterval(poll,10000);el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
   await initDev()}
 init();
@@ -3704,7 +3708,7 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
   const get = k => { const r = rows.find(x => x.k === k); try { return r ? JSON.parse(r.v) : null; } catch (_) { return null; } };
   const offer = get("offer") || {}, sc = svc ? get("script_" + svc) : null;
   const facts = lead ? `Lead: ${lead.name || "unknown"}. Service tag: ${lead.service || "unknown"}. Vehicle: ${[lead.year, lead.make, lead.model].filter(Boolean).join(" ") || "unknown"}. Quoted job value: ${lead.value > 0 ? "$" + lead.value : "not set"}.` : "Lead: unknown.";
-  const od = await openDays(env, 4);
+  const od = await openDays(env, 4, svc === "coating" ? "coating" : "tint");
   const factsOpen = od.length ? `\nOpen days on our calendar right now (offer these when booking): ${od.map(d => d.say).join(", ")}.` : "";
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
