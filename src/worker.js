@@ -2522,7 +2522,6 @@ async function handleVoice(request, env) {
   await ensureTable(env.DB);
   const lead = Number.isInteger(Number(params.leadId)) ? await env.DB.prepare("SELECT id, phone FROM leads WHERE id = ?").bind(Number(params.leadId)).first() : null;
   if (!lead || !last10(lead.phone) || last10(lead.phone) !== last10(params.To)) return xmlRes("<Say>This call cannot be placed.</Say><Hangup/>");
-  if (!quietHoursOk(env)) return xmlRes("<Say>Calls can only be placed between 8 AM and 9 PM Eastern.</Say><Hangup/>");
   const from = e164(env.TWILIO_VOICE_FROM || env.TWILIO_FROM);
   if (!from) return xmlRes("<Say>No caller ID number is set up.</Say><Hangup/>");
   const base = env.PUBLIC_URL || "https://divinedetailers.com";
