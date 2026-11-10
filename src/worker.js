@@ -2737,7 +2737,7 @@ dialog .rb{padding:16px;display:flex;flex-direction:column;gap:12px}dialog h3{ma
 #cards{display:flex;flex-direction:column;gap:10px;min-width:0}.cw{display:flex;flex-direction:column;gap:10px}
 main{display:flex;flex-direction:column;gap:14px}.center,.rcol{display:flex;flex-direction:column;gap:14px;min-width:0}.callrow,.callbar,.cctl{display:flex;flex-direction:column;gap:10px;min-width:0}
 .cwho,.rail .rs,.q .it .av,.q .it .bd,.q .it.done,.shb,.shl{display:none}.q .it .tx{display:block}
-.card2:not(:first-child){opacity:.72}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
+.card2.used{opacity:.55}.more{font-size:14px;color:#cfd3d9}.more summary{cursor:pointer;color:#8b929c;font-size:12.5px;letter-spacing:.4px;padding:2px 0}.more.tai summary{color:#32cd32}.say.sm{font-size:16px!important;font-weight:600!important;margin:6px 0 0}.ask.sm{margin:4px 0 0;color:#fff;font-size:15px}.hist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.hist span{font-size:11px;color:#6d747e;letter-spacing:.6px;text-transform:uppercase}.hist button{background:#141a21;border:1px solid #2a313a;color:#aeb4bd;border-radius:999px;padding:4px 10px;font-size:12.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln{padding:6px 11px;border-radius:12px;max-width:92%;overflow-wrap:anywhere}.ln.w-rep{align-self:flex-end;background:#0f2238}.ln.w-lead{align-self:flex-start;background:#0f2a17}
 #cards:empty::before{content:"Objection help shows up here the moment the lead pushes back.";color:#6d747e;font-size:14px;border:1px dashed #2a313a;border-radius:12px;padding:18px;text-align:center}
 #trn:empty::before{content:"The live transcript appears here once the call connects.";color:#6d747e;font-size:14px;margin:auto;text-align:center;padding:18px}
 #cst.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#32cd32;margin-right:7px;animation:pls 1.4s ease-in-out infinite}@keyframes pls{50%{opacity:.25}}
@@ -3054,7 +3054,7 @@ function gObjHint(text){const sc=gScript();if(!sc)return;const t=String(text||''
 const words=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ']/g,' ').split(/\\s+/).filter(w=>w.length>3);
 function gFollow(text){const sc=gScript();if(!sc)return;const w=words(text);if(w.length<4)return;let best=-1,bs=0;
   sc.steps.forEach((s,i)=>{const p=s.main&&s.main[0]&&s.main[0].ps&&s.main[0].ps[0]&&s.main[0].ps[0].t;if(!p||!s.n)return;const set=new Set(words(p)),hit=w.filter(x=>set.has(x)).length,r=hit/Math.min(w.length,14);if(hit>=4&&r>=0.5&&r>bs){bs=r;best=i}});
-  if(best>=0){COV[sc.steps[best].id]=1;if(best!==gi)gi=best;gMark(true)}}
+  if(best>=0){COV[sc.steps[best].id]=1;const mv=best!==gi;if(mv)gi=best;gMark(mv)}}
 const TOPIC={tint:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle',s07:'Windows',s08:'Current tint',s09:'Main goal',s10:'Darkness',s11:'Other shops',s12:'Recap',s13:'Process',s14:'Questions',s15:'Why us',s16:'Questions',s17:'Timing',s18:'Price',s19:'Book the day',s20:'Contact info',s21:'Deposit',s22:'Referral',s23:'Wrap up'},
  coating:{s01:'Name check',s02:'Intro',s03:'Rapport',s04:'Why calling',s05:'Set the frame',s06:'Vehicle & color',s07:'Paint condition',s08:'What they know',s09:'Storage & washing',s10:'How long keeping',s11:'Past coatings',s12:'Recap',s13:'The prep',s14:'Questions',s15:'The coating',s16:'Questions',s17:'Free add ons',s18:'Timing',s19:'Price',s20:'Book the day',s21:'Contact info',s22:'Deposit',s23:'Wrap up'}};
 let COV={},gOpenPh='';
@@ -3195,7 +3195,7 @@ let cws=null,coachOn=false,lastCard={},wR=0,wL=0;
 function cs(t){const e=el('cst');e.textContent=t;e.className='note'+(t==='Listening'?' on':'')}
 function share(){const n=wR+wL;if(n<12){el('shb').hidden=true;el('shl').textContent='';return}const r=Math.round(wR*100/n);el('shb').hidden=false;el('shi').style.width=r+'%';const l=el('shl');l.textContent='You '+r+'% \u00b7 Lead '+(100-r)+'%'+(r>60?' \u2014 let them talk':'');l.className='shl'+(r>60?' hi':'')}
 async function coachStatus(){try{const j=await (await fetch('/admin/coach/status')).json();coachOn=!!j.enabled;coachAiOn=!!j.ai}catch(_){}}
-function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
+function coachStart(sid){coachStop();if(!coachOn||!sid)return;const p=el('coach');p.hidden=false;el('trn').innerHTML='';el('cards').innerHTML='';curAns=null;ansHist=[];pend=null;leadBuf='';lastCard={};wR=0;wL=0;share();cs('Connecting...');
   try{cws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/admin/coach/ws?sid='+sid)}catch(_){cs('Transcript unavailable');return}
   cws.onopen=()=>{cs('Listening');el('aip').hidden=!coachAiOn;el('aip').textContent='AI on';gNext()};cws.onclose=()=>{if(el('cst').textContent==='Listening')cs('Transcript stopped')};
   cws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}coachMsg(m)}}
@@ -3232,19 +3232,35 @@ function gDet(text){const sc=gScript(),l=Q[ix];if(!sc||!l)return false;const svc
     showAns({src:'script',q:text,say:lines[0].t,lines:lines.slice(1,4),ask:na?na.t:'',anchor:anc});return true}
   return true}
 function anchorId(a){a=String(a||'');if(!a)return '';if(/^(gs|gx)-/.test(a))return a;const sc=gScript();if(sc&&sc.plays.some(p=>p.id===a))return 'gx-'+a;return 'gs-'+a}
-function showAns(o){const box=el('cards');if(!box)return;
-  if(o.src==='ai'){const aq=String(o.q||'').toLowerCase();Array.prototype.slice.call(box.querySelectorAll('.card2.det')).forEach(c=>{const dq=c.dataset.q||'';if(dq&&aq&&(aq.indexOf(dq)>=0||dq.indexOf(aq)>=0))c.remove()})}
-  const d=document.createElement('div');d.className='card2 ans'+(o.src==='ai'?'':' det');d.dataset.t=Date.now();d.dataset.q=String(o.q||'').toLowerCase();
-  const q=String(o.q||'').slice(0,90);
-  d.innerHTML='<div class="bar"><span class="pill '+(o.src==='ai'?'ok':'warn')+'">'+(o.src==='ai'?'AI answer':'From your script')+'</span><span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span></div>'
-   +(o.needs_eyes?'<div class="warnb">Not covered in your script. Confirm before you state it.'+(o.note?' '+$(o.note):'')+'</div>':'')
-   +'<p class="say">'+$(o.say||'')+'</p>'
-   +(o.lines&&o.lines.length?'<div class="alines">'+o.lines.map(x=>'<div>'+(x.h?'<b>'+$(x.h)+'</b>':'')+$(x.t)+'</div>').join('')+'</div>':'')
-   +((o.ack||o.comment)&&o.src==='ai'?'<div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(o.ack||'')+'</p></div><div><span>COMMENT</span><p>'+$(o.comment||'')+'</p></div></div>':'')
-   +(o.ask?'<div class="aca"><div><span>ASK</span><p class="ask">'+$(o.ask)+'</p></div></div>':'')
-   +'<div class="bar">'+(o.anchor?'<button type="button" class="btn sm" data-open="'+$(anchorId(o.anchor))+'">Open in script</button>':'')+'<button type="button" class="btn sm" data-x="1">Dismiss</button></div>';
-  box.insertBefore(d,box.firstChild);while(box.children.length>3)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},90000)}
-el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.x){const c=b.closest('.card2');if(c)c.remove();return}
+// One answer at a time: it stays put while the rep reads it, and the AI version is folded into the same card
+let curAns=null,ansHist=[],pend=null,pendTm=0,leadBuf='',leadTm=0;const DWELL=9000;
+function leadSaid(text,end){leadBuf=(leadBuf+' '+text).trim();clearTimeout(leadTm);if(end)flushLead();else leadTm=setTimeout(flushLead,1600)}
+function flushLead(){clearTimeout(leadTm);const t=leadBuf.trim();leadBuf='';if(!t)return;if(!gScript())objCheck(t);else gDet(t)}
+function sameQ(a,b){const x=words(String(a||'')),y=words(String(b||''));if(!x.length||!y.length)return false;const st=new Set(y),h=x.filter(w=>st.has(w)).length;return h/Math.min(x.length,y.length)>=0.4}
+function showAns(o){const now=Date.now(),key=o.src==='ai'?'ai:'+String(o.q||'').toLowerCase().slice(0,40):String(o.anchor||o.q||'').toLowerCase();
+  if(o.src==='ai'&&curAns&&curAns.src!=='ai'&&now-curAns.t<30000&&sameQ(curAns.q,o.q)){curAns.ai=o;drawAns();return}
+  if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p)showAns(p)},DWELL-(now-curAns.t)+60);return}
+  if(curAns&&curAns.key===key)return;
+  if(curAns){ansHist.unshift(curAns);ansHist=ansHist.slice(0,4)}
+  curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
+function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
+  const pill=a.src==='ai'?'<span class="pill ok">AI answer</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
+  let h='<div class="bar">'+pill+(q?'<span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span>':'')+'</div>';
+  if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
+  h+='<p class="say">'+$(a.say||'')+'</p>';
+  if(a.ask)h+='<div class="aca"><div><span>THEN ASK</span><p class="ask">'+$(a.ask)+'</p></div></div>';
+  const more=(a.lines&&a.lines.length?'<div class="alines">'+a.lines.map(x=>'<div>'+(x.h?'<b>'+$(x.h)+'</b>':'')+$(x.t)+'</div>').join('')+'</div>':'')+((a.ack||a.comment)&&a.src==='ai'?'<div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(a.ack||'')+'</p></div><div><span>COMMENT</span><p>'+$(a.comment||'')+'</p></div></div>':'');
+  if(more)h+='<details class="more" data-k="m"'+(a.openM?' open':'')+'><summary>More wording</summary>'+more+'</details>';
+  if(ai)h+='<details class="more tai" data-k="a"'+(a.openA?' open':'')+'><summary>AI version for this lead</summary><p class="say sm">'+$(ai.say||'')+'</p>'+(ai.ask?'<p class="ask sm">&rarr; '+$(ai.ask)+'</p>':'')+(ai.needs_eyes?'<div class="warnb">Not in your script. Confirm before you state it.</div>':'')+'</details>';
+  h+='<div class="bar">'+(a.anchor?'<button type="button" class="btn sm" data-open="'+$(anchorId(a.anchor))+'">Open in script</button>':'')+'<button type="button" class="btn sm" data-x="1">Dismiss</button></div>';
+  return h}
+function drawAns(){const box=el('cards');if(!box)return;
+  if(!curAns&&!ansHist.length){box.innerHTML='';return}
+  box.innerHTML=(curAns?'<div class="card2 ans'+(curAns.src==='ai'?'':' det')+(curAns.used?' used':'')+'">'+ansHtml(curAns)+'</div>':'')
+   +(ansHist.length?'<div class="hist"><span>Earlier</span>'+ansHist.map((h,i)=>'<button type="button" data-h="'+i+'">'+$(String(h.q||h.label||'answer').slice(0,34))+'</button>').join('')+'</div>':'')}
+el('cards').addEventListener('toggle',e=>{const d=e.target;if(!curAns||!d||!d.dataset)return;if(d.dataset.k==='m')curAns.openM=d.open;if(d.dataset.k==='a')curAns.openA=d.open},true);
+el('coach').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.x){curAns=null;pend=null;drawAns();return}
+  if(b.dataset.h){const h=ansHist.splice(Number(b.dataset.h),1)[0];if(h){if(curAns)ansHist.unshift(curAns);curAns=h;curAns.t=Date.now()-DWELL;drawAns()}return}
   if(b.dataset.open){if(mt!=='script')setMain('script');const id=b.dataset.open;setTimeout(()=>{const sc=gScript();const st=id.indexOf('gs-')===0?sc&&sc.steps.findIndex(s=>'gs-'+s.id===id):-1;if(st>=0){gi=st;gMark(false)}gGo(id)},60)}});
 // the next thing still to cover, so the call keeps its shape when the lead leads
 function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];if(!sc||!l||state!=='live'){box.hidden=true;return}
@@ -3254,16 +3270,14 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
   box.hidden=false;box.innerHTML=h}
 function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
   if(m.type==='live'){cs('Listening');return}
-  if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead'){if(!gScript())objCheck(m.text);else if(m.final)gDet(m.text)}return}
+  if(m.type==='transcript'){addLine(m.who,m.text,m.final);if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
   if(m.type==='answer'){showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
-function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else gFollow(text);const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
+function addLine(who,text,final){if(final){gAnalyze(who,text);if(who==='lead')gObjHint(text);else{gFollow(text)}const n=String(text).split(/\\s+/).filter(Boolean).length;if(who==='rep'&&curAns&&!curAns.used&&n>=6&&Date.now()-curAns.t>2500){curAns.used=true;drawAns()}if(who==='lead')wL+=n;else wR+=n;share()}const box=el('trn');let ln=box.querySelector('.ln.partial.w-'+who);if(!ln){ln=document.createElement('div');box.appendChild(ln)}ln.className='ln w-'+who+(final?'':' partial');ln.innerHTML='<b>'+(who==='lead'?'Lead':'You')+':</b> '+$(text);box.scrollTop=box.scrollHeight}
 function objCheck(text){for(const o of OBJ){const es=o.es.test(text),en=o.en.test(text);if(!es&&!en)continue;const now=Date.now();if(lastCard[o.id]&&now-lastCard[o.id]<20000)continue;lastCard[o.id]=now;showCard(o,es&&!en);break}}
-function showCard(o,es){const c=es?o.esc:o.enc,d=document.createElement('div');d.className='card2';
-  d.innerHTML='<div class="bar"><span class="pill warn">'+$(o.label)+'</span></div><div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(c[0])+'</p></div><div><span>COMMENT</span><p>'+$(c[1])+'</p></div><div><span>ASK</span><p class="ask">'+$(c[2])+'</p></div></div>';
-  const box=el('cards');box.insertBefore(d,box.firstChild);while(box.children.length>3)box.removeChild(box.lastChild);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d)},60000)}
+function showCard(o,es){const c=es?o.esc:o.enc;showAns({src:'card',label:o.label,q:'',say:c[0]+' '+c[1],ask:c[2],anchor:''})}
 let known=new Set(),defTitle=document.title;place();mq.addEventListener&&mq.addEventListener('change',place);
 function beep(){try{const C=window.AudioContext||window.webkitAudioContext,c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(_){}}
 async function poll(){let q;try{q=await (await fetch('/admin/dialer/queue')).json()}catch(_){return}if(!q||!q.leads)return;
