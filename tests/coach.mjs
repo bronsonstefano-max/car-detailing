@@ -1,13 +1,17 @@
 // Coach turn-logic test: replays Deepgram-style events into a CallRoom with a fake AI and checks what reaches the screen.
 // No network, no keys. Run from the repo root:  node tests/coach.mjs
 import { CallRoom } from "../src/worker.js";
+import { readFileSync } from "node:fs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-let aiDelay = 150, aiMode = "ok", aiCalls = [], aiAsk = "";
+let aiDelay = 150, aiMode = "ok", aiCalls = [], aiAsk = "", factsReply = null, factsCalls = [];
 // fake Anthropic: streams one JSON answer that echoes what the lead "just finished saying"
 globalThis.fetch = async (url, init) => {
   if (!String(url).includes("/v1/messages")) throw new Error("unexpected fetch " + url);
-  const body = JSON.parse(init.body), user = body.messages[0].content, said = (/The lead just finished saying: "([^"]*)"/.exec(user) || [])[1] || "";
+  const body = JSON.parse(init.body), user = body.messages[0].content, sys = body.system[0].text;
+  const sse = text => { const enc = new TextEncoder(), ev = o => enc.encode("data: " + JSON.stringify(o) + "\n\n"); return new Response(new ReadableStream({ start(c) { c.enqueue(ev({ type: "content_block_delta", delta: { type: "text_delta", text } })); c.enqueue(ev({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} })); c.close(); } }), { status: 200 }); };
+  if (sys.startsWith("You keep the running notes")) { factsCalls.push(user); return sse(JSON.stringify(factsReply || { problem: "", solve: "", color: "", done: [], lead: [] })); }
+  const said = (/The lead just finished saying: "([^"]*)"/.exec(user) || [])[1] || "";
   aiCalls.push({ said, user, thinking: body.thinking, max: body.max_tokens });
   if (aiMode === "no-disable" && body.thinking) return new Response("thinking.type.disabled is not supported", { status: 400 });
   if (aiMode === "http529") return new Response("overloaded", { status: 529 });
@@ -185,6 +189,34 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   t.rep("Got it, and where do you usually park it?"); await sleep(50); aiAsk = "";
   t.lead("In the garage.", { end: true }); await sleep(1000);
   check("unasked suggestion is not listed as asked", !/ALREADY ASKED/.test(last(aiCalls).user), last(aiCalls).user); }
+
+// 19d. the server keeps the call's progress: finished steps, the next step and what the lead has told us reach the model; the browser hint is no longer used
+{ aiCalls = []; factsCalls = []; const t = room(); delete t.r.refreshFacts; // use the real notes request
+  t.r.ctx.steps = [{ id: "06", phase: "discovery", q: "What's the year, make and model? And what color is the paint?" }, { id: "07", phase: "discovery", q: "When you look at your paint, do you notice any swirl marks, scratches or dull spots?" }, { id: "08", phase: "discovery", q: "Are you familiar with what a ceramic coating does?" }, { id: "09", phase: "discovery", q: "Do you keep it in a garage or outside?" }];
+  t.r.pos = { next: "What's the year, make and model?", step: "06" }; // a stale browser hint
+  factsReply = { problem: "you have swirls on the hood", solve: "bring that hood back to looking new", color: "blue", done: ["06", "07", "99"], lead: ["runs it through the car wash every week"] };
+  t.rep("Do you notice any swirl marks in the paint?"); await sleep(50);
+  t.lead("Yeah, on the hood mostly, I run it through the car wash every week.", { end: true }); await sleep(1300);
+  check("notes request sees the script steps and the call", factsCalls.length >= 1 && /SCRIPT STEPS:\n06 \[discovery\]/.test(factsCalls[0]) && /car wash every week/.test(factsCalls[0]), factsCalls[0]);
+  t.rep("Got it, that's really common."); await sleep(50);
+  t.lead("So what does a coating actually do for that?", { end: true }); await sleep(900);
+  const u = last(aiCalls).user;
+  check("model is told the next step and the finished ones", /Finished steps: 06, 07\nNEXT STEP 08 \(discovery\): "Are you familiar/.test(u) && !/NEXT SCRIPT LINE/.test(u) && !/99/.test(u.split("Recent transcript")[0] + (u.match(/Finished steps[^\n]*/) || [""])[0]), u);
+  check("model gets what the lead told us", /WHAT THIS LEAD HAS TOLD US[^]*- runs it through the car wash every week/.test(u), u);
+  check("model is told how its last answers began", /Your last answers began with: "ANSWER TO: Yeah"/.test(u), u);
+  factsReply = { done: [], lead: [] }; await sleep(2800); t.lead("Okay that makes sense, what else?", { end: true }); await sleep(900);
+  check("a finished step stays finished", /Finished steps: 06, 07/.test(last(aiCalls).user), last(aiCalls).user); factsReply = null; }
+
+// 19e. the script outline is built from the imported script (main lines only, branches and coach notes left out, skipped steps dropped)
+{ const src = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8"), a = src.indexOf("function coachVar("), b = src.indexOf("const KNOWLEDGE_DEFAULT");
+  const coachSteps = new Function(src.slice(a, b) + "; return coachSteps;")();
+  const sc = { steps: [
+    { id: "06", phase: "discovery", main: [{ k: "say", ps: [{ t: "Fantastic. What's the year, make & model?" }, { t: "& what color is the paint?" }, { note: "Black shows swirls the most." }] }] },
+    { id: "07", phase: "discovery", main: [{ k: "say", ps: [{ t: "Do you notice any swirl marks?" }, { sub: "If yes", t: "Where do you notice them the most?" }] }, { k: "outcomes", opts: [{ cond: "yes", nodes: [{ k: "probe", ps: [{ t: "How long?" }] }] }] }] },
+    { id: "19", phase: "close", main: [{ k: "say", ps: [{ t: "With the special it is just {price}. Sound good?" }] }] },
+    { id: "03", phase: "opener", main: [{ k: "say", ps: [{ t: "You doing anything exciting today?" }] }] } ] };
+  const out = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, null, "coating");
+  check("script outline is built from the imported script", out.length === 3 && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
 
 // 20. a model that refuses "thinking: disabled" still answers (falls back to thinking with a larger limit). Keep this test last: the fallback sticks.
 { aiMode = "no-disable"; aiCalls = []; const t = room();
