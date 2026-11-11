@@ -176,19 +176,32 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
 { aiCalls = []; aiAsk = "Do you notice any swirl marks in the paint?"; const t = room();
   t.r.pos = { next: "Do you notice any swirl marks or light scratches in the paint?", step: "07" };
   t.lead("It's a blue Tesla.", { end: true }); await sleep(900);
-  check("hint is passed before the question was asked", /NEXT SCRIPT LINE/.test(aiCalls[0].user) && !/ALREADY ASKED/.test(aiCalls[0].user), aiCalls[0].user);
+  check("hint is passed before the question was asked", /NEXT SCRIPT LINE/.test(aiCalls[0].user) && !/ALREADY PUT TO THE LEAD/.test(aiCalls[0].user), aiCalls[0].user);
   t.rep("Nice, blue shows everything. Do you notice any swirl marks in the paint?"); await sleep(50);
   aiAsk = "Where do you notice them most?";
   t.lead("Yeah.", { end: true }); await sleep(1000);
   const u = last(aiCalls).user; aiAsk = "";
-  check("asked question is listed and the stale hint is dropped", /ALREADY ASKED[^]*- Do you notice any swirl marks in the paint\?/.test(u) && !/NEXT SCRIPT LINE/.test(u), u); }
+  check("asked question is listed and the stale hint is dropped", /ALREADY PUT TO THE LEAD[^]*- Do you notice any swirl marks in the paint\?/.test(u) && !/NEXT SCRIPT LINE/.test(u), u); }
 
 // 19c. a question the coach suggested but the rep never said is NOT treated as asked
 { aiCalls = []; aiAsk = "How long are you planning to keep the car?"; const t = room();
   t.lead("It's a blue Tesla.", { end: true }); await sleep(900);
   t.rep("Got it, and where do you usually park it?"); await sleep(50); aiAsk = "";
   t.lead("In the garage.", { end: true }); await sleep(1000);
-  check("unasked suggestion is not listed as asked", !/ALREADY ASKED/.test(last(aiCalls).user), last(aiCalls).user); }
+  check("a question shown on the card is listed so it is not given again, but the call does not treat it as covered", /ALREADY PUT TO THE LEAD[^]*How long are you planning to keep the car\?/.test(last(aiCalls).user) && t.r.askedSoFar().length === 0, last(aiCalls).user); }
+
+// 19c2. REAL BUG (coach-pr7): "What got you interested in a ceramic coating?" was taken for "...you got a quick second to chat?" (shared: got, ceramic, coating),
+// so it was never recorded and the coach asked it again ("You just asked me that").
+{ aiCalls = []; const t = room();
+  aiAsk = "Anyways, you clicked on our ceramic coating special, so you got a quick second to chat?";
+  t.lead("Good, just getting home.", { end: true }); await sleep(1000);
+  t.rep("Anyways, you clicked on our ceramic coating special, so you got a quick second to chat?"); await sleep(50);
+  aiAsk = "What got you interested in a ceramic coating for it?";
+  t.lead("Yeah sure go ahead.", { end: true }); await sleep(1000);
+  t.rep("What got you interested in a ceramic coating for it?"); await sleep(50); aiAsk = "";
+  t.lead("I want the car to look nice.", { end: true }); await sleep(1000);
+  const u = last(aiCalls).user;
+  check("two different questions are both recorded", /- What got you interested in a ceramic coating for it\?/.test(u) && /- Anyways, you clicked on our ceramic coating special/.test(u) && t.r.askedSoFar().length === 2, { u, asks: t.r.asks }); }
 
 // 19d. the server keeps the call's progress: finished steps, the next step and what the lead has told us reach the model; the browser hint is no longer used
 { aiCalls = []; factsCalls = []; const t = room(); delete t.r.refreshFacts; // use the real notes request
@@ -213,7 +226,7 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   const S = (id, q, extra) => ({ id, phase: "", q, full: q, passage: false, ...extra });
   const recap = "So if I'm understanding everything right, you have a <color year make & model> & you're interested in getting a ceramic coating because <problem>. Did I get that right? Got it. Well from what I heard, I think our coating is perfect for you. It can definitely <solve their problem>. Is it cool if I walk you through our process & how it all works?";
   t.r.ctx.steps = [S("s07", "When you look at your paint, do you notice any swirl marks, scratches or dull spots?"), S("s08", "Are you familiar with what a ceramic coating does? Tell me what you know."), S("s09", "Do you keep it in a garage or outside? & do you hand wash it or run it through the car wash? How often?"), S("s10", "How long are you planning on keeping it?"), S("s11", "Have you ever had a coating done on a car before?"),
-    S("s12", recap.slice(0, 260), { full: recap, passage: true }), S("s13", "Awesome. So before any coating goes on, we do 3 things to get your paint perfect."), S("s19", "So normally our 5 year ceramic coating package starts at $899, but with the special you get all of it for just $599. Sound good?"), S("s20", "Do weekdays or weekends usually work better for you?")];
+    S("s12", recap.slice(0, 260), { full: recap, passage: true }), S("s13", "Awesome. So before any coating goes on, we do 3 things to get your paint perfect.", { full: "Awesome. So before any coating goes on, we do 3 things to get your paint perfect. Foam wash: Roof down to the wheels. Clay bar: Pulls out the dirt & contaminants stuck in the clear coat. Paint correction: A 1 stage correction levels out the paint.", passage: true }), S("s19", "So normally our 5 year ceramic coating package starts at $899, but with the special you get all of it for just $599. Sound good?"), S("s20", "Do weekdays or weekends usually work better for you?")];
   t.r.ctx.car = { year: 2022, make: "BMW", model: "430i" }; t.r.ctx.name = "Jeceline Test";
   factsReply = { problem: "you have chips on the side door", solve: "clean up the swirls around them and keep the gloss", color: "black", done: ["s07"], lead: [] };
   aiAsk = "Are you familiar with what a ceramic coating does?";
@@ -223,16 +236,47 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   aiAsk = "";
   t.lead("Yeah. Protects it.", { end: true }); await sleep(1100);
   check("after step 08 the next step is 09, not booking", /NEXT STEP s09:/.test(last(aiCalls).user) && !/NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/));
-  // the notes now say discovery is finished: the recap is next, and it goes on the card word for word with the blanks filled
-  factsReply = { problem: "you have chips on the side door", solve: "clean up the swirls around them and keep the gloss", color: "black", done: ["s07", "s08", "s09", "s10", "s11"], lead: [] };
+  // The notes now say discovery is finished AND wrongly claim the recap and the prep are finished too (this is how they were skipped on real calls).
+  // The recap must still be next, and it goes on the card word for word with the blanks filled.
+  factsReply = { problem: "you have chips on the side door", solve: "clean up the swirls around them and keep the gloss", color: "black", done: ["s07", "s08", "s09", "s10", "s11", "s12", "s13"], lead: [] };
   await sleep(2700); t.rep("Have you had a coating before?"); await sleep(50);
-  t.lead("No, first time actually.", { end: true }); await sleep(1300); // this answer triggers the notes refresh
-  t.rep("Okay cool, good to know."); await sleep(50); aiAsk = "-"; aiSay = "Perfect, thanks for walking me through that.";
-  t.lead("Yeah no problem at all.", { end: true }); await sleep(1100);
+  aiAsk = "What got you interested in a coating?"; aiSay = "Perfect, thanks for walking me through that. The correction takes those chips out before the coating goes on.";
+  t.lead("No, first time actually.", { end: true }); await sleep(1300);
   const a = last(t.answers()), u = last(aiCalls).user; aiAsk = ""; aiSay = "";
-  check("model is told the next step is a passage", /NEXT STEP s12 is a SCRIPT PASSAGE/.test(u), u.match(/NEXT STEP[^\n]*/));
-  check("recap goes on the card word for word with the blanks filled", a.then && a.then.id === "s12" && /you have a black 2022 BMW 430i & you're interested in getting a ceramic coating because you have chips on the side door\. Did I get that right\?/.test(a.then.text) && /It can definitely clean up the swirls around them and keep the gloss\./.test(a.then.text) && !a.ask, a);
+  check("notes cannot skip the recap: it is the next step", /NEXT STEP s12 is a SCRIPT PASSAGE/.test(u), u.match(/NEXT STEP[^\n]*/));
+  check("the bridge is one sentence and the AI's own question is dropped", a.say === "Perfect, thanks for walking me through that." && !a.ask && t.answers().every(x => !/before the coating goes on/.test(x.say)), a);
+  check("recap goes on the card word for word with the blanks filled", a.then && a.then.id === "s12" && /you have a black 2022 BMW 430i & you're interested in getting a ceramic coating because you have chips on the side door\. Did I get that right\?/.test(a.then.text) && /It can definitely clean up the swirls around them and keep the gloss\./.test(a.then.text), a);
+  // the rep reads the recap: the call moves on to the prep (also a passage, also not skippable by the notes)
+  t.rep("So if I'm understanding everything right, you have a black 2022 BMW 430i and you're interested in getting a ceramic coating because you have chips on the side door. Did I get that right? Got it. Well from what I heard I think our coating is perfect for you. It can definitely clean up the swirls. Is it cool if I walk you through our process and how it all works?"); await sleep(50);
+  t.lead("Yeah that's right, go for it.", { end: true }); await sleep(1300);
+  check("after the rep reads the recap the next step is the prep", /NEXT STEP s13 is a SCRIPT PASSAGE/.test(last(aiCalls).user) && last(t.answers()).then.id === "s13", last(aiCalls).user.match(/NEXT STEP[^\n]*/));
+  // a lead who objects gets an answer first; the passage waits
+  aiAsk = "Is it the price, or the timing?";
+  t.rep("Let me walk you through it."); await sleep(50);
+  t.lead("Honestly I need to think about it.", { end: true }); await sleep(1300);
+  check("an objection is handled before the passage", !last(t.answers()).then && last(t.answers()).ask === "Is it the price, or the timing?", last(t.answers())); aiAsk = "";
+  // the rep states the price: everything before the price step is behind us
+  t.r.ctx.price = "599"; t.rep("With the special you get all of it for just $599."); await sleep(50);
+  t.lead("Okay that works for me.", { end: true }); await sleep(1300);
+  check("once the price is said the call is at booking", /NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/));
   factsReply = null; }
+
+// 19j. owner's rule enforced in code: free windshield and wheel coatings / add-ons never reach the card (the AI said them on real calls)
+{ aiCalls = []; const t = room();
+  aiSay = "With the special, the total comes to $599 with the paint correction, free windshield and wheel coatings, and a 5 year warranty."; aiAsk = "Want me to walk you through the free add-ons that come with the special?";
+  t.lead("What is the price, sir?", { end: true }); await sleep(900); const a = last(t.answers()); aiSay = ""; aiAsk = "";
+  check("free add-ons are replaced by the free interior detail", a.say === "With the special, the total comes to $599 with the paint correction, a free interior detail, and a 5 year warranty." && !/add-?ons?|windshield|wheel/i.test(a.ask) && /free interior detail/.test(a.ask) && t.answers().every(x => !/windshield/i.test(x.say)), t.answers()); }
+
+// 19k. the lead's name is not used in answer after answer
+{ aiCalls = []; const t = room(); t.r.ctx.name = "Angel Test"; aiSay = "Good to hear, Angel.";
+  t.lead("I'm doing good today.", { end: true }); await sleep(1000); aiSay = "";
+  t.rep("Glad to hear it."); await sleep(50);
+  t.lead("So what is this about then?", { end: true }); await sleep(900);
+  check("model is told not to use the name again", /Do NOT use their name in this answer/.test(last(aiCalls).user), last(aiCalls).user); }
+
+// 19l. call screening cut off mid-sentence is still a machine
+{ aiCalls = []; const t = room(); t.lead("Hi. If you record your", {}); await sleep(100); t.end(); await sleep(1300);
+  check("partial call-screening line is skipped", aiCalls.length === 0 && t.logs.some(l => l.why === "machine"), t.logs); }
 
 // 19i. the car is not named in answer after answer ("black BMW" five times in a row on a real call)
 { aiCalls = []; const t = room(); t.r.ctx.car = { year: 2025, make: "BMW", model: "430i" }; t.r.facts = { color: "black" };
@@ -246,12 +290,17 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
 
 // 19e. the script outline is built from the imported script (main lines only, branches and coach notes left out, skipped steps dropped)
 { const src = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8"), a = src.indexOf("function coachVar("), b = src.indexOf("const KNOWLEDGE_DEFAULT");
-  const coachSteps = new Function(src.slice(a, b) + "; return coachSteps;")();
+  const c1 = src.indexOf("const COACH_STOP"), c2 = src.indexOf("function coachStepAsked");
+  const coachSteps = new Function(src.slice(c1, c2) + src.slice(a, b) + "; return coachSteps;")();
   const sc = { steps: [
     { id: "06", phase: "discovery", main: [{ k: "say", ps: [{ t: "Fantastic. What's the year, make & model?" }, { t: "& what color is the paint?" }, { note: "Black shows swirls the most." }] }] },
     { id: "07", phase: "discovery", main: [{ k: "say", ps: [{ t: "Do you notice any swirl marks?" }, { sub: "If yes", t: "Where do you notice them the most?" }] }, { k: "outcomes", opts: [{ cond: "yes", nodes: [{ k: "probe", ps: [{ t: "How long?" }] }] }] }] },
     { id: "19", phase: "close", main: [{ k: "say", ps: [{ t: "With the special it is just {price}. Sound good?" }] }] },
     { id: "03", phase: "opener", main: [{ k: "say", ps: [{ t: "You doing anything exciting today?" }] }] } ] };
+  const known = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, { year: 2010, make: "Toyota", model: "Camry" }, "coating");
+  check("a car on file is confirmed, not asked for", known[0].q === "Fantastic. I have you down for a 2010 Toyota Camry, is that right? & what color is the paint?", known[0]);
+  const addons = coachSteps({ steps: [{ id: "17", main: [{ k: "say", ps: [{ t: "& something I forgot to mention, the special also comes with 2 free add ons." }, { t: "So that’s $450 in add ons, free. Does all that sound good? Any questions?" }], list: [{ h: "Windshield coating · normally $150", t: "Rain beads right off." }, { h: "Wheel coating · normally $300", t: "Repels brake dust." }] }] }, { id: "19", main: [{ k: "say", ps: [{ t: "So normally our package starts at {reg}, but with the special you get all of it, plus the free windshield & wheel coatings, for just {price}. Sound good?" }] }] }] }, { coatPrice: 599, coatReg: 899 }, null, "coating");
+  check("script lines about free add-ons are rewritten to the free interior detail", addons[0].full === "& something I forgot to mention, the special also comes with a free interior detail. Does all that sound good? Any questions?" && addons[1].full === "So normally our package starts at $899, but with the special you get all of it, plus a free interior detail, for just $599. Sound good?", addons);
   const out = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, null, "coating");
   check("script outline is built from the imported script", out.length === 3 && out[0].passage === false && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
 
@@ -275,7 +324,7 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   t.lead("Actually what about the warranty?", { end: true }); await sleep(1000);
   t.rep("Let me check on that."); await sleep(50); aiAsk = "";
   t.lead("Alright sounds fine to me.", { end: true }); await sleep(1000);
-  check("twice-shown question is listed as covered", /ALREADY ASKED[^]*walk you through how our process works/.test(last(aiCalls).user), last(aiCalls).user); }
+  check("twice-shown question is listed as covered", /ALREADY PUT TO THE LEAD[^]*walk you through how our process works/.test(last(aiCalls).user), last(aiCalls).user); }
 
 // 20. a model that refuses "thinking: disabled" still answers (falls back to thinking with a larger limit). Keep this test last: the fallback sticks.
 { aiMode = "no-disable"; aiCalls = []; const t = room();
