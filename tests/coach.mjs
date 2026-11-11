@@ -3,7 +3,7 @@
 import { CallRoom } from "../src/worker.js";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-let aiDelay = 150, aiMode = "ok", aiCalls = [];
+let aiDelay = 150, aiMode = "ok", aiCalls = [], aiAsk = "";
 // fake Anthropic: streams one JSON answer that echoes what the lead "just finished saying"
 globalThis.fetch = async (url, init) => {
   if (!String(url).includes("/v1/messages")) throw new Error("unexpected fetch " + url);
@@ -11,7 +11,7 @@ globalThis.fetch = async (url, init) => {
   aiCalls.push({ said, user, thinking: body.thinking, max: body.max_tokens });
   if (aiMode === "no-disable" && body.thinking) return new Response("thinking.type.disabled is not supported", { status: 400 });
   if (aiMode === "http529") return new Response("overloaded", { status: 529 });
-  const text = aiMode === "garbage" ? "Sure! Here is my answer" : JSON.stringify({ say: "ANSWER TO: " + said, ask: "next question?", needs_eyes: false });
+  const text = aiMode === "garbage" ? "Sure! Here is my answer" : JSON.stringify({ say: "ANSWER TO: " + said, ask: aiAsk || "next question?", needs_eyes: false });
   const enc = new TextEncoder(), ev = o => enc.encode("data: " + JSON.stringify(o) + "\n\n");
   const delay = aiMode === "slow" ? 6000 : aiDelay;
   return new Response(new ReadableStream({
@@ -167,6 +167,24 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   check("hanging sentence is not answered right away", aiCalls.length === 0, aiCalls.length);
   t.lead("the Tesla Model 3.", { end: true }); await sleep(1000);
   check("answered once the sentence is finished", aiCalls.length === 1 && aiCalls[0].said === "I got the... the Tesla Model 3.", aiCalls.map(c => c.said)); }
+
+// 19b. a question the rep already asked is listed as done, and a stale position hint pointing at it is dropped
+{ aiCalls = []; aiAsk = "Do you notice any swirl marks in the paint?"; const t = room();
+  t.r.pos = { next: "Do you notice any swirl marks or light scratches in the paint?", step: "07" };
+  t.lead("It's a blue Tesla.", { end: true }); await sleep(900);
+  check("hint is passed before the question was asked", /NEXT SCRIPT LINE/.test(aiCalls[0].user) && !/ALREADY ASKED/.test(aiCalls[0].user), aiCalls[0].user);
+  t.rep("Nice, blue shows everything. Do you notice any swirl marks in the paint?"); await sleep(50);
+  aiAsk = "Where do you notice them most?";
+  t.lead("Yeah.", { end: true }); await sleep(1000);
+  const u = last(aiCalls).user; aiAsk = "";
+  check("asked question is listed and the stale hint is dropped", /ALREADY ASKED[^]*- Do you notice any swirl marks in the paint\?/.test(u) && !/NEXT SCRIPT LINE/.test(u), u); }
+
+// 19c. a question the coach suggested but the rep never said is NOT treated as asked
+{ aiCalls = []; aiAsk = "How long are you planning to keep the car?"; const t = room();
+  t.lead("It's a blue Tesla.", { end: true }); await sleep(900);
+  t.rep("Got it, and where do you usually park it?"); await sleep(50); aiAsk = "";
+  t.lead("In the garage.", { end: true }); await sleep(1000);
+  check("unasked suggestion is not listed as asked", !/ALREADY ASKED/.test(last(aiCalls).user), last(aiCalls).user); }
 
 // 20. a model that refuses "thinking: disabled" still answers (falls back to thinking with a larger limit). Keep this test last: the fallback sticks.
 { aiMode = "no-disable"; aiCalls = []; const t = room();
