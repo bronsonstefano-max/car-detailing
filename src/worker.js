@@ -3837,7 +3837,7 @@ main.m-idle,main.m-ended{grid-template-columns:370px minmax(0,1fr)}
 main.m-idle .rail,main.m-ended .rail{grid-column:1;grid-row:4;position:sticky;top:16px;max-height:calc(100dvh - 40px);overflow-y:auto}
 main.m-idle .center,main.m-ended .center{grid-column:2;grid-row:4;display:flex;flex-direction:column;gap:16px;min-width:0}
 main.m-idle .rcol,main.m-ended .rcol,main.m-idle .callrow,main.m-ended .callrow{display:none}
-main.m-idle #after,main.m-idle #coach,main.m-idle #nxtrow{display:none}main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
+main.m-idle #after,main.m-idle #coach,main.m-idle #nxtrow{display:none}main.m-ended #coach,main.m-ended .rcol,main.m-ended #script,main.m-ended .tr{display:none!important} /* after the call the script, coach and transcript go away: only the wrap-up shows */main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
 /* on a call: the script is the big column on the left, the AI coach sits on the right, queue tucked away */
 main.m-call{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 main.m-call .rail,main.m-call .brief,main.m-call #after,main.m-call #nxtrow{display:none}
@@ -4116,9 +4116,10 @@ function sv(slot,l,svc){
     case 'YEAR MAKE MODEL':case 'YEAR MAKE & MODEL':return vehOf(l);
     case 'AREA':return ofv('area')||'';
     case 'WINDOWS':return FACTS.windows||'';case 'SHADE':return FACTS.shade||'';case 'TIMEFRAME':return FACTS.time||'';case 'COLOR':return FACTS.color||'';
-    case 'GOAL':case 'PROBLEM':return g.length?joinAnd(g.map(x=>GOALT[x][0])):'';
-    case 'SOLVE THEIR PROBLEM':{const u=g.filter(x=>!(x==='wash'&&g.indexOf('restore')>=0));return u.length?joinAnd(u.map(x=>GOALT[x][1])):''}
+    case 'GOAL':case 'PROBLEM':if(FACTS.ai&&FACTS.ai.problem)return FACTS.ai.problem;return g.length?joinAnd(g.map(x=>GOALT[x][0])):'';
+    case 'SOLVE THEIR PROBLEM':{if(FACTS.ai&&FACTS.ai.solve)return FACTS.ai.solve;const u=g.filter(x=>!(x==='wash'&&g.indexOf('restore')>=0));return u.length?joinAnd(u.map(x=>GOALT[x][1])):''}
   }return ''}
+function setAiFacts(m){const n={problem:String(m.problem||''),solve:String(m.solve||'')};const o=FACTS.ai||{};if(n.problem===(o.problem||'')&&n.solve===(o.solve||''))return;FACTS.ai=n;if(m.color&&!FACTS.color)FACTS.color=String(m.color);if(gScript()&&Q[ix])gFull()}
 function gAnalyze(who,text){
   if(who!=='lead')return;const t=String(text||'').toLowerCase(),F=FACTS,sv0=gsvc(Q[ix]),ok=g=>sv0==='coating'?/restore|protect|wash/.test(g):/heat|look|uv/.test(g),add=g=>{if(ok(g)&&F.goals.indexOf(g)<0&&F.goals.length<2)F.goals.push(g)};
   if(/\\b(hot|heat|cool|sweat|a\\/?c|air condition|burn|baking|boiling)\\b/.test(t))add('heat');
@@ -4376,7 +4377,7 @@ function showAns(o){if(o.src!=='ai')return; // only the AI coach answers: script
   curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
 function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   const lat=a.ms&&(a.ms.total||a.ms.say)?' &middot; '+((a.ms.total||a.ms.say)/1000).toFixed(1)+'s':'';
-  const pill=a.src==='ai'?'<span class="pill ok">AI answer'+lat+'</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
+  const pill=a.src==='ai'?(a.backup?'<span class="pill warn">Backup answer</span>':'<span class="pill ok">AI answer'+lat+'</span>'):a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
   let h='<div class="bar">'+pill+(q?'<span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span>':'')+'</div>';
   if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
   h+='<p class="say">'+$(a.say||'')+'</p>';
@@ -4406,15 +4407,16 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
      +'<span class="gb"><button type="button" class="btn sm g" data-said="1">Said it</button><button type="button" class="btn sm" data-skip="'+$(s.id)+'">Skip step</button><button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button></span>'}
   if(od.length&&!det)h+='<div class="gts"><span class="gl">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('')+'</div>';
   box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
-function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
+function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));if(m.facts)setAiFacts(m.facts);return}
   if(m.type==='live'){cs('Listening');return}
   if(m.type==='transcript'){addLine(m.who,m.text,m.final,m.low);if(m.speak&&practiceOn&&el('pspk')&&el('pspk').checked&&window.speechSynthesis){try{const u=new SpeechSynthesisUtterance(m.text);u.rate=1.05;speechSynthesis.speak(u)}catch(_){}}if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
   if(m.type==='practice_ready'){const l=Q[ix];if(l&&l.practice){Object.assign(l,m.lead);INFO[0]={lead:l,facts:{attempts:0,talkSecs:0,connected:0},notes:[],calls:[],texts:[],activity:[]};drawLead();drawScript();drawBrief(l);drawQ()}return}
   if(m.type==='practice_score'){practiceFinish(m.score,m.persona);return}
   if(m.type==='practice_error'){setSt(m.message||'Practice problem','bad');return}
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
+  if(m.type==='facts'){setAiFacts(m);return}
   if(m.type==='coach_skip'){cs('AI quiet on "'+String(m.q||'').slice(0,40)+'" ('+(m.why||'')+')');setTimeout(()=>{if(el('cst').textContent.indexOf('AI quiet')===0)cs('Listening')},12000);return}
-  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
+  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',backup:m.backup,q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
@@ -4636,6 +4638,7 @@ Ground rules:
 - When the lead says they do not know about the product ("I don't know anything", "not really", "no idea", "never heard of it", "what is that"), always step in: this is not a normal answer. "say" is a warm one-breath reassurance plus a plain-English explanation of the product in at most two short sentences (what it is and the main benefit: protection, gloss, easier washing for a coating; heat, privacy, UV for tint), using only wording and facts from the SCRIPT, OFFER or SHOP FACTS, with no numbers or claims that are not there. "ask" is then the NEXT SCRIPT LINE so the call keeps moving. Set "answered" true.
 - Your answer is the main thing the rep reads, so step in on ANYTHING that does not simply move the call forward: any question (even one the script covers), confusion or a request to repeat ("hello?", "what?", "wait, what is that?"), "I don't know", an objection or worry, a comparison, an off-topic remark or story, a joke, a complaint, new information that changes the plan, an unusual request, or a buying signal. When unsure, answer. Return {"answer": false} only when the lead plainly gave the information the rep just asked for, or said a bare "yeah", "ok", "good, you?".
 - Price questions ("how much", "what does it cost"): do not state a dollar amount the first time it is asked, unless the call is already at the script's price step. Acknowledge, say that with the special it is a lot less than the normal price, and say the price depends on when they would like to book, then ask when they would like to get it done. Example: "Great question, with the special it's a lot less than our normal price. The price depends on when you'd like to book, so what day were you thinking?" Give the exact number only when the lead asks again, presses for it, or the call has reached the script's price step. Use only the amounts in the OFFER.
+- "I don't have much time" / "get to the bottom line" / "I'm busy": this is the most important moment, so always answer. Acknowledge it in a few words ("Absolutely, I'll be quick"), then give the shortest useful version: one line on what the special includes and that the price depends on when they book, and ask the single question that moves to the price (the car, or when they want it done). If they already gave the car and timing, give the price straight away. Never read a long pitch.
 - "I'm not interested" / "no thanks" / "I don't need it": never give up and never argue. Acknowledge it warmly, then ask one soft curious question to find the real reason ("Totally fair. Was it the price, or just not sure it's right for the car?"), using any matching PLAYBOOK from the script. Do not stack the pitch.
 - "I thought it was free" (or any surprise about cost): acknowledge the mix-up without blame, say what the special actually is using only wording from the SCRIPT or OFFER (the special is a lower price, not free), and ask whether they would still like to hear what it includes.
 - "Just shopping around" or comparing prices: respect it ("Smart, you should compare"), and ask what they are comparing or what matters most (quality, warranty, price), then use only the script's own points about why the shop is different. Do not quote a number on the first ask.
@@ -4719,6 +4722,25 @@ async function coachStream(env, system, user, onSay, opts) {
     return { text, usage, ms };
   } catch (e) { return { error: "failed", ms }; } finally { clearTimeout(timer); }
 }
+// What the lead has told us so far, in their own words, for the recap line ("you're interested in a coating because ___ ... it can definitely ___")
+const FACTS_RULES = `You read a live car-detailing sales call and write two short phrases the rep will read out in the recap. Use ONLY what the lead actually said, plus the shop's own benefits from the SCRIPT or SHOP FACTS below. Reply with ONLY one JSON object: {"problem": "", "solve": "", "color": ""}.
+- "problem": why the lead wants this, phrased to finish the sentence "you're interested in getting it because ____". Start with "you" and be specific, in their words: "you have swirl marks on the bumper", "you just bought the car and want to keep it protected", "you're sick of how hot the car gets". Keep the exact spot when they named one (bumper, hood, doors). If they said they have no swirls or scratches, use their answer to "what has you interested" instead. At most 18 words.
+- "solve": how the service fixes that, phrased to finish "It can definitely ____". A verb phrase using only benefits from the SCRIPT or SHOP FACTS, matched to their problem: "bring that bumper back to looking new again", "keep the paint protected so washing is easy". At most 20 words.
+- "color": the paint color if the lead said it, otherwise "".
+- If the lead has not said enough yet, leave a field as an empty string. Never invent anything.`;
+// last line of defense: if the AI cannot answer (service error, slow reply, unreadable reply) the rep still gets a safe answer for the common moments
+function backupAnswer(said, pos) {
+  const t = String(said || "").toLowerCase(), next = pos && pos.next ? String(pos.next).slice(0, 200) : "";
+  const ans = (say, ask) => ({ answer: true, say, ask: ask || next, anchor: "", needs_eyes: false, note: "", answered: true, backup: true });
+  if (/(how much|price|cost|quote|ballpark)/.test(t)) return ans("Great question, with the special it's a lot less than our normal price. The price depends on when you'd like to book.", "So how soon were you looking to get it done?");
+  if (/(no time|not much time|don'?t have (too |much |a lot of )?time|bottom line|in a hurry|busy|have to go|got to go|gotta go|quick)/.test(t)) return ans("Absolutely, I'll keep it quick.", "What day were you thinking of getting it done, and I'll give you the exact number?");
+  if (/(free\b)/.test(t)) return ans("No worries, that's a common mix-up. It's a special price, not free, and it's a lot less than our normal price.", "Would you still like to hear what's included?");
+  if (/(not interested|no thanks|no thank you|don'?t (want|need))/.test(t)) return ans("Totally fair, I appreciate you being upfront.", "Just so I understand, was it the price, or you're not sure it's right for the car?");
+  if (/(shopping|shop around|lowest|cheapest|compare|looking around|other shop|another shop)/.test(t)) return ans("Smart to compare, you should.", "What are you comparing it to, and what matters most to you, the price or how long it lasts?");
+  if (/(think about|wife|husband|girlfriend|boyfriend|talk to)/.test(t)) return ans("Makes sense, it's a decision you should feel good about.", "What's the main thing you'd want to think over?");
+  if (/(what is|what's|don'?t know|no idea|never heard)/.test(t)) return ans("No worries, that's what I'm here for. A ceramic coating is a protective layer that bonds to your paint, keeps it glossy and makes washing easier.", "");
+  return ans("Got it, thanks for telling me.", "");
+}
 async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}${t.low ? " (unclear audio)" : ""}: ${t.text}`).join("\n");
   const real = libPick(ctx.lib, said);
@@ -4726,8 +4748,9 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
   // objections, worries and price or "what is it" questions always get an answer: the model must not decide to stay quiet on these
-  const forced = /(not interested|no thanks|no thank you|don'?t (want|need)|not (looking|ready)|free\b|shopping|shop around|just looking|too (much|expensive|pricey)|how much|price|cost|think about|wife|husband|girlfriend|scam|catch|what('s| is)|don'?t know|no idea|never heard|why|expensive|cheap|lowest|lower price|best price|budget|afford|compare|deal|discount|looking for|competitor|another shop|other shop|quote)/i.test(said);
-  const userMsg = forced ? user + "\nThis is an objection, worry or question: you MUST answer it (answer: true). Never return answer false here." : user;
+  const forcedWords = /(not interested|no thanks|no thank you|don'?t (want|need)|not (looking|ready)|free\b|shopping|shop around|just looking|too (much|expensive|pricey)|how much|price|cost|think about|wife|husband|girlfriend|scam|catch|what('s| is)|don'?t know|no idea|never heard|why|expensive|cheap|lowest|lower price|best price|budget|afford|compare|deal|discount|looking for|competitor|another shop|other shop|quote)/i.test(said);
+  const forced = true; void forcedWords; // every lead remark except a bare "yeah"/"ok" (filtered before this point) gets an answer: the coach is never silent
+  const userMsg = forced ? user + "\nYou MUST answer this (answer: true). Never return answer false: acknowledge what the lead said, comment, and ask the next useful question." : user;
   const res = await coachStream(env, ctx.system, userMsg, onSay, { max: 600, abortFalse: !forced });
   if (res.error) return { error: res.error };
   const text = res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
@@ -4823,7 +4846,7 @@ export class CallRoom {
   broadcast(msg) { const t = JSON.stringify(msg); for (const b of this.browsers) { try { b.send(t); } catch (e) { this.browsers.delete(b); } } }
   attachBrowser(ws) {
     this.browsers.add(ws);
-    try { ws.send(JSON.stringify({ type: "hello", turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
+    try { ws.send(JSON.stringify({ type: "hello", facts: this.facts || null, turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
     ws.addEventListener("message", ev => { try { const m = JSON.parse(ev.data); if (m && m.type === "pos") this.pos = { next: String(m.next || "").slice(0, 400), step: String(m.step || "").slice(0, 80) }; else if (m && m.type === "practice_say") this.onPracticeSay(m.text); else if (m && m.type === "practice_end") this.scorePractice(m.covered); } catch (e) { /* ignore */ } });
     ws.addEventListener("close", () => this.browsers.delete(ws)); ws.addEventListener("error", () => this.browsers.delete(ws));
   }
@@ -4929,6 +4952,24 @@ export class CallRoom {
     this.broadcast({ type: "end", who });
     if (who === "lead" && coachAi(this.env) && this.leadBuf.length) this.askCoach();
   }
+  async refreshFacts() {
+    if (this.factsBusy || this.ended || !coachAi(this.env)) return;
+    const turns = this.turns.slice(-24);
+    if (!turns.some(t => t.who === "lead")) return;
+    this.factsBusy = true; const n = this.turns.length;
+    try {
+      if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
+      const recent = turns.map(t => `${t.who === "lead" ? "LEAD" : "REP"}: ${t.text}`).join("\n");
+      const res = await coachStream(this.env, FACTS_RULES + "\n\nService: " + (this.ctx.svc || "unknown") + "\n\n" + this.ctx.body, `Transcript:\n${recent}\n\nReturn the JSON.`, null, { max: 250, abortFalse: false, timeout: 10000 });
+      const text = res && res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
+      if (a >= 0 && b > a) {
+        const o = JSON.parse(text.slice(a, b + 1)), c = x => String(x == null ? "" : x).replace(/\s+/g, " ").trim().slice(0, 160);
+        const f = { problem: c(o.problem), solve: c(o.solve), color: c(o.color) };
+        if (JSON.stringify(f) !== JSON.stringify(this.facts || {})) { this.facts = f; this.broadcast({ type: "facts", ...f }); }
+      }
+    } catch (e) { /* the recap falls back to the standard wording */ }
+    finally { this.factsBusy = false; if (this.turns.length > n && !this.ended) this.refreshFacts(); }
+  }
   async warm() {
     if (this.warmed || !coachAi(this.env) || !this.env.DB) return; this.warmed = true;
     try { this.ctx = this.ctx || await coachContext(this.env, this.leadId); await coachStream(this.env, this.ctx.system, 'Warm-up only. Reply with {"answer": false}', null); } catch (e) { /* the real request will build it */ }
@@ -4959,13 +5000,14 @@ export class CallRoom {
     try {
       if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
       const ctxMs = Date.now() - t0;
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
-      if (out && out.error) this.broadcast({ type: "coach_error" });
-      else if (!out || !out.answer || !out.say) this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: !out ? "reply could not be read" : "chose not to answer" });
-      if (out && out.error) { /* shown above */ }
-      else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
+      let out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
+      if (!out || out.error || !out.say) out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } })); // one retry: a slow or garbled reply must not leave the rep without help
+      if (!out || out.error || !out.answer || !out.say) { // still nothing after the retry: show the safe backup answer so the rep is never left without help
+        this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: out && out.error ? "AI service error " + out.error + ", backup answer shown" : !out ? "reply could not be read, backup answer shown" : "chose not to answer, backup answer shown" });
+        this.broadcast({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } });
+      } else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
-    finally { this.coachBusy = false; if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
+    finally { this.coachBusy = false; this.refreshFacts(); if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
   }
   async finish() {
     if (this.ended) return; this.ended = true;
