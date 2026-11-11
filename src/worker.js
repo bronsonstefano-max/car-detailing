@@ -3892,12 +3892,36 @@ header h1{letter-spacing:-.2px}
 #fbox .fbs{display:flex;gap:8px}#fbox .fbs .btn{flex:1;min-height:42px;padding:8px 6px}#fbox .fo{display:grid;grid-template-columns:1fr 1fr;gap:6px}#fbox .fo .btn{min-height:40px;padding:6px}#fbox .btn.on{background:#10301a;border-color:#2f9e3f;color:#9fe29f}#fbox .fm{color:#ffb86b;font-size:12.5px}
 @media(max-width:1023px){#navdr{left:0;bottom:calc(58px + env(safe-area-inset-bottom,0px))}#fbox{right:10px;left:10px;width:auto;bottom:calc(70px + env(safe-area-inset-bottom,0px))}}
 ${BNAV_CSS}
-/* compact lead card: the idle screen should not take over the page */
-.brief{padding:14px 18px;gap:10px;border-radius:16px;box-shadow:none}
-.bh{gap:12px}.bh .av{width:44px;height:44px;font-size:16px;box-shadow:0 0 0 2px #0b0f13,0 0 0 3px #1f6a37}.bh h2{font-size:21px;letter-spacing:-.2px}.bh .ph{font-size:15px;margin-top:2px}
-.brief .chip{padding:3px 10px;font-size:12px}.brief .chips{gap:6px}
-.bgrid{gap:10px}.bc{padding:12px 14px;border-radius:12px;gap:4px;box-shadow:none}.bc p{font-size:14px;line-height:1.4}.bc .big{font-size:16px}.bc .mut{font-size:13px}.bc h4{font-size:10.5px;margin:6px 0 1px}
-.bcall{min-height:42px;font-size:15px;border-radius:12px;width:auto;align-self:flex-start;padding:0 28px;box-shadow:none}.skip{align-self:flex-start;min-height:36px;font-size:13px;padding:6px 14px}
+/* dialer idle screen, redesign: quiet dark surfaces, hairlines instead of boxes, one accent, text over chips */
+#topbar .btn.sm{background:none;border:1px solid var(--line2);color:var(--mut);font-size:12.5px;font-weight:600;border-radius:999px;padding:6px 14px;min-height:0}#topbar .btn.sm:hover{color:var(--text);border-color:#344150}
+main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
+/* queue */
+.rail{background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 24px 0 0;box-shadow:none}
+.rail h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:700}
+.qf{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 10px}
+.qf button,.qf .chip{flex:0 0 auto;background:none;border:1px solid var(--line2);color:var(--mut);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.qf button.on,.qf .on{background:var(--accent-bg);border-color:var(--accent-line);color:var(--accent2)}
+.rail .rs{display:flex;gap:14px;flex-wrap:wrap;padding:2px 0 12px}.rs span{background:none;border:0;padding:0;border-radius:0;font-size:12px;color:var(--dim)}.rs b{color:var(--text)}
+.q .it{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;align-items:center;background:none;border:0;border-top:1px solid var(--line);border-radius:0;margin:0;padding:11px 10px 11px 12px;box-shadow:none;position:relative}
+.q .it:hover{background:var(--panel2)}.q .it .av{width:34px;height:34px;font-size:12px;background:var(--panel2);border:1px solid var(--line2);color:var(--mut)}
+.q .it .tx b{font-size:14px;font-weight:600}.q .it .tx small{font-size:12px;color:var(--dim)}
+.q .it .bd{background:none;color:var(--dim);font-size:10.5px;padding:0;letter-spacing:.08em}
+.q .it.cur{background:#0c1a11;box-shadow:none;border-color:var(--line)}.q .it.cur::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:2px;background:var(--accent)}.q .it.cur .av{background:var(--accent-bg);border-color:var(--accent-line);color:var(--accent2)}.q .it.cur .bd{background:none;color:var(--accent2)}
+.q .it.fresh{background:none}.q .it.done{opacity:.4}
+/* lead card */
+.brief{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:none;padding:20px 28px 26px;gap:18px}
+.brief .tabs{gap:22px;background:none;padding:0;border:0}.brief .tabs button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--mut);padding:6px 0;font-size:13px;font-weight:600;min-height:0}.brief .tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.bact{position:absolute;top:14px;right:22px;display:flex;align-items:center;gap:8px}
+.bcall{height:38px;min-height:38px;width:auto;padding:0 22px;border-radius:999px;background:var(--accent);border:0;color:#04120a;font-size:14px;font-weight:700;box-shadow:0 0 0 4px rgba(50,205,50,.12);letter-spacing:0}.bcall:hover{filter:brightness(1.08)}
+.skip{background:none;border:0;color:var(--mut);font-size:13px;font-weight:600;padding:8px 10px;min-height:0}.skip:hover{color:var(--text)}
+.bh{gap:16px;margin-top:6px}.bh .av{width:52px;height:52px;font-size:18px;background:var(--panel2);border:1px solid var(--accent-line);color:var(--accent2);box-shadow:none}
+.bh h2{font-size:26px;font-weight:650;letter-spacing:-.02em}.bh .ph{color:var(--mut)!important;font-size:14px;font-weight:500;letter-spacing:.02em;margin-top:3px}
+.brief .chips{gap:0;flex-wrap:wrap;margin-top:-6px}.brief .chip{background:none;border:0;padding:0;border-radius:0;color:var(--mut);font-size:13px;font-weight:500}.brief .chip+.chip::before{content:"\\00b7";margin:0 9px;color:var(--dim)}.brief .chip.hot{background:none;color:var(--accent2);font-weight:650}
+.bgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:40px;border-top:1px solid var(--line);padding-top:20px}
+.bc{background:none;border:0;border-radius:0;padding:0;box-shadow:none;gap:6px}
+.bc h4{display:block;margin:14px 0 4px;font-size:10.5px;letter-spacing:.14em;color:var(--dim);font-weight:700}.bc h4::after{display:none}.bc h4:first-child{margin-top:0}
+.bc p{font-size:14px;line-height:1.55;color:#b4bcc5}.bc .big{font-size:17px;font-weight:600;color:var(--text);line-height:1.4}.bc .mut{font-size:13px;color:var(--dim)}
+@media(max-width:850px){.bgrid{grid-template-columns:1fr;gap:18px}.bact{position:static;justify-content:flex-end}}
 @media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
 </style></head><body>
 <header><h1>Divine Detailers <b>dialer</b></h1>${nav("dialer", tc, true)}</header>
@@ -3952,7 +3976,7 @@ function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
    +'<div class="bgrid"><div class="bc"><h4>What they asked for</h4><p class="big">'+$(l.service||'Quote request')+'</p>'+(car?'<p>'+$(car)+'</p>':'')+lines.map(x=>'<p class="mut">'+$(x)+'</p>').join('')+(hist.length?'<h4>History</h4>'+hist.map(x=>'<p class="mut">'+$(x)+'</p>').join(''):'')+'</div>'
    +'<div class="bc">'+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div></div><div id="infoc" class="inf"'+(bt==='info'?'':' hidden')+'></div>'
-   +'<button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button><button class="btn skip" id="sk2" type="button">Skip to next lead</button>';
+   +'<div class="bact"><button class="btn skip" id="sk2" type="button">Skip</button><button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button></div>';
   el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
 function syncCb(){const b=el('cb2');if(b)b.disabled=!dev||!inHours()||(state!=='idle'&&state!=='ended')}
 let mt='script',bt='brief',itab='ov',INFO={},SNIPD=[];
