@@ -4377,7 +4377,7 @@ function showAns(o){if(o.src!=='ai')return; // only the AI coach answers: script
   curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
 function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   const lat=a.ms&&(a.ms.total||a.ms.say)?' &middot; '+((a.ms.total||a.ms.say)/1000).toFixed(1)+'s':'';
-  const pill=a.src==='ai'?'<span class="pill ok">AI answer'+lat+'</span>':a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
+  const pill=a.src==='ai'?(a.backup?'<span class="pill warn">Backup answer</span>':'<span class="pill ok">AI answer'+lat+'</span>'):a.src==='card'?'<span class="pill warn">'+$(a.label||'Pushback')+'</span>':'<span class="pill warn">From your script</span>';
   let h='<div class="bar">'+pill+(q?'<span class="note ansq">Lead: &ldquo;'+$(q)+'&rdquo;</span>':'')+'</div>';
   if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
   h+='<p class="say">'+$(a.say||'')+'</p>';
@@ -4416,7 +4416,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
   if(m.type==='facts'){setAiFacts(m);return}
   if(m.type==='coach_skip'){cs('AI quiet on "'+String(m.q||'').slice(0,40)+'" ('+(m.why||'')+')');setTimeout(()=>{if(el('cst').textContent.indexOf('AI quiet')===0)cs('Listening')},12000);return}
-  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
+  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',backup:m.backup,q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cs('Call ended')}}
@@ -4728,6 +4728,19 @@ const FACTS_RULES = `You read a live car-detailing sales call and write two shor
 - "solve": how the service fixes that, phrased to finish "It can definitely ____". A verb phrase using only benefits from the SCRIPT or SHOP FACTS, matched to their problem: "bring that bumper back to looking new again", "keep the paint protected so washing is easy". At most 20 words.
 - "color": the paint color if the lead said it, otherwise "".
 - If the lead has not said enough yet, leave a field as an empty string. Never invent anything.`;
+// last line of defense: if the AI cannot answer (service error, slow reply, unreadable reply) the rep still gets a safe answer for the common moments
+function backupAnswer(said, pos) {
+  const t = String(said || "").toLowerCase(), next = pos && pos.next ? String(pos.next).slice(0, 200) : "";
+  const ans = (say, ask) => ({ answer: true, say, ask: ask || next, anchor: "", needs_eyes: false, note: "", answered: true, backup: true });
+  if (/(how much|price|cost|quote|ballpark)/.test(t)) return ans("Great question, with the special it's a lot less than our normal price. The price depends on when you'd like to book.", "So how soon were you looking to get it done?");
+  if (/(no time|not much time|don'?t have (too |much |a lot of )?time|bottom line|in a hurry|busy|have to go|got to go|gotta go|quick)/.test(t)) return ans("Absolutely, I'll keep it quick.", "What day were you thinking of getting it done, and I'll give you the exact number?");
+  if (/(free\b)/.test(t)) return ans("No worries, that's a common mix-up. It's a special price, not free, and it's a lot less than our normal price.", "Would you still like to hear what's included?");
+  if (/(not interested|no thanks|no thank you|don'?t (want|need))/.test(t)) return ans("Totally fair, I appreciate you being upfront.", "Just so I understand, was it the price, or you're not sure it's right for the car?");
+  if (/(shopping|shop around|lowest|cheapest|compare|looking around|other shop|another shop)/.test(t)) return ans("Smart to compare, you should.", "What are you comparing it to, and what matters most to you, the price or how long it lasts?");
+  if (/(think about|wife|husband|girlfriend|boyfriend|talk to)/.test(t)) return ans("Makes sense, it's a decision you should feel good about.", "What's the main thing you'd want to think over?");
+  if (/(what is|what's|don'?t know|no idea|never heard)/.test(t)) return ans("No worries, that's what I'm here for. A ceramic coating is a protective layer that bonds to your paint, keeps it glossy and makes washing easier.", "");
+  return ans("Got it, thanks for telling me.", "");
+}
 async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}${t.low ? " (unclear audio)" : ""}: ${t.text}`).join("\n");
   const real = libPick(ctx.lib, said);
@@ -4989,10 +5002,10 @@ export class CallRoom {
       const ctxMs = Date.now() - t0;
       let out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
       if (!out || out.error || !out.say) out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } })); // one retry: a slow or garbled reply must not leave the rep without help
-      if (out && out.error) this.broadcast({ type: "coach_error" });
-      else if (!out || !out.answer || !out.say) this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: !out ? "reply could not be read" : "chose not to answer" });
-      if (out && out.error) { /* shown above */ }
-      else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
+      if (!out || out.error || !out.answer || !out.say) { // still nothing after the retry: show the safe backup answer so the rep is never left without help
+        this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: out && out.error ? "AI service error " + out.error + ", backup answer shown" : !out ? "reply could not be read, backup answer shown" : "chose not to answer, backup answer shown" });
+        this.broadcast({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } });
+      } else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
     finally { this.coachBusy = false; this.refreshFacts(); if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
   }
