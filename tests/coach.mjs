@@ -4,7 +4,7 @@ import { CallRoom } from "../src/worker.js";
 import { readFileSync } from "node:fs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-let aiDelay = 150, aiMode = "ok", aiCalls = [], aiAsk = "", factsReply = null, factsCalls = [];
+let aiDelay = 150, aiMode = "ok", aiCalls = [], aiAsk = "", aiSay = "", factsReply = null, factsCalls = [];
 // fake Anthropic: streams one JSON answer that echoes what the lead "just finished saying"
 globalThis.fetch = async (url, init) => {
   if (!String(url).includes("/v1/messages")) throw new Error("unexpected fetch " + url);
@@ -15,7 +15,7 @@ globalThis.fetch = async (url, init) => {
   aiCalls.push({ said, user, thinking: body.thinking, max: body.max_tokens });
   if (aiMode === "no-disable" && body.thinking) return new Response("thinking.type.disabled is not supported", { status: 400 });
   if (aiMode === "http529") return new Response("overloaded", { status: 529 });
-  const text = aiMode === "garbage" ? "Sure! Here is my answer" : JSON.stringify({ say: "ANSWER TO: " + said, ask: aiAsk || "next question?", needs_eyes: false });
+  const text = aiMode === "garbage" ? "Sure! Here is my answer" : JSON.stringify({ say: aiSay || "ANSWER TO: " + said, ask: aiAsk === "-" ? "" : aiAsk || "next question?", needs_eyes: false });
   const enc = new TextEncoder(), ev = o => enc.encode("data: " + JSON.stringify(o) + "\n\n");
   const delay = aiMode === "slow" ? 6000 : aiDelay;
   return new Response(new ReadableStream({
@@ -217,6 +217,28 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
     { id: "03", phase: "opener", main: [{ k: "say", ps: [{ t: "You doing anything exciting today?" }] }] } ] };
   const out = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, null, "coating");
   check("script outline is built from the imported script", out.length === 3 && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
+
+// 19f. one question per card: a question inside "say" is removed (seen on real calls: the same question in both places)
+{ aiCalls = []; const t = room();
+  aiSay = "Awesome, glad to hear it! I woke up on the right side of the grass today. You doing anything exciting today?"; aiAsk = "You doing anything exciting today?";
+  t.lead("I'm doing great.", { end: true }); await sleep(1000);
+  let a = last(t.answers());
+  check("question is removed from say", a.say === "Awesome, glad to hear it! I woke up on the right side of the grass today." && a.ask === "You doing anything exciting today?" && t.answers().every(x => !/\?/.test(x.say)), t.answers());
+  aiSay = "Got it, black. Do you notice any swirl marks?"; aiAsk = "-"; t.rep("What color is it?"); await sleep(50);
+  t.lead("It's black.", { end: true }); await sleep(1000); a = last(t.answers());
+  check("a question left in say moves to ask when ask is empty", a.say === "Got it, black." && a.ask === "Do you notice any swirl marks?", a);
+  aiSay = "Yes, hi!"; aiAsk = "Is this Jeceline? Great, it's Bronson with Divine Detailers."; t.rep("Hello, can you hear me okay?"); await sleep(50);
+  t.lead("Hello? Yes.", { end: true }); await sleep(1000); a = last(t.answers()); aiSay = ""; aiAsk = "";
+  check("ask keeps only the question", a.ask === "Is this Jeceline?", a); }
+
+// 19g. a question that has been on the card twice is treated as covered, even if the rep never said it word for word
+{ aiCalls = []; aiAsk = "Did you want me to walk you through how our process works?"; const t = room();
+  t.lead("No questions so far.", { end: true }); await sleep(1000);
+  t.rep("Okay cool."); await sleep(50);
+  t.lead("Actually what about the warranty?", { end: true }); await sleep(1000);
+  t.rep("Let me check on that."); await sleep(50); aiAsk = "";
+  t.lead("Alright sounds fine to me.", { end: true }); await sleep(1000);
+  check("twice-shown question is listed as covered", /ALREADY ASKED[^]*walk you through how our process works/.test(last(aiCalls).user), last(aiCalls).user); }
 
 // 20. a model that refuses "thinking: disabled" still answers (falls back to thinking with a larger limit). Keep this test last: the fallback sticks.
 { aiMode = "no-disable"; aiCalls = []; const t = room();

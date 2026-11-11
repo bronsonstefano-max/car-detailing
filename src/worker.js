@@ -4681,6 +4681,9 @@ Ground rules:
 - "ask" is ONE short question (at most 15 words), chosen in this order: (1) the script's or PLAYBOOK's own follow-up for what the lead just said (an objection's qualifying question, or the "If yes" / "If no" follow-up to the question the rep just asked); otherwise (2) the NEXT STEP from CALL PROGRESS when it is given: use that step's question in the script's wording, shortened to fit and bridged naturally from what the lead just said. CALL PROGRESS is the system's record of the whole call, so trust it over your own reading of the last few lines; never go back to a finished step. If there is no CALL PROGRESS, use the next question from the script that the lead has not answered yet (a NEXT SCRIPT LINE, when given, is only a hint and can be wrong).
 - Sound like a person who has been listening. When WHAT THIS LEAD HAS TOLD US is given and one of those notes fits the moment, use it in your comment in the lead's own words ("since you're running it through the car wash every week..."). At most one such callback per answer, and never force it. Match the lead's energy: relaxed with a relaxed lead, quick with a rushed one. Do not open every answer the same way ("Great question", "Got it"): vary it, and often just react to what they said.
 - Small talk, a joke or a story from the lead gets one warm, real line back first, then the question. Do not skip the human moment to get to the script, and do not stay in it for more than one line.
+- "say" never contains a question. Every question goes in "ask", and "ask" is exactly one question with nothing after it.
+- Take the lead's answer as given. When the lead names a day, a time, a car, a color or a preference, accept it and move to the next step. Never ask them to confirm what they just said ("is next month the timing you're leaning toward?"), never offer other options after they chose one, and never ask for something the Lead line or the transcript already gives you (the car, the color).
+- Names are written by ear in the transcript and often differ from the name on file (Jessalyn for Jeceline). It is the same person. Never ask the lead to confirm or spell their name and never apologize about the name, unless the lead says you have the wrong person.
 - Never ask the same question twice. Each answer must move the call one step forward. When QUESTIONS THE REP HAS ALREADY ASKED is given, your "ask" must be a different question from every line in it, normally the next one in the script after the last one listed.
 - A short reply such as "yes", "yeah", "no", "not really", "a little" or "I guess" is the lead's answer to REP JUST SAID. Acknowledge that answer in a few words, add one short comment that fits it, and ask the script's follow-up for that answer (the "If yes" or "If no" branch) or the next unanswered question. Never treat a short reply as nothing.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
@@ -4795,7 +4798,7 @@ const FACTS_RULES = `You keep the running notes for a live car-detailing sales c
 - "done": the ids of the SCRIPT STEPS (listed in the message) that are finished. A step is finished when the rep said its line or asked its question in any wording, OR the lead already gave the information that step asks for, even without being asked. Do not mark a step finished just because of where it sits in the list. Copy the ids exactly.
 - "lead": up to 8 short notes on what the lead has told us about themselves, the car and what they want, as close to their own words as possible, the most useful for rapport first: "parks outside under a tree", "runs it through the car wash every week", "keeping it about another year", "noticed the swirls a couple of months ago". Only things the lead said. No guesses, nothing the rep said.
 - If the lead has not said enough yet, leave a field as an empty string or an empty list. Never invent anything. The transcript is live speech-to-text from a phone line and has mistakes (paint heard as pain, coating as coding): read through them.`;
-const COACH_BUILD = "coach-pr4";
+const COACH_BUILD = "coach-pr5";
 const COACH_ACK = /^((yeah|yes|yep|yup|ok|okay|uh[ -]?huh|mm+|m+hm+|sure|right|no|nope|nah|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh|correct|exactly|perfect|awesome|bye)[.!, ]*)+$/i;
 const COACH_FILLER = /^((um+|uh+|hm+|mm+|ah+|er+|oh|so|and|well|like|you know)[.!, ]*)+$/i;
 const COACH_INTENT = /\?|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b|not interested|no thanks|no thank you|expensive|pricey|too much|how much|price|cost|free\b|busy|later|call (me )?back|not now|bad time|can'?t talk|driving|working|wrong number|stop calling|remove me|who is this|sounds good|let'?s do it|i'?ll take it|book it|sign me up|think about|no idea|don'?t know|espa[nñ]ol|spanish/i;
@@ -4823,6 +4826,15 @@ function coachSame(a, b) {
   const w = t => [...new Set(String(t || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(x => x && !stop.has(x)))], x = w(a), y = new Set(w(b));
   if (!x.length || !y.size) return false;
   return x.filter(k => y.has(k)).length / Math.min(x.length, y.size) >= 0.6;
+}
+// One question per card, and it lives in "ask". The model often ends "say" with a question too (sometimes the same one), which made the rep ask twice.
+function coachTidy(say, ask) {
+  say = String(say || "").trim(); ask = String(ask || "").trim();
+  const isQ = x => /\?["')\]]*\s*$/.test(x), parts = say.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [say];
+  const keep = parts.filter(x => !isQ(x)).join(" ").replace(/\s+/g, " ").trim(), qs = parts.filter(isQ);
+  if (qs.length) { if (keep) { say = keep; if (!ask) ask = qs[qs.length - 1].trim(); } else if (ask && coachSame(ask, say)) ask = ""; }
+  const cut = ask.indexOf("?"); if (cut >= 0 && cut < ask.length - 1 && !isQ(ask.slice(cut + 1))) ask = ask.slice(0, cut + 1); // "Is this X? Great, it's..." keeps only the question
+  return { say, ask };
 }
 // did the rep just ask something? (phone transcripts often drop the question mark, so the opening words count too)
 const coachRepAsked = t => { const x = String(t || "").trim().slice(-200); return !!x && (/\?["')\]]?\s*$/.test(x) || /\b(do you|did you|are you|is it|is that|is this|what|how|when|where|which|would you|could you|can you|can i|have you|does it|were you|may i)\b[^.!?]*$/i.test(x)); };
@@ -4887,7 +4899,8 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay, signal, repLa
   }
   const c = x => String(x == null ? "" : x).slice(0, 400);
   if (!c(o.say)) return { unreadable: true, raw: text.slice(0, 500), ...diag };
-  return { answer: true, say: c(o.say), ask: c(o.ask), needs_eyes: !!o.needs_eyes, ...diag };
+  const tidy = coachTidy(c(o.say), c(o.ask));
+  return { answer: true, say: tidy.say, ask: tidy.ask, needs_eyes: !!o.needs_eyes, ...diag };
 }
 
 async function coachSig(env, sid) {
@@ -4998,6 +5011,9 @@ export class CallRoom {
       const r = this.env.DB ? await this.env.DB.prepare("SELECT v FROM dial_settings WHERE k = 'offer'").first() : null; const o = r && r.v ? JSON.parse(r.v) : {};
       this.fixes = (o.fixes || []).filter(x => x && x.f).map(x => [new RegExp(`\\b${esc2(x.f)}\\b`, "gi"), x.t || ""]);
       this.terms = (o.terms || []).filter(Boolean);
+      // this call's own words: the lead's name and car, so they are transcribed as written in the CRM instead of by ear ("Jessalyn" for Jeceline made the coach doubt the name)
+      const l = this.env.DB && this.leadId ? await this.env.DB.prepare("SELECT name, make, model FROM leads WHERE id = ?").bind(this.leadId).first().catch(() => null) : null;
+      if (l) for (const w of [String(l.name || "").trim().split(/\s+/)[0], l.make, l.model, [l.make, l.model].filter(Boolean).join(" ")]) { const k = String(w || "").trim(); if (k.length > 2 && k.length < 40 && !this.terms.includes(k)) this.terms.unshift(k); }
     } catch (e) { /* built-in fixes still apply */ }
   }
   async openDg(track) {
@@ -5005,7 +5021,7 @@ export class CallRoom {
     try {
       if (!this.cfgP) this.cfgP = this.loadCfg(); await this.cfgP;
       const qs = new URLSearchParams({ model: "nova-3", language: this.env.DEEPGRAM_LANGUAGE || "en", encoding: "mulaw", sample_rate: "8000", channels: "1", tag: track === "outbound" ? "dialer-lead" : "dialer-rep", interim_results: "true", endpointing: "300", utterance_end_ms: "1000", smart_format: "true", punctuate: "true" });
-      for (const k of [...DG_KEYTERMS, ...this.terms].slice(0, 100)) qs.append("keyterm", k);
+      for (const k of [...new Set([...this.terms, ...DG_KEYTERMS])].slice(0, 100)) qs.append("keyterm", k);
       const resp = await fetch(`${this.env.DEEPGRAM_BASE || "https://api.deepgram.com"}/v1/listen?${qs}`, { headers: { Upgrade: "websocket", Authorization: `Token ${this.env.DEEPGRAM_API_KEY}` } });
       const ws = resp.webSocket;
       if (!ws) { this.broadcast({ type: "error", message: "The transcription service refused the connection." }); return; }
@@ -5157,7 +5173,7 @@ export class CallRoom {
   // The coach's earlier questions that the rep really asked (their words show up in the rep's side of the transcript after the card went up)
   askedSoFar() {
     for (const a of this.asks) if (!a.done) { const said = this.turns.filter(t => t.who === "rep" && t.at >= a.at).map(t => t.text).join(" ") + " " + (this.repInterim || ""); if (coachSame(a.q, said)) a.done = true; }
-    return this.asks.filter(a => a.done).map(a => a.q);
+    return this.asks.filter(a => a.done || a.n >= 2).map(a => a.q); // on the card twice already: the rep asked it in other words or chose not to, either way move on
   }
   // Where the call is, worked out by the server (not the browser, not the model): the first step after the furthest finished one that has not been covered.
   // The call only moves forward: a step the rep chose to skip is not dragged back.
@@ -5203,15 +5219,17 @@ export class CallRoom {
       const ctxMs = log.ctx = Date.now() - t0;
       // nothing from the AI after 3 seconds: the safe backup answer goes up and STAYS up (a late AI answer would change the words while the rep is reading them)
       backupTm = setTimeout(() => { if (shown || this.coachRestart || this.ended) return; backup = true; show({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } }); try { this.coachAc.abort(); } catch (e) { /* done */ } }, 3000);
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say => { if (this.coachRestart || backup) return; show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.askedSoFar(), { prog: this.progress(), notes: this.leadNotes || [], openers: this.openers || [] }) || {};
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; const say = coachTidy(say0, "").say; show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.askedSoFar(), { prog: this.progress(), notes: this.leadNotes || [], openers: this.openers || [] }) || {};
       if (out.prog && out.prog.next) log.why = "next " + out.prog.next.id;
       log.ms = out.ms; log.usage = out.usage; log.stop = out.stop; log.http = out.http; log.raw = out.raw;
       if (this.coachRestart) { log.outcome = "restarted"; return; } // more of the lead's sentence arrived: this answer is out of date
       if (backup) { log.outcome = "backup"; log.why = "slow"; this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: "AI took over 3s, backup answer shown" }); }
       else if (out.answer) { log.outcome = "shown"; log.raw = (out.say + " | ASK: " + out.ask).slice(0, 500);
         this.openers = [...(this.openers || []), String(out.say).split(/[,.!?]/)[0].split(/\s+/).slice(0, 3).join(" ")].filter(Boolean).slice(-3);
-        if (after && this.asks.length && !this.asks[this.asks.length - 1].done) this.asks.pop(); // same remark answered again: the earlier card's question was never asked
-        if (out.ask && !this.asks.some(a => coachSame(a.q, out.ask))) { this.asks.push({ q: out.ask, at: Math.round((Date.now() - this.t0) / 1000) }); if (this.asks.length > 20) this.asks.shift(); } show({ type: "answer", q: said, answer: true, say: out.say, ask: out.ask, needs_eyes: out.needs_eyes, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } }); }
+        const lastA = this.asks[this.asks.length - 1];
+        if (after && lastA && !lastA.done) { lastA.n--; if (lastA.n <= 0) this.asks.pop(); } // same remark answered again: the earlier card does not count
+        const sameA = out.ask ? this.asks.find(a => coachSame(a.q, out.ask)) : null;
+        if (sameA) sameA.n++; else if (out.ask) { this.asks.push({ q: out.ask, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); if (this.asks.length > 20) this.asks.shift(); } show({ type: "answer", q: said, answer: true, say: out.say, ask: out.ask, needs_eyes: out.needs_eyes, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } }); }
       else { // no usable AI answer: show the safe backup so the rep is never left without help (unless the first sentence is already on screen)
         log.why = out.error ? "error " + out.error : "unreadable" + (out.stop ? " " + out.stop : "");
         this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: out.error ? "AI service error " + out.error + (shown ? "" : ", backup answer shown") : "reply could not be read" + (shown ? "" : ", backup answer shown") });
