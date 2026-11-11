@@ -3837,7 +3837,7 @@ main.m-idle,main.m-ended{grid-template-columns:370px minmax(0,1fr)}
 main.m-idle .rail,main.m-ended .rail{grid-column:1;grid-row:4;position:sticky;top:16px;max-height:calc(100dvh - 40px);overflow-y:auto}
 main.m-idle .center,main.m-ended .center{grid-column:2;grid-row:4;display:flex;flex-direction:column;gap:16px;min-width:0}
 main.m-idle .rcol,main.m-ended .rcol,main.m-idle .callrow,main.m-ended .callrow{display:none}
-main.m-idle #after,main.m-idle #coach,main.m-idle #nxtrow{display:none}main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
+main.m-idle #after,main.m-idle #coach,main.m-idle #nxtrow{display:none}main.m-ended #coach,main.m-ended .rcol,main.m-ended #script,main.m-ended .tr{display:none!important} /* after the call the script, coach and transcript go away: only the wrap-up shows */main.m-ended .brief{display:none}main.m-idle .brief{display:flex}
 /* on a call: the script is the big column on the left, the AI coach sits on the right, queue tucked away */
 main.m-call{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 main.m-call .rail,main.m-call .brief,main.m-call #after,main.m-call #nxtrow{display:none}
