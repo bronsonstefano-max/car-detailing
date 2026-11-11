@@ -3892,6 +3892,12 @@ header h1{letter-spacing:-.2px}
 #fbox .fbs{display:flex;gap:8px}#fbox .fbs .btn{flex:1;min-height:42px;padding:8px 6px}#fbox .fo{display:grid;grid-template-columns:1fr 1fr;gap:6px}#fbox .fo .btn{min-height:40px;padding:6px}#fbox .btn.on{background:#10301a;border-color:#2f9e3f;color:#9fe29f}#fbox .fm{color:#ffb86b;font-size:12.5px}
 @media(max-width:1023px){#navdr{left:0;bottom:calc(58px + env(safe-area-inset-bottom,0px))}#fbox{right:10px;left:10px;width:auto;bottom:calc(70px + env(safe-area-inset-bottom,0px))}}
 ${BNAV_CSS}
+/* compact lead card: the idle screen should not take over the page */
+.brief{padding:14px 18px;gap:10px;border-radius:16px;box-shadow:none}
+.bh{gap:12px}.bh .av{width:44px;height:44px;font-size:16px;box-shadow:0 0 0 2px #0b0f13,0 0 0 3px #1f6a37}.bh h2{font-size:21px;letter-spacing:-.2px}.bh .ph{font-size:15px;margin-top:2px}
+.brief .chip{padding:3px 10px;font-size:12px}.brief .chips{gap:6px}
+.bgrid{gap:10px}.bc{padding:12px 14px;border-radius:12px;gap:4px;box-shadow:none}.bc p{font-size:14px;line-height:1.4}.bc .big{font-size:16px}.bc .mut{font-size:13px}.bc h4{font-size:10.5px;margin:6px 0 1px}
+.bcall{min-height:42px;font-size:15px;border-radius:12px;width:auto;align-self:flex-start;padding:0 28px;box-shadow:none}.skip{align-self:flex-start;min-height:36px;font-size:13px;padding:6px 14px}
 @media(max-width:850px){header{padding:12px 14px}h1{font-size:17px}main{grid-template-columns:minmax(0,1fr);padding:10px 14px 24px}}
 </style></head><body>
 <header><h1>Divine Detailers <b>dialer</b></h1>${nav("dialer", tc, true)}</header>
@@ -3945,7 +3951,7 @@ function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
   b.innerHTML='<div class="tabs" id="btabs"><button type="button" data-b="brief" class="'+(bt==='brief'?'on':'')+'">Brief</button><button type="button" data-b="info" class="'+(bt==='info'?'on':'')+'">Lead info</button></div><div id="bbody" class="bbody"'+(bt==='brief'?'':' hidden')+'><div class="bh"><span class="av">'+$(initials(l.name))+'</span><div style="min-width:0;flex:1"><h2>'+$(l.name||pretty(l.phone))+'</h2><div class="ph">'+$(pretty(l.phone))+'</div></div>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div>'
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
    +'<div class="bgrid"><div class="bc"><h4>What they asked for</h4><p class="big">'+$(l.service||'Quote request')+'</p>'+(car?'<p>'+$(car)+'</p>':'')+lines.map(x=>'<p class="mut">'+$(x)+'</p>').join('')+(hist.length?'<h4>History</h4>'+hist.map(x=>'<p class="mut">'+$(x)+'</p>').join(''):'')+'</div>'
-   +'<div class="bc">'+(open?'<h4>Open with</h4><p>'+$(open)+'</p>':'')+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div></div><div id="infoc" class="inf"'+(bt==='info'?'':' hidden')+'></div>'
+   +'<div class="bc">'+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div></div><div id="infoc" class="inf"'+(bt==='info'?'':' hidden')+'></div>'
    +'<button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button><button class="btn skip" id="sk2" type="button">Skip to next lead</button>';
   el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
 function syncCb(){const b=el('cb2');if(b)b.disabled=!dev||!inHours()||(state!=='idle'&&state!=='ended')}
