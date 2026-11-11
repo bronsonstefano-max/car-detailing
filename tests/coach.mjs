@@ -15,7 +15,7 @@ globalThis.fetch = async (url, init) => {
   aiCalls.push({ said, user, thinking: body.thinking, max: body.max_tokens });
   if (aiMode === "no-disable" && body.thinking) return new Response("thinking.type.disabled is not supported", { status: 400 });
   if (aiMode === "http529") return new Response("overloaded", { status: 529 });
-  const text = aiMode === "garbage" ? "Sure! Here is my answer" : JSON.stringify({ say: aiSay || "ANSWER TO: " + said, ask: aiAsk === "-" ? "" : aiAsk || "next question?", needs_eyes: false });
+  const text = aiMode === "garbage" ? "Sure! Here is my answer" : JSON.stringify({ say: aiSay || "ANSWER TO: " + said.replace(/\?/g, ""), ask: aiAsk === "-" ? "" : aiAsk || "next question?", needs_eyes: false });
   const enc = new TextEncoder(), ev = o => enc.encode("data: " + JSON.stringify(o) + "\n\n");
   const delay = aiMode === "slow" ? 6000 : aiDelay;
   return new Response(new ReadableStream({
@@ -49,7 +49,7 @@ const last = a => a[a.length - 1];
 // 1. a normal question gets one answer for the whole remark
 { aiMode = "ok"; aiCalls = []; const t = room();
   t.lead("How much does it cost?", { end: true }); await sleep(700);
-  const a = t.answers(); check("question is answered", a.length >= 1 && last(a).say === "ANSWER TO: How much does it cost?" && !last(a).backup, a); }
+  const a = t.answers(); check("question is answered", a.length >= 1 && last(a).say === "ANSWER TO: How much does it cost" && !last(a).backup, a); }
 
 // 2. "How are you doing?" ... "today": the trailing word must not change the answer on screen
 { aiCalls = []; const t = room();
@@ -250,6 +250,11 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   t.rep("So if I'm understanding everything right, you have a black 2022 BMW 430i and you're interested in getting a ceramic coating because you have chips on the side door. Did I get that right? Got it. Well from what I heard I think our coating is perfect for you. It can definitely clean up the swirls. Is it cool if I walk you through our process and how it all works?"); await sleep(50);
   t.lead("Yeah that's right, go for it.", { end: true }); await sleep(1300);
   check("after the rep reads the recap the next step is the prep", /NEXT STEP s13 is a SCRIPT PASSAGE/.test(last(aiCalls).user) && last(t.answers()).then.id === "s13", last(aiCalls).user.match(/NEXT STEP[^\n]*/));
+  // "I'll give you a callback tomorrow" is an objection too (on the real call the passage was pushed at the lead instead)
+  aiAsk = "What would you want to think over?";
+  t.rep("Okay."); await sleep(50);
+  t.lead("I'm not sure. I'll give you a callback probably tomorrow.", { end: true }); await sleep(1300);
+  check("a callback stall is handled before the passage", !last(t.answers()).then && last(t.answers()).ask === "What would you want to think over?", last(t.answers())); aiAsk = "";
   // a lead who objects gets an answer first; the passage waits
   aiAsk = "Is it the price, or the timing?";
   t.rep("Let me walk you through it."); await sleep(50);
@@ -278,6 +283,33 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
 { aiCalls = []; const t = room(); t.lead("Hi. If you record your", {}); await sleep(100); t.end(); await sleep(1300);
   check("partial call-screening line is skipped", aiCalls.length === 0 && t.logs.some(l => l.why === "machine"), t.logs); }
 
+// 19m. REAL CALL (coach-pr8): the lead refused the deposit and the coach said "your spot is held, pay at pickup". No deposit, no booking.
+{ aiCalls = []; const t = room();
+  t.rep("Would you rather put that on a debit or a credit card?"); await sleep(50);
+  t.lead("I'll pay when I get there.", { end: true }); await sleep(1000);
+  check("first deposit pushback: give the deposit answer once", /DEPOSIT: the lead has pushed back on the deposit once/.test(last(aiCalls).user), last(aiCalls).user);
+  t.rep("The deposit is what holds your spot, I can text you a secure link."); await sleep(50);
+  t.lead("I don't wanna pay a deposit.", { end: true }); await sleep(1000);
+  const u = last(aiCalls).user;
+  check("second refusal: stop asking, the day is not reserved", /refused the deposit 2 times/.test(u) && /The day is NOT reserved/.test(u), u); }
+
+// 19n. REAL CALL: more words on the same remark must not change the question on the card (three different timing questions in six seconds)
+{ aiCalls = []; const t = room(); aiAsk = "How soon were you looking to get it done?";
+  t.lead("Toyota Camry. Any day works.", { end: true }); await sleep(1000);
+  aiAsk = "What day were you thinking, this week or next?";
+  t.lead("Don't wanna waste your time either.", { end: true }); await sleep(1100);
+  const a = t.answers(); aiAsk = "";
+  check("the question stays the same when the lead keeps talking", last(a).ask === "How soon were you looking to get it done?" && a.filter(x => x.ask).every(x => x.ask === "How soon were you looking to get it done?"), a.map(x => x.ask));
+  aiAsk = "Totally fair, is it the price or the timing?";
+  t.lead("Actually how much is this going to cost me?", { end: true }); await sleep(1000); aiAsk = "";
+  check("a new question from the lead gets a fresh card", last(t.answers()).ask === "Totally fair, is it the price or the timing?", last(t.answers())); }
+
+// 19o. a "say" that is nothing but a question becomes the one question on the card
+{ aiCalls = []; const t = room(); aiSay = "Okay, so where are the swirls showing up the most, the hood or the sides?"; aiAsk = "And how long have you noticed them?";
+  t.rep("Do you notice any swirl marks?"); await sleep(50);
+  t.lead("Yes. On the roof mostly.", { end: true }); await sleep(1000); const a = last(t.answers()); aiSay = ""; aiAsk = "";
+  check("only one question reaches the card", a.say === "Got it." && a.ask === "Okay, so where are the swirls showing up the most, the hood or the sides?", a); }
+
 // 19i. the car is not named in answer after answer ("black BMW" five times in a row on a real call)
 { aiCalls = []; const t = room(); t.r.ctx.car = { year: 2025, make: "BMW", model: "430i" }; t.r.facts = { color: "black" };
   aiSay = "Oh no, rocks at a black BMW is rough.";
@@ -301,6 +333,11 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   check("a car on file is confirmed, not asked for", known[0].q === "Fantastic. I have you down for a 2010 Toyota Camry, is that right? & what color is the paint?", known[0]);
   const addons = coachSteps({ steps: [{ id: "17", main: [{ k: "say", ps: [{ t: "& something I forgot to mention, the special also comes with 2 free add ons." }, { t: "So that’s $450 in add ons, free. Does all that sound good? Any questions?" }], list: [{ h: "Windshield coating · normally $150", t: "Rain beads right off." }, { h: "Wheel coating · normally $300", t: "Repels brake dust." }] }] }, { id: "19", main: [{ k: "say", ps: [{ t: "So normally our package starts at {reg}, but with the special you get all of it, plus the free windshield & wheel coatings, for just {price}. Sound good?" }] }] }] }, { coatPrice: 599, coatReg: 899 }, null, "coating");
   check("script lines about free add-ons are rewritten to the free interior detail", addons[0].full === "& something I forgot to mention, the special also comes with a free interior detail. Does all that sound good? Any questions?" && addons[1].full === "So normally our package starts at $899, but with the special you get all of it, plus a free interior detail, for just $599. Sound good?", addons);
+  const book = coachSteps({ steps: [{ id: "20", main: [{ k: "say", ps: [{ t: "Do weekdays or weekends usually work better for you? Great, I’ve got [[DAY 1]] & [[DAY 2]] open. Which one works better? & does [[TIME]] work to drop it off? It’ll be ready [[READY]]. Then we will get your information and lock it all in for you today." }] }] },
+    { id: "12", main: [{ k: "say", ps: [{ t: "So if I’m understanding everything right, you have a [[COLOR]] 2010 Toyota Camry & you’re interested in getting a ceramic coating because [[PROBLEM]]. Did I get that right? It can definitely [[SOLVE THEIR PROBLEM]]. Is it cool if I walk you through our process?" }] }] }] }, {}, null, "coating");
+  check("a step with blanks the system cannot fill is not a read-aloud passage; the recap is", book[0].passage === false && book[1].passage === true, book.map(x => [x.id, x.passage]));
+  const coachFill = new Function(src.slice(c1, c2) + src.slice(a, b) + "; return coachFill;")();
+  check("an unknown color is left out of the recap, not shown as a blank", coachFill(book[1].full, { problem: "you have scratches on the roof", solve: "bring that roof back" }, null, "") === "So if I’m understanding everything right, you have a 2010 Toyota Camry & you’re interested in getting a ceramic coating because you have scratches on the roof. Did I get that right? It can definitely bring that roof back. Is it cool if I walk you through our process?", coachFill(book[1].full, { problem: "x", solve: "y" }, null, ""));
   const out = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, null, "coating");
   check("script outline is built from the imported script", out.length === 3 && out[0].passage === false && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
 
