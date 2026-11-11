@@ -4588,7 +4588,7 @@ function coachVar(name, o, lead, svc) {
 }
 function coachScriptText(sc, o, lead, svc) {
   const sw = t => { let x = String(t || ""); for (const p of (o.swaps || [])) if (p && p.f) x = x.split(p.f).join(p.t || ""); return x; };
-  const f = t => sw(t).replace(/\{(\w+)\}/g, (_, k) => coachVar(k, o, lead, svc) || "[not set]").replace(/\[\[([^\]]+)\]\]/g, (_, k) => "<" + k.toLowerCase() + ">");
+  const f = t => coachOwner(sw(t), svc).replace(/\{(\w+)\}/g, (_, k) => coachVar(k, o, lead, svc) || "[not set]").replace(/\[\[([^\]]+)\]\]/g, (_, k) => "<" + k.toLowerCase() + ">");
   const node = nd => {
     if (!nd) return "";
     if (nd.k === "outcomes") return (nd.opts || []).map(op => "IF " + f(op.cond) + ":\n" + (op.nodes || []).map(node).filter(Boolean).join("\n")).join("\n");
@@ -4614,18 +4614,21 @@ function coachScriptText(sc, o, lead, svc) {
 function coachSteps(sc, o, lead, svc) {
   if (!sc || !Array.isArray(sc.steps)) return [];
   const sw = t => { let x = String(t || ""); for (const p of (o.swaps || [])) if (p && p.f) x = x.split(p.f).join(p.t || ""); return x; };
-  const f = t => sw(t).replace(/\{(\w+)\}/g, (_, k) => coachVar(k, o, lead, svc) || "").replace(/\[\[([^\]]+)\]\]/g, (_, k) => "<" + k.toLowerCase() + ">").replace(/\s+/g, " ").trim();
+  const veh = lead ? [lead.year, lead.make, lead.model].filter(Boolean).join(" ") : "";
+  // the car is already on file: confirm it, do not ask for it ("Man, you just told me. Toyota Camry 2010.")
+  const known = t => veh ? t.replace(/what(?:[’']s| is) the year,? make,? (?:&|and) model\??/i, "I have you down for a " + veh + ", is that right?") : t;
+  const f = t => known(coachOwner(sw(t), svc).replace(/\{(\w+)\}/g, (_, k) => coachVar(k, o, lead, svc) || "").replace(/\[\[([^\]]+)\]\]/g, (_, k) => "<" + k.toLowerCase() + ">").replace(/\s+/g, " ").trim());
   const skip = String((svc === "coating" ? o.coatSkip : o.tintSkip) || "").split(/[\s,]+/).filter(Boolean), out = [];
   for (const st of sc.steps.filter(x => x && !skip.includes(x.id))) {
     const lines = [], all = [];
     for (const nd of st.main || []) if (nd && ["say", "probe", "resp"].includes(nd.k || "say")) {
       for (const x of nd.ps || []) if (x && x.t && !x.note && !/^if\b/i.test(x.sub || "")) { lines.push(f(x.t)); all.push(f(x.t)); }
-      for (const i of nd.list || []) if (i && i.t) all.push((i.h ? f(i.h) + ": " : "") + f(i.t));
+      for (const i of nd.list || []) if (i && i.t && !(svc === "coating" && /windshield|wheel coating/i.test(String(i.h || "") + " " + i.t))) all.push((i.h ? f(i.h) + ": " : "") + f(i.t));
     }
     const q = lines.join(" ").slice(0, 260), full = all.join(" ").slice(0, 1200);
     // A long step (the recap, the prep, the coating, the deposit) is a passage: the card shows it word for word instead of the AI paraphrasing or skipping it.
     // Lines that conflict with the owner's rules (free add-ons other than the interior detail, "the next week or two") are left to the AI, which applies those rules.
-    const passage = full.length > 170 && !/week or two|windshield|wheel coating|add[ -]?ons?\b/i.test(full);
+    const passage = full.length > 170 && !/week or two/i.test(full);
     if (q) out.push({ id: String(st.id), phase: String(st.phase || ""), q, full, passage });
   }
   return out;
@@ -4705,7 +4708,10 @@ Ground rules:
 - "say" never contains a question. Every question goes in "ask", and "ask" is exactly one question with nothing after it.
 - Take the lead's answer as given. When the lead names a day, a time, a car, a color or a preference, accept it and move to the next step. Never ask them to confirm what they just said ("is next month the timing you're leaning toward?"), never offer other options after they chose one, and never ask for something the Lead line or the transcript already gives you (the car, the color).
 - Names are written by ear in the transcript and often differ from the name on file (Jessalyn for Jeceline). It is the same person. Never ask the lead to confirm or spell their name and never apologize about the name, unless the lead says you have the wrong person.
-- Never ask the same question twice. Each answer must move the call one step forward. When QUESTIONS THE REP HAS ALREADY ASKED is given, your "ask" must be a different question from every line in it, normally the next one in the script after the last one listed.
+- Never give anything away. Do not agree to waive, cover, split or lower the deposit or the price, and do not promise gifts or favours, even as a joke the lead started ("you cover the down payment and bring a six pack"): laugh it off in a few words and restate the real terms.
+- When the Lead line gives the vehicle, do not ask for the year, make or model: confirm it in a few words ("I have you down for a 2010 Toyota Camry, right?") and ask only for what is missing (the color).
+- Use the lead's first name rarely: at the hello and at the close, not in every answer.
+- Never ask the same question twice. Each answer must move the call one step forward. When QUESTIONS ALREADY PUT TO THE LEAD is given, your "ask" must be a different question from every line in it, normally the next one in the script after the last one listed.
 - A short reply such as "yes", "yeah", "no", "not really", "a little" or "I guess" is the lead's answer to REP JUST SAID. Acknowledge that answer in a few words, add one short comment that fits it, and ask the script's follow-up for that answer (the "If yes" or "If no" branch) or the next unanswered question. Never treat a short reply as nothing.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
 - The transcript is live speech-to-text over a phone line and contains mistakes: similar-sounding words (tint heard as tent, coating as coding, XPEL as expel), wrong car names, garbled numbers. Work out what the lead most likely meant from the car-detailing context. If a word that matters (a price, a date, a car, which service) is unclear, or the line is marked unclear audio, make "say" a short clarifying question ("Sorry, did you say the sides and the back?") instead of guessing.
@@ -4764,7 +4770,7 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
   let steps = []; try { steps = coachSteps(sc, offer, lead, svc); } catch (e) { /* the coach still works from the script text */ }
-  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
+  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), price: String(coachVar("price", offer, lead, svc) || "").replace(/[^0-9]/g, ""), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
   // The calendar (an outside service) and the answer library are slow and the first answer does not need them: they fill in as soon as they arrive.
   const fill = Promise.all([
     odP.then(od => { if (od && od.length) ctx.facts += `\nOpen days on our calendar right now (ONLY for the booking step, after the lead has agreed to the price, and only if the lead has not named a day of their own): ${od.map(d => d.say).join(", ")}.`; }),
@@ -4825,12 +4831,12 @@ const FACTS_RULES = `You keep the running notes for a live car-detailing sales c
 - "done": the ids of the SCRIPT STEPS (listed in the message) that are finished. A step is finished when the rep said its line or asked its question in any wording, OR the lead already gave the information that step asks for, even without being asked. Do not mark a step finished just because of where it sits in the list. Copy the ids exactly.
 - "lead": up to 8 short notes on what the lead has told us about themselves, the car and what they want, as close to their own words as possible, the most useful for rapport first: "parks outside under a tree", "runs it through the car wash every week", "keeping it about another year", "noticed the swirls a couple of months ago". Only things the lead said. No guesses, nothing the rep said.
 - If the lead has not said enough yet, leave a field as an empty string or an empty list. Never invent anything. The transcript is live speech-to-text from a phone line and has mistakes (paint heard as pain, coating as coding): read through them.`;
-const COACH_BUILD = "coach-pr7";
+const COACH_BUILD = "coach-pr8";
 const COACH_ACK = /^((yeah|yes|yep|yup|ok|okay|uh[ -]?huh|mm+|m+hm+|sure|right|no|nope|nah|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh|correct|exactly|perfect|awesome|bye)[.!, ]*)+$/i;
 const COACH_FILLER = /^((um+|uh+|hm+|mm+|ah+|er+|oh|so|and|well|like|you know)[.!, ]*)+$/i;
 const COACH_INTENT = /\?|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b|not interested|no thanks|no thank you|expensive|pricey|too much|how much|price|cost|free\b|busy|later|call (me )?back|not now|bad time|can'?t talk|driving|working|wrong number|stop calling|remove me|who is this|sounds good|let'?s do it|i'?ll take it|book it|sign me up|think about|no idea|don'?t know|espa[nñ]ol|spanish/i;
 // an answering machine, call screening or a phone-company recording is not the lead: nothing to answer
-const COACH_MACHINE = /record your name|reason for calling|stay on the line|(person|party|caller|number|customer|subscriber)[^.]{0,40}(is )?(not available|unavailable)|leave (a|your|me a) (message|name)|after the (tone|beep)|voice ?mail|mailbox|is not in service|been disconnected|call has been forwarded|please hold|to continue in english|press (one|two|\d)\b|cannot be completed as dialed/i;
+const COACH_MACHINE = /record your name|if you record your|reason for calling|stay on the line|(person|party|caller|number|customer|subscriber)[^.]{0,40}(is )?(not available|unavailable)|leave (a|your|me a) (message|name)|after the (tone|beep)|voice ?mail|mailbox|is not in service|been disconnected|call has been forwarded|please hold|to continue in english|press (one|two|\d)\b|cannot be completed as dialed/i;
 // The rep's own voice sometimes lands on the lead's side of the call (speakerphone, line echo). If most of what the "lead" said is word-for-word what the rep
 // just said or what the card on screen says, it is an echo, not the lead.
 function coachEcho(text, ref) {
@@ -4848,12 +4854,37 @@ function coachPause(text) {
   return 450;
 }
 // are two lines the same question? (shared words, ignoring the small ones)
+const COACH_STOP = new Set("the a an and or but so to of for in on at is are do does did you your i it that this what how when where which would could can have has be with me my we our just any got great perfect awesome gotcha okay ok alright ceramic coating coated car special quick".split(" "));
+const coachWords = t => [...new Set(String(t || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(x => x.length > 1 && !COACH_STOP.has(x)))];
+// Are two short questions the same question? They must share most of their meaningful words in BOTH directions.
+// (The earlier test divided by the shorter one and counted "ceramic", "coating" and "got", so "What got you interested in a coating?" was taken for
+// "you got a quick second?" and never recorded: the coach then asked it again and the lead said "you just asked me that".)
 function coachSame(a, b) {
-  const stop = new Set("the a an and or but so to of for in on at is are do does did you your i it that this what how when where which would could can have has be with me my we our just any".split(" "));
-  const w = t => [...new Set(String(t || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(x => x && !stop.has(x)))], x = w(a), y = new Set(w(b));
+  const x = coachWords(a), y = new Set(coachWords(b));
   if (!x.length || !y.size) return false;
-  return x.filter(k => y.has(k)).length / Math.min(x.length, y.size) >= 0.6;
+  return x.filter(k => y.has(k)).length / Math.max(x.length, y.size) >= 0.6;
 }
+// Did the rep say this line? Most of the line's meaningful words must appear inside one stretch of the rep's speech.
+function coachSaid(line, speech, min) {
+  const x = coachWords(line), y = new Set(coachWords(speech));
+  if (!x.length) return false;
+  const n = x.filter(k => y.has(k)).length;
+  return n >= Math.min(2, x.length) && n / x.length >= (min || 0.7);
+}
+// Owner's rule for the coating special: a free interior detail is the only free extra. Script lines that still promise free windshield and wheel coatings
+// or "add ons" are rewritten before the AI sees them, and the AI's own words are checked again on the way out (the AI said it on real calls despite the rule).
+function coachOwner(text, svc) {
+  if (svc !== "coating") return String(text || "");
+  return String(text || "")
+    .replace(/So that[’']s \$\s?[\d,]+ in add[- ]?ons?,? free\.\s*/gi, "")
+    .replace(/(the |those |these |two |2 |both )*free windshield\s*(and|&)\s*wheel coatings?/gi, "a free interior detail")
+    .replace(/(the |those |these |two |2 |both |a couple of )+free add[- ]?ons?/gi, "a free interior detail")
+    .replace(/\bfree add[- ]?ons?\b/gi, "free interior detail")
+    .replace(/\b(the |those |these )?add[- ]?ons?\b/gi, "the free interior detail")
+    .replace(/\b(free )?(windshield|wheel) coatings?\b/gi, "free interior detail")
+    .replace(/a free interior detail(,? (and|&|plus) a free interior detail)+/gi, "a free interior detail");
+}
+const coachFirst = t => { const m = /^[^.!?]+[.!?]+["')\]]*/.exec(String(t || "").trim()); return (m ? m[0] : String(t || "")).trim(); };
 // One question per card, and it lives in "ask". The model often ends "say" with a question too (sometimes the same one), which made the rep ask twice.
 function coachTidy(say, ask) {
   say = String(say || "").trim(); ask = String(ask || "").trim();
@@ -4864,12 +4895,7 @@ function coachTidy(say, ask) {
   return { say, ask };
 }
 // was this question (asked on the call) the question of this script step? Most of the question's meaningful words must be in the step's line. Only ever checked against the step the call is on.
-function coachStepAsked(q, stepLine) {
-  const stop = new Set("the a an and or but so to of for in on at is are do does did you your i it that this what how when where which would could can have has be with me my we our just any got great perfect awesome car".split(" "));
-  const w = t => [...new Set(String(t || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(x => x.length > 2 && !stop.has(x)))], x = w(q), y = new Set(w(stepLine));
-  const n = x.filter(k => y.has(k)).length;
-  return x.length > 0 && n >= Math.min(2, x.length) && n / x.length >= 0.7;
-}
+function coachStepAsked(q, stepLine) { return coachSaid(q, stepLine, 0.7); }
 // did the rep just ask something? (phone transcripts often drop the question mark, so the opening words count too)
 const coachRepAsked = t => { const x = String(t || "").trim().slice(-200); return !!x && (/\?["')\]]?\s*$/.test(x) || /\b(do you|did you|are you|is it|is that|is this|what|how|when|where|which|would you|could you|can you|can i|have you|does it|were you|may i)\b[^.!?]*$/i.test(x)); };
 // Returns "" when the remark needs an answer, otherwise the reason it is safe to stay quiet. The model is never asked to make this call.
@@ -4908,7 +4934,7 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay, signal, repLa
   const realText = real.length ? "REAL ANSWERS from past calls to something similar (best closers first):\n" + real.map((r, i) => `${i + 1}. Lead said: "${r.lead_said}"\n   ${r.won ? "Rep (the call booked)" : "Rep"}: "${r.rep_response}"${r.quality && r.quality < 4 && r.better ? `\n   Better answer: "${r.better}"` : ""}`).join("\n") + "\n\n" : "";
   // Questions the rep has already asked on this call (the coach gave them and the rep said them). The position hint from the browser often lags behind,
   // so a hint that points at one of these is dropped: otherwise the same question comes back again and again.
-  const done = (asked || []).slice(-8), stale = pos && pos.next && done.some(q => coachSame(q, pos.next));
+  const done = (asked || []).slice(-14), stale = pos && pos.next && done.some(q => coachSame(q, pos.next));
   const prog = st && st.prog, notes = (st && st.notes) || [], openers = (st && st.openers) || [];
   // the server's own record of the call wins over the browser's position hint, which is only used until the first notes exist
   const nextText = prog && prog.next && prog.next.passage ? `CALL PROGRESS (kept by the system from the whole call)\nFinished steps: ${prog.done.join(", ") || "none"}\nNEXT STEP ${prog.next.id} is a SCRIPT PASSAGE. The card will show it word for word under your line, and the rep reads it: "${prog.next.q.slice(0, 160)}..."\nIf the lead's remark is a plain answer, an agreement, small talk or "no questions": write ONLY a short bridge in "say" (at most 12 words: acknowledge what they said, nothing from the passage, no pitch) and leave "ask" as an empty string. If the lead asked a question or raised an objection: handle it as usual with your own "ask"; the passage waits for the next turn.\n\n`
@@ -4919,8 +4945,10 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay, signal, repLa
   const says = (st && st.says) || [];
   const openText = (says.length ? "YOUR LAST ANSWERS (the lead has already heard these: do not reuse their opening word, their phrases, their jokes or the details they mention):\n" + says.map(x => "- " + x).join("\n") + "\n" : "")
     + (openers.length ? `Do not begin with ${openers.map(x => '"' + x.split(" ")[0] + '"').join(" or ")}.\n` : "")
-    + (st && st.noCar ? "You named the car or its color in a recent answer. In THIS answer do not mention the make, model, year or color at all: say \"it\" or \"the car\".\n" : "");
-  const askedText = done.length ? "QUESTIONS THE REP HAS ALREADY ASKED ON THIS CALL (oldest first):\n" + done.map(q => "- " + q).join("\n") + "\nDo NOT give any of these again, even reworded, even if the lead's reply was short or vague: take the reply as the answer and move forward to the next question in the script that has not been asked. Repeat one only if the lead plainly did not hear it (\"what?\", \"say that again\").\n\n" : "";
+    + (st && st.noCar ? "You named the car or its color in a recent answer. In THIS answer do not mention the make, model, year or color at all: say \"it\" or \"the car\".\n" : "")
+    + (st && st.noName ? "You used the lead's name in a recent answer. Do NOT use their name in this answer.\n" : "")
+    + (st && st.passage ? "This card is a bridge into the SCRIPT PASSAGE: \"say\" is ONE short sentence that only reacts to what the lead just said (no facts, no pitch, nothing from the passage), and \"ask\" is an empty string.\n" : "");
+  const askedText = done.length ? "QUESTIONS ALREADY PUT TO THE LEAD ON THIS CALL (oldest first):\n" + done.map(q => "- " + q).join("\n") + "\nDo NOT give any of these again, even reworded, even if the lead's reply was short or vague: take the reply as the answer and move forward to the next question in the script that has not been asked. Repeat one only if the lead plainly did not hear it (\"what?\", \"say that again\").\n\n" : "";
   const repText = repLast ? `REP JUST SAID: "${String(repLast).slice(-300)}"\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${notesText}${askedText}${realText}${openText}${repText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
   const res = await coachStream(env, ctx.system, user, onSay, { max: 400, abortFalse: false, signal, timeout: 8000 });
@@ -5209,33 +5237,42 @@ export class CallRoom {
   // what the rep has said in the last few seconds plus the answer on screen (which the rep is probably reading aloud)
   repRef() { const now = Date.now(), m = this.lastMsg; return (this.repRecent || []).filter(x => now - x.at < 12000).map(x => x.t).join(" ") + " " + (this.repInterim || "") + " " + (m && m.type === "answer" ? (m.say || "") + " " + (m.ask || "") : ""); }
   // The coach's earlier questions that the rep really asked (their words show up in the rep's side of the transcript after the card went up)
+  // the rep's speech since a given second of the call, as stretches (back-to-back fragments joined)
+  repSpeech(fromSec) { return coachTurns(this.turns.filter(t => t.who === "rep" && t.at >= (fromSec || 0)), 400).map(t => t.text).concat(this.repInterim ? [this.repInterim] : []); }
+  // The coach's earlier questions that count as covered: the rep said them (their words show up in one stretch of the rep's speech after the card went up),
+  // or they have been on the card twice.
   askedSoFar() {
-    for (const a of this.asks) if (!a.done) { const said = this.turns.filter(t => t.who === "rep" && t.at >= a.at).map(t => t.text).join(" ") + " " + (this.repInterim || ""); if (coachSame(a.q, said)) a.done = true; }
-    return this.asks.filter(a => a.done || a.n >= 2).map(a => a.q); // on the card twice already: the rep asked it in other words or chose not to, either way move on
+    for (const a of this.asks) if (!a.done && this.repSpeech(a.at).some(c => coachSaid(a.q, c, a.q.length > 140 ? 0.5 : 0.7))) a.done = true;
+    return this.asks.filter(a => a.done || a.n >= 2).map(a => a.q);
   }
-  // Where the call is, worked out by the server (not the browser, not the model): the first step after the furthest finished one that has not been covered.
-  // The call only moves forward: a step the rep chose to skip is not dragged back.
+  // Where the call is, worked out by the server (not the browser, not the model). A pointer walks the script in order.
+  // - An ordinary step is passed when the notes say it is finished or the rep asked its question.
+  // - A PASSAGE (recap, the prep, the coating, the deposit) is passed only when the rep actually read it, or it has been on the card twice.
+  //   The notes cannot pass it, and nothing can hop over it: on real calls the AI's own comments ("the correction takes those out before the coating
+  //   goes on") made the notes think the pitch was done, and the recap was skipped.
+  // - Once the rep has said the price, everything before the price step is behind us (a lead who pushed straight to the price is not dragged back).
   progress() {
     const steps = (this.ctx && this.ctx.steps) || [], done = this.done || new Set(), asked = this.askedSoFar();
     if (!steps.length || (!done.size && !asked.length)) return null;
-    // A pointer walks the script in order. It moves past a step when the notes say it is finished or the rep asked that step's question.
-    // It may hop over a step the rep chose to skip only when one of the next three steps is finished: never from discovery straight to booking.
-    // (The earlier version jumped to the furthest step that shared a couple of words with any question asked, which skipped the recap and the pitch.)
-    const hit = x => done.has(x.id) || asked.some(q => coachStepAsked(q, x.q));
+    const speech = this.repSpeech(0);
+    const read = x => { const e = this.asks.find(a => a.q === x.q); return !!(e && (e.done || e.n >= 2)) || speech.some(c => coachSaid(x.q, c, 0.5)); };
+    const hit = x => x.passage ? read(x) : (done.has(x.id) || asked.some(q => coachStepAsked(q, x.q)));
     let i = this.stepIdx || 0;
     while (i < steps.length) {
       if (hit(steps[i])) { i++; continue; }
-      let j = -1; for (let k = i + 1; k <= i + 3 && k < steps.length; k++) if (done.has(steps[k].id)) j = k;
+      if (steps[i].passage) break;
+      let j = -1; for (let k = i + 1; k <= i + 3 && k < steps.length && !steps[k].passage; k++) if (done.has(steps[k].id)) j = k;
       if (j < 0) break; i = j + 1;
     }
+    const price = this.ctx.price, pi = price && price.length >= 2 ? steps.findIndex(x => String(x.full || x.q).replace(/[^0-9$]/g, " ").includes("$" + price)) : -1;
+    if (pi >= i && speech.some(c => c.replace(/[^0-9]/g, " ").split(/\s+/).includes(price))) i = pi + 1;
     this.stepIdx = i;
     return { done: steps.slice(0, i).map(x => x.id), next: steps[i] || null, notes: this.leadNotes || [] };
   }
-  // did one of the last two answers already name the car or its color? (leads noticed "your black BMW" in every other sentence)
-  carSaid() {
-    const car = (this.ctx && this.ctx.car) || {}, words = [car.make, car.model, this.facts && this.facts.color].map(x => String(x || "").toLowerCase().trim()).filter(x => x.length > 2);
-    if (!words.length) return false;
-    return (this.says || []).slice(-2).some(s => { const t = " " + String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ") + " "; return words.some(w => t.includes(" " + w.replace(/[^a-z0-9]+/g, " ") + " ")); });
+  // did one of the last two answers already name the car, its color, or the lead? (leads noticed "your black BMW" and their own name in every other sentence)
+  overused() {
+    const car = (this.ctx && this.ctx.car) || {}, has = words => { const ws = words.map(x => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).filter(x => x.length > 2); return ws.length > 0 && (this.says || []).slice(-2).some(s => { const t = " " + String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ") + " "; return ws.some(w => t.includes(" " + w + " ")); }); };
+    return { car: has([car.make, car.model, this.facts && this.facts.color]), name: has([String((this.ctx && this.ctx.name) || "").trim().split(/\s+/)[0]]) };
   }
   logTurn(r) {
     try {
@@ -5271,21 +5308,28 @@ export class CallRoom {
       const ctxMs = log.ctx = Date.now() - t0;
       // nothing from the AI after 3 seconds: the safe backup answer goes up and STAYS up (a late AI answer would change the words while the rep is reading them)
       backupTm = setTimeout(() => { if (shown || this.coachRestart || this.ended) return; backup = true; show({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } }); try { this.coachAc.abort(); } catch (e) { /* done */ } }, 3000);
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; const say = coachTidy(say0, "").say; show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.askedSoFar(), { prog: this.progress(), notes: this.leadNotes || [], openers: this.openers || [], says: (this.says || []).map(x => x.slice(0, 140)), noCar: this.carSaid() }) || {};
-      if (out.prog && out.prog.next) log.why = "next " + out.prog.next.id;
+      // The next step is a script passage: unless the lead just asked something or objected, the card is a one-sentence bridge plus the passage word for word.
+      const prog = this.progress(), over = this.overused(), stepN = prog && prog.next, svcNow = this.ctx.svc;
+      const leadNeeds = /\?/.test(said) || /(not interested|expensive|too much|how much|price|cost|think about|wife|husband|girlfriend|call (me )?back|later|busy|no time|free\b|why|what is|what's|scam|catch|cheaper|discount)/i.test(said);
+      const forceThen = !!(stepN && stepN.passage && !leadNeeds);
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; let say = coachOwner(coachTidy(say0, "").say, svcNow); if (forceThen) say = coachFirst(say); show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.asks.filter(a => a.q.length <= 140).map(a => a.q), { prog, notes: this.leadNotes || [], openers: this.openers || [], says: (this.says || []).map(x => x.slice(0, 140)), noCar: over.car, noName: over.name, passage: forceThen }) || {};
+      if (stepN) log.why = "next " + stepN.id + (forceThen ? " passage" : "");
       log.ms = out.ms; log.usage = out.usage; log.stop = out.stop; log.http = out.http; log.raw = out.raw;
       if (this.coachRestart) { log.outcome = "restarted"; return; } // more of the lead's sentence arrived: this answer is out of date
       if (backup) { log.outcome = "backup"; log.why = "slow"; this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: "AI took over 3s, backup answer shown" }); }
       else if (out.answer) { log.outcome = "shown"; log.raw = (out.say + " | ASK: " + out.ask).slice(0, 500);
         this.openers = [...(this.openers || []), String(out.say).split(/[,.!?]/)[0].split(/\s+/).slice(0, 3).join(" ")].filter(Boolean).slice(-3);
         this.says = [...(this.says || []), out.say].slice(-3);
-        // the next step is a script passage and the model only bridged into it: put the passage on the card word for word, blanks filled from this call
-        const stepN = out.prog && out.prog.next, then = stepN && stepN.passage && !out.ask ? { id: stepN.id, text: coachFill(stepN.full, this.facts, this.ctx.car, this.ctx.name) } : null;
-        if (then) { out.then = then; log.raw = (out.say + " | THEN " + then.id + ": " + then.text).slice(0, 500); const sameP = this.asks.find(a => a.q === stepN.q); if (sameP) sameP.n++; else this.asks.push({ q: stepN.q, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); }
+        out.say = coachOwner(out.say, svcNow); out.ask = coachOwner(out.ask, svcNow);
         const lastA = this.asks[this.asks.length - 1];
         if (after && lastA && !lastA.done) { lastA.n--; if (lastA.n <= 0) this.asks.pop(); } // same remark answered again: the earlier card does not count
+        // put the passage on the card word for word, blanks filled from this call; the AI's line is cut to its first sentence so it does not pre-empt the passage
+        const then = stepN && stepN.passage && (forceThen || !out.ask) ? { id: stepN.id, text: coachFill(stepN.full, this.facts, this.ctx.car, this.ctx.name) } : null;
+        if (then) { out.then = then; out.ask = ""; out.say = coachFirst(out.say); const sameP = this.asks.find(a => a.q === stepN.q); if (sameP) sameP.n++; else this.asks.push({ q: stepN.q, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); }
+        log.raw = (out.say + (then ? " | THEN " + then.id + ": " + then.text : " | ASK: " + out.ask)).slice(0, 500);
+        this.says[this.says.length - 1] = out.say;
         const sameA = out.ask ? this.asks.find(a => coachSame(a.q, out.ask)) : null;
-        if (sameA) sameA.n++; else if (out.ask) { this.asks.push({ q: out.ask, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); if (this.asks.length > 20) this.asks.shift(); } show({ type: "answer", q: said, answer: true, say: out.say, ask: out.ask, then: out.then || null, needs_eyes: out.needs_eyes, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } }); }
+        if (sameA) sameA.n++; else if (out.ask) { this.asks.push({ q: out.ask, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); if (this.asks.length > 30) this.asks.shift(); } show({ type: "answer", q: said, answer: true, say: out.say, ask: out.ask, then: out.then || null, needs_eyes: out.needs_eyes, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } }); }
       else { // no usable AI answer: show the safe backup so the rep is never left without help (unless the first sentence is already on screen)
         log.why = out.error ? "error " + out.error : "unreadable" + (out.stop ? " " + out.stop : "");
         this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: out.error ? "AI service error " + out.error + (shown ? "" : ", backup answer shown") : "reply could not be read" + (shown ? "" : ", backup answer shown") });
