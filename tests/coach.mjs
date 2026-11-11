@@ -203,9 +203,46 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   const u = last(aiCalls).user;
   check("model is told the next step and the finished ones", /Finished steps: 06, 07\nNEXT STEP 08 \(discovery\): "Are you familiar/.test(u) && !/NEXT SCRIPT LINE/.test(u) && !/99/.test(u.split("Recent transcript")[0] + (u.match(/Finished steps[^\n]*/) || [""])[0]), u);
   check("model gets what the lead told us", /WHAT THIS LEAD HAS TOLD US[^]*- runs it through the car wash every week/.test(u), u);
-  check("model is told how its last answers began", /Your last answers began with: "ANSWER TO: Yeah"/.test(u), u);
+  check("model sees its own last answers and is told not to reuse them", /YOUR LAST ANSWERS[^]*- ANSWER TO: Yeah, on the hood mostly/.test(u) && /Do not begin with "ANSWER"/.test(u), u);
   factsReply = { done: [], lead: [] }; await sleep(2800); t.lead("Okay that makes sense, what else?", { end: true }); await sleep(900);
   check("a finished step stays finished", /Finished steps: 06, 07/.test(last(aiCalls).user), last(aiCalls).user); factsReply = null; }
+
+// 19h. REAL BUG (coach-pr6): a question that shared two words with a late step ("ceramic coating" in the price line) made the call jump from discovery to booking,
+// skipping the recap and the pitch. The call must walk the script in order.
+{ aiCalls = []; factsCalls = []; const t = room(); delete t.r.refreshFacts;
+  const S = (id, q, extra) => ({ id, phase: "", q, full: q, passage: false, ...extra });
+  const recap = "So if I'm understanding everything right, you have a <color year make & model> & you're interested in getting a ceramic coating because <problem>. Did I get that right? Got it. Well from what I heard, I think our coating is perfect for you. It can definitely <solve their problem>. Is it cool if I walk you through our process & how it all works?";
+  t.r.ctx.steps = [S("s07", "When you look at your paint, do you notice any swirl marks, scratches or dull spots?"), S("s08", "Are you familiar with what a ceramic coating does? Tell me what you know."), S("s09", "Do you keep it in a garage or outside? & do you hand wash it or run it through the car wash? How often?"), S("s10", "How long are you planning on keeping it?"), S("s11", "Have you ever had a coating done on a car before?"),
+    S("s12", recap.slice(0, 260), { full: recap, passage: true }), S("s13", "Awesome. So before any coating goes on, we do 3 things to get your paint perfect."), S("s19", "So normally our 5 year ceramic coating package starts at $899, but with the special you get all of it for just $599. Sound good?"), S("s20", "Do weekdays or weekends usually work better for you?")];
+  t.r.ctx.car = { year: 2022, make: "BMW", model: "430i" }; t.r.ctx.name = "Jeceline Test";
+  factsReply = { problem: "you have chips on the side door", solve: "clean up the swirls around them and keep the gloss", color: "black", done: ["s07"], lead: [] };
+  aiAsk = "Are you familiar with what a ceramic coating does?";
+  t.rep("Do you notice any swirl marks or scratches?"); await sleep(50);
+  t.lead("Yeah, on the side door.", { end: true }); await sleep(1300);
+  t.rep("Got it. Are you familiar with what a ceramic coating does?"); await sleep(50);
+  aiAsk = "";
+  t.lead("Yeah. Protects it.", { end: true }); await sleep(1100);
+  check("after step 08 the next step is 09, not booking", /NEXT STEP s09:/.test(last(aiCalls).user) && !/NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/));
+  // the notes now say discovery is finished: the recap is next, and it goes on the card word for word with the blanks filled
+  factsReply = { problem: "you have chips on the side door", solve: "clean up the swirls around them and keep the gloss", color: "black", done: ["s07", "s08", "s09", "s10", "s11"], lead: [] };
+  await sleep(2700); t.rep("Have you had a coating before?"); await sleep(50);
+  t.lead("No, first time actually.", { end: true }); await sleep(1300); // this answer triggers the notes refresh
+  t.rep("Okay cool, good to know."); await sleep(50); aiAsk = "-"; aiSay = "Perfect, thanks for walking me through that.";
+  t.lead("Yeah no problem at all.", { end: true }); await sleep(1100);
+  const a = last(t.answers()), u = last(aiCalls).user; aiAsk = ""; aiSay = "";
+  check("model is told the next step is a passage", /NEXT STEP s12 is a SCRIPT PASSAGE/.test(u), u.match(/NEXT STEP[^\n]*/));
+  check("recap goes on the card word for word with the blanks filled", a.then && a.then.id === "s12" && /you have a black 2022 BMW 430i & you're interested in getting a ceramic coating because you have chips on the side door\. Did I get that right\?/.test(a.then.text) && /It can definitely clean up the swirls around them and keep the gloss\./.test(a.then.text) && !a.ask, a);
+  factsReply = null; }
+
+// 19i. the car is not named in answer after answer ("black BMW" five times in a row on a real call)
+{ aiCalls = []; const t = room(); t.r.ctx.car = { year: 2025, make: "BMW", model: "430i" }; t.r.facts = { color: "black" };
+  aiSay = "Oh no, rocks at a black BMW is rough.";
+  t.lead("My girlfriend threw rocks at my car.", { end: true }); await sleep(1000); aiSay = "";
+  t.rep("Where did they hit?"); await sleep(50);
+  t.lead("On the side door mostly.", { end: true }); await sleep(1000);
+  check("model is told not to name the car again", /do not mention the make, model, year or color/.test(last(aiCalls).user), last(aiCalls).user);
+  const v = room(); v.lead("How much does it cost?", { end: true }); await sleep(800); v.rep("Great question."); await sleep(50); v.lead("Okay and how long does it take?", { end: true }); await sleep(800);
+  check("no car warning when the car was not mentioned", !/do not mention the make/.test(last(aiCalls).user), 0); }
 
 // 19e. the script outline is built from the imported script (main lines only, branches and coach notes left out, skipped steps dropped)
 { const src = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8"), a = src.indexOf("function coachVar("), b = src.indexOf("const KNOWLEDGE_DEFAULT");
@@ -216,7 +253,7 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
     { id: "19", phase: "close", main: [{ k: "say", ps: [{ t: "With the special it is just {price}. Sound good?" }] }] },
     { id: "03", phase: "opener", main: [{ k: "say", ps: [{ t: "You doing anything exciting today?" }] }] } ] };
   const out = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, null, "coating");
-  check("script outline is built from the imported script", out.length === 3 && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
+  check("script outline is built from the imported script", out.length === 3 && out[0].passage === false && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
 
 // 19f. one question per card: a question inside "say" is removed (seen on real calls: the same question in both places)
 { aiCalls = []; const t = room();

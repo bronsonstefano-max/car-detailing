@@ -4414,6 +4414,7 @@ function ansHtml(a){const q=String(a.q||'').slice(0,90),ai=a.ai;
   if(a.needs_eyes)h+='<div class="warnb">Not covered in your script. Confirm before you state it.'+(a.note?' '+$(a.note):'')+'</div>';
   h+='<p class="say">'+$(a.say||'')+'</p>';
   if(a.ask)h+='<div class="aca"><div><span>ASK</span><p class="ask">'+$(a.ask)+'</p></div></div>';
+  if(a.then&&a.then.text)h+='<div class="aca"><div><span>THEN READ</span><p class="ask">'+$(a.then.text)+'</p></div></div>';
   const more=(a.lines&&a.lines.length?'<div class="alines">'+a.lines.map(x=>'<div>'+(x.h?'<b>'+$(x.h)+'</b>':'')+$(x.t)+'</div>').join('')+'</div>':'')+((a.ack||a.comment)&&a.src==='ai'?'<div class="aca"><div><span>ACKNOWLEDGE</span><p>'+$(a.ack||'')+'</p></div><div><span>COMMENT</span><p>'+$(a.comment||'')+'</p></div></div>':'');
   if(more)h+='<details class="more" data-k="m"'+(a.openM?' open':'')+'><summary>More wording</summary>'+more+'</details>';
   if(ai)h+='<details class="more tai" data-k="a"'+(a.openA===false?'':' open')+'><summary>AI version for this lead</summary><p class="say sm">'+$(ai.say||'')+'</p>'+(ai.ask?'<p class="ask sm">&rarr; '+$(ai.ask)+'</p>':'')+(ai.needs_eyes?'<div class="warnb">Not in your script. Confirm before you state it.</div>':'')+'</details>';
@@ -4448,7 +4449,7 @@ function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
   if(m.type==='facts'){setAiFacts(m);return}
   if(m.type==='coach_skip'){cs('AI quiet on "'+String(m.q||'').slice(0,40)+'" ('+(m.why||'')+')');setTimeout(()=>{if(el('cst').textContent.indexOf('AI quiet')===0)cs('Listening')},12000);return}
-  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',backup:m.backup,q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
+  if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',backup:m.backup,q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,then:m.then,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
   if(m.type==='error'){cs(m.message);return}
   if(m.type==='ended'){cRe=99;cs('Call ended')}}
@@ -4616,12 +4617,29 @@ function coachSteps(sc, o, lead, svc) {
   const f = t => sw(t).replace(/\{(\w+)\}/g, (_, k) => coachVar(k, o, lead, svc) || "").replace(/\[\[([^\]]+)\]\]/g, (_, k) => "<" + k.toLowerCase() + ">").replace(/\s+/g, " ").trim();
   const skip = String((svc === "coating" ? o.coatSkip : o.tintSkip) || "").split(/[\s,]+/).filter(Boolean), out = [];
   for (const st of sc.steps.filter(x => x && !skip.includes(x.id))) {
-    const lines = [];
-    for (const nd of st.main || []) if (nd && ["say", "probe", "resp"].includes(nd.k || "say")) for (const x of nd.ps || []) if (x && x.t && !x.note && !/^if\b/i.test(x.sub || "")) lines.push(f(x.t));
-    const q = lines.join(" ").slice(0, 260);
-    if (q) out.push({ id: String(st.id), phase: String(st.phase || ""), q });
+    const lines = [], all = [];
+    for (const nd of st.main || []) if (nd && ["say", "probe", "resp"].includes(nd.k || "say")) {
+      for (const x of nd.ps || []) if (x && x.t && !x.note && !/^if\b/i.test(x.sub || "")) { lines.push(f(x.t)); all.push(f(x.t)); }
+      for (const i of nd.list || []) if (i && i.t) all.push((i.h ? f(i.h) + ": " : "") + f(i.t));
+    }
+    const q = lines.join(" ").slice(0, 260), full = all.join(" ").slice(0, 1200);
+    // A long step (the recap, the prep, the coating, the deposit) is a passage: the card shows it word for word instead of the AI paraphrasing or skipping it.
+    // Lines that conflict with the owner's rules (free add-ons other than the interior detail, "the next week or two") are left to the AI, which applies those rules.
+    const passage = full.length > 170 && !/week or two|windshield|wheel coating|add[ -]?ons?\b/i.test(full);
+    if (q) out.push({ id: String(st.id), phase: String(st.phase || ""), q, full, passage });
   }
   return out;
+}
+// Fill the blanks of a script passage (<color>, <problem>, <solve their problem>, <year make model>, <name>) from what is known about this lead and this call.
+function coachFill(text, facts, car, name) {
+  const f = facts || {}, veh = [car && car.year, car && car.make, car && car.model].filter(Boolean).join(" ");
+  return String(text || "").replace(/<([^<>]{2,60})>/g, (m, k) => {
+    k = k.toLowerCase(); let v = "";
+    if (/solve/.test(k)) v = f.solve; else if (/problem|reason/.test(k)) v = f.problem;
+    else if (/color/.test(k) && /year|make|model|vehicle|car/.test(k)) v = [f.color, veh].filter(Boolean).join(" ");
+    else if (/color/.test(k)) v = f.color; else if (/year|make|model|vehicle/.test(k)) v = veh; else if (/^name$|first name|lead/.test(k)) v = String(name || "").split(/\s+/)[0];
+    return v ? String(v) : "___";
+  });
 }
 const KNOWLEDGE_DEFAULT = `BUSINESS
 - Divine Detailers, 5181 NW 74th Ave, Miami, FL 33166. Open Monday to Saturday, 9:00 AM to 6:00 PM. Closed Sunday. Phone (786) 757-2826. Email info@divinedetailers.com.
@@ -4679,7 +4697,8 @@ Ground rules:
 - Inside "say", acknowledge what the lead said and add one short real comment taken from the script, in the script's own wording adapted to what they actually said. Answer the question first; do not read the script aloud blindly.
 - Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 25 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
 - "ask" is ONE short question (at most 15 words), chosen in this order: (1) the script's or PLAYBOOK's own follow-up for what the lead just said (an objection's qualifying question, or the "If yes" / "If no" follow-up to the question the rep just asked); otherwise (2) the NEXT STEP from CALL PROGRESS when it is given: use that step's question in the script's wording, shortened to fit and bridged naturally from what the lead just said. CALL PROGRESS is the system's record of the whole call, so trust it over your own reading of the last few lines; never go back to a finished step. If there is no CALL PROGRESS, use the next question from the script that the lead has not answered yet (a NEXT SCRIPT LINE, when given, is only a hint and can be wrong).
-- Sound like a person who has been listening. When WHAT THIS LEAD HAS TOLD US is given and one of those notes fits the moment, use it in your comment in the lead's own words ("since you're running it through the car wash every week..."). At most one such callback per answer, and never force it. Match the lead's energy: relaxed with a relaxed lead, quick with a rushed one. Do not open every answer the same way ("Great question", "Got it"): vary it, and often just react to what they said.
+- Follow the script's order. The call goes opener, discovery, recap, pitch (the prep, the coating), timing, price, booking, deposit. Never skip ahead: no price, dates or booking talk while CALL PROGRESS shows discovery, the recap or the pitch still to come, unless the lead asks for it directly. A.C.A. (acknowledge, comment, ask) is the shape of every discovery answer; objections get empathy, then the script's qualifying question, then the answer; the price is said once and then you stop; the close is assumptive ("debit or credit?").
+- Sound like a person who has been listening, not like a script that was handed the lead's file. When WHAT THIS LEAD HAS TOLD US is given and a note truly fits the moment, you may use it in your comment in the lead's own words ("since you're running it through the car wash every week..."), but in at most one answer out of three, and never the same detail twice. Do not keep naming the car, its color, or a joke the lead made: say it once on the whole call, then say "it" or "the car". If the lead jokes or tests you, one light line back is enough; do not repeat the joke in later answers. Match the lead's energy: relaxed with a relaxed lead, quick with a rushed one. Do not open every answer the same way ("Great question", "Got it"): vary it, and often just react to what they said.
 - Small talk, a joke or a story from the lead gets one warm, real line back first, then the question. Do not skip the human moment to get to the script, and do not stay in it for more than one line.
 - Free extras: the ceramic coating special comes with a free interior detail and nothing else free. Never say "free windshield coating", "free wheel coating" or a dollar value of free add-ons, even where the SCRIPT has such a line: say "a free interior detail" in its place. Tint has no free extras.
 - Timing and the special (the owner's rule, it overrides the script's wording): first get the date the lead wants, with an open question ("How soon were you looking to get it done?"). Do not list calendar days at this point and do not say the special needs a booking within a week or two. Whatever date they give, this week, next month or later, the next thing "say" does is confirm it: "Perfect, that date does qualify for the coating special." Then move on to the price step. Never tell a lead their date does not qualify, never push them to an earlier date, and if they change the date later, the new date qualifies too. Offer specific open days only at the booking step, after they have agreed to the price, and only if they have not already named a day.
@@ -4693,7 +4712,7 @@ Ground rules:
 - When the lead says they do not know about the product ("I don't know anything", "not really", "no idea", "never heard of it", "what is that"), always step in: this is not a normal answer. "say" is a warm one-breath reassurance plus a plain-English explanation of the product in at most two short sentences (what it is and the main benefit: protection, gloss, easier washing for a coating; heat, privacy, UV for tint), using only wording and facts from the SCRIPT, OFFER or SHOP FACTS, with no numbers or claims that are not there. "ask" is then the next unanswered question from the script so the call keeps moving.
 - Your answer is the main thing the rep reads. Answer everything: a question (even one the script covers), confusion or a request to repeat ("hello?", "what?", "wait, what is that?"), "I don't know", an objection or worry, a comparison, an off-topic remark or story, a joke, a complaint, new information that changes the plan, an unusual request, a buying signal, and also a plain answer to the rep's question (acknowledge it, comment, ask the next question).
 - Price questions ("how much", "what does it cost"): do not state a dollar amount the first time it is asked, unless the call is already at the script's price step. Acknowledge, say that with the special it is a lot less than the normal price, and say the price depends on when they would like to book, then ask when they would like to get it done. Example: "Great question, with the special it's a lot less than our normal price. The price depends on when you'd like to book, so what day were you thinking?" Give the exact number only when the lead asks again, presses for it, or the call has reached the script's price step. Use only the amounts in the OFFER.
-- "I don't have much time" / "get to the bottom line" / "I'm busy": this is the most important moment, so always answer. Acknowledge it in a few words ("Absolutely, I'll be quick"), then give the shortest useful version: one line on what the special includes and that the price depends on when they book, and ask the single question that moves to the price (the car, or when they want it done). If they already gave the car and timing, give the price straight away. Never read a long pitch.
+- "I don't have much time" / "I'm busy" / "I'm at work": follow the script's own answer. Acknowledge it and ask permission to keep it quick ("No problem, how about I keep this quick for the both of us?"). Once they agree, carry on with the NEXT STEP exactly as normal, just with short lines. Do NOT jump to the price, the date or the booking because they are short on time: the discovery questions and the recap are what make the price make sense. If they still cannot talk, set an exact callback time. Only when they demand the number outright a second time ("just give me the price") give the price from the OFFER in one line, then return to the next step.
 - "I'm not interested" / "no thanks" / "I don't need it": never give up and never argue. Acknowledge it warmly, then ask one soft curious question to find the real reason ("Totally fair. Was it the price, or just not sure it's right for the car?"), using any matching PLAYBOOK from the script. Do not stack the pitch.
 - "I thought it was free" (or any surprise about cost): acknowledge the mix-up without blame, say what the special actually is using only wording from the SCRIPT or OFFER (the special is a lower price, not free), and ask whether they would still like to hear what it includes.
 - "Just shopping around" or comparing prices: respect it ("Smart, you should compare"), and ask what they are comparing or what matters most (quality, warranty, price), then use only the script's own points about why the shop is different. Do not quote a number on the first ask.
@@ -4740,13 +4759,19 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
   const get = k => { const r = rows.find(x => x.k === k); try { return r ? JSON.parse(r.v) : null; } catch (_) { return null; } };
   const offer = get("offer") || {}, sc = svc ? get("script_" + svc) : null;
   const facts = lead ? `Lead: ${lead.name || "unknown"}. Service tag: ${lead.service || "unknown"}. Vehicle: ${[lead.year, lead.make, lead.model].filter(Boolean).join(" ") || "unknown"}. Quoted job value: ${lead.value > 0 ? "$" + lead.value : "not set"}.` : "Lead: unknown.";
-  const od = await openDays(env, 4, svc === "coating" ? "coating" : "tint");
-  const factsOpen = od.length ? `\nOpen days on our calendar right now (offer these when booking): ${od.map(d => d.say).join(", ")}.` : "";
+  const odP = openDays(env, 4, svc === "coating" ? "coating" : "tint").catch(() => []);
+  const libP = svc ? env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : Promise.resolve([]);
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
-  const lib = svc ? await env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : [];
   let steps = []; try { steps = coachSteps(sc, offer, lead, svc); } catch (e) { /* the coach still works from the script text */ }
-  return { system, facts: facts + factsOpen, svc, lib, steps, body: system.slice(COACH_RULES.length) };
+  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
+  // The calendar (an outside service) and the answer library are slow and the first answer does not need them: they fill in as soon as they arrive.
+  const fill = Promise.all([
+    odP.then(od => { if (od && od.length) ctx.facts += `\nOpen days on our calendar right now (ONLY for the booking step, after the lead has agreed to the price, and only if the lead has not named a day of their own): ${od.map(d => d.say).join(", ")}.`; }),
+    libP.then(l => { ctx.lib = l; }),
+  ]).catch(() => {});
+  await Promise.race([fill, new Promise(r => setTimeout(r, 250))]);
+  return ctx;
 }
 // One streamed request to the coach model. onSay fires the moment the "say" line is complete, so the rep can start talking before the rest has been written.
 let coachThinkOff = true; // set to false for the rest of this isolate if the model refuses "thinking: disabled"
@@ -4800,7 +4825,7 @@ const FACTS_RULES = `You keep the running notes for a live car-detailing sales c
 - "done": the ids of the SCRIPT STEPS (listed in the message) that are finished. A step is finished when the rep said its line or asked its question in any wording, OR the lead already gave the information that step asks for, even without being asked. Do not mark a step finished just because of where it sits in the list. Copy the ids exactly.
 - "lead": up to 8 short notes on what the lead has told us about themselves, the car and what they want, as close to their own words as possible, the most useful for rapport first: "parks outside under a tree", "runs it through the car wash every week", "keeping it about another year", "noticed the swirls a couple of months ago". Only things the lead said. No guesses, nothing the rep said.
 - If the lead has not said enough yet, leave a field as an empty string or an empty list. Never invent anything. The transcript is live speech-to-text from a phone line and has mistakes (paint heard as pain, coating as coding): read through them.`;
-const COACH_BUILD = "coach-pr6";
+const COACH_BUILD = "coach-pr7";
 const COACH_ACK = /^((yeah|yes|yep|yup|ok|okay|uh[ -]?huh|mm+|m+hm+|sure|right|no|nope|nah|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh|correct|exactly|perfect|awesome|bye)[.!, ]*)+$/i;
 const COACH_FILLER = /^((um+|uh+|hm+|mm+|ah+|er+|oh|so|and|well|like|you know)[.!, ]*)+$/i;
 const COACH_INTENT = /\?|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b|not interested|no thanks|no thank you|expensive|pricey|too much|how much|price|cost|free\b|busy|later|call (me )?back|not now|bad time|can'?t talk|driving|working|wrong number|stop calling|remove me|who is this|sounds good|let'?s do it|i'?ll take it|book it|sign me up|think about|no idea|don'?t know|espa[nñ]ol|spanish/i;
@@ -4838,6 +4863,13 @@ function coachTidy(say, ask) {
   const cut = ask.indexOf("?"); if (cut >= 0 && cut < ask.length - 1 && !isQ(ask.slice(cut + 1))) ask = ask.slice(0, cut + 1); // "Is this X? Great, it's..." keeps only the question
   return { say, ask };
 }
+// was this question (asked on the call) the question of this script step? Most of the question's meaningful words must be in the step's line. Only ever checked against the step the call is on.
+function coachStepAsked(q, stepLine) {
+  const stop = new Set("the a an and or but so to of for in on at is are do does did you your i it that this what how when where which would could can have has be with me my we our just any got great perfect awesome car".split(" "));
+  const w = t => [...new Set(String(t || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(x => x.length > 2 && !stop.has(x)))], x = w(q), y = new Set(w(stepLine));
+  const n = x.filter(k => y.has(k)).length;
+  return x.length > 0 && n >= Math.min(2, x.length) && n / x.length >= 0.7;
+}
 // did the rep just ask something? (phone transcripts often drop the question mark, so the opening words count too)
 const coachRepAsked = t => { const x = String(t || "").trim().slice(-200); return !!x && (/\?["')\]]?\s*$/.test(x) || /\b(do you|did you|are you|is it|is that|is this|what|how|when|where|which|would you|could you|can you|can i|have you|does it|were you|may i)\b[^.!?]*$/i.test(x)); };
 // Returns "" when the remark needs an answer, otherwise the reason it is safe to stay quiet. The model is never asked to make this call.
@@ -4856,7 +4888,7 @@ function backupAnswer(said, pos) {
   const t = String(said || "").toLowerCase(), next = pos && pos.next ? String(pos.next).slice(0, 200) : "";
   const ans = (say, ask) => ({ answer: true, say, ask: ask || next, anchor: "", needs_eyes: false, note: "", answered: true, backup: true });
   if (/(how much|price|cost|quote|ballpark)/.test(t)) return ans("Great question, with the special it's a lot less than our normal price. The price depends on when you'd like to book.", "So how soon were you looking to get it done?");
-  if (/(no time|not much time|don'?t have (too |much |a lot of )?time|bottom line|in a hurry|busy|have to go|got to go|gotta go|quick)/.test(t)) return ans("Absolutely, I'll keep it quick.", "What day were you thinking of getting it done, and I'll give you the exact number?");
+  if (/(no time|not much time|don'?t have (too |much |a lot of )?time|bottom line|in a hurry|busy|have to go|got to go|gotta go|quick)/.test(t)) return ans("No problem, I'll keep this quick for the both of us.", next || "Is it okay if I ask two quick questions about the car?");
   if (/(free\b)/.test(t)) return ans("No worries, that's a common mix-up. It's a special price, not free, and it's a lot less than our normal price.", "Would you still like to hear what's included?");
   if (/(not interested|no thanks|no thank you|don'?t (want|need))/.test(t)) return ans("Totally fair, I appreciate you being upfront.", "Just so I understand, was it the price, or you're not sure it's right for the car?");
   if (/(shopping|shop around|lowest|cheapest|compare|looking around|other shop|another shop)/.test(t)) return ans("Smart to compare, you should.", "What are you comparing it to, and what matters most to you, the price or how long it lasts?");
@@ -4879,11 +4911,15 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay, signal, repLa
   const done = (asked || []).slice(-8), stale = pos && pos.next && done.some(q => coachSame(q, pos.next));
   const prog = st && st.prog, notes = (st && st.notes) || [], openers = (st && st.openers) || [];
   // the server's own record of the call wins over the browser's position hint, which is only used until the first notes exist
-  const nextText = prog && prog.next ? `CALL PROGRESS (kept by the system from the whole call)\nFinished steps: ${prog.done.join(", ") || "none"}\nNEXT STEP ${prog.next.id}${prog.next.phase ? " (" + prog.next.phase + ")" : ""}: "${prog.next.q}"\n\n`
+  const nextText = prog && prog.next && prog.next.passage ? `CALL PROGRESS (kept by the system from the whole call)\nFinished steps: ${prog.done.join(", ") || "none"}\nNEXT STEP ${prog.next.id} is a SCRIPT PASSAGE. The card will show it word for word under your line, and the rep reads it: "${prog.next.q.slice(0, 160)}..."\nIf the lead's remark is a plain answer, an agreement, small talk or "no questions": write ONLY a short bridge in "say" (at most 12 words: acknowledge what they said, nothing from the passage, no pitch) and leave "ask" as an empty string. If the lead asked a question or raised an objection: handle it as usual with your own "ask"; the passage waits for the next turn.\n\n`
+    : prog && prog.next ? `CALL PROGRESS (kept by the system from the whole call)\nFinished steps: ${prog.done.join(", ") || "none"}\nNEXT STEP ${prog.next.id}${prog.next.phase ? " (" + prog.next.phase + ")" : ""}: "${prog.next.q}"\n\n`
     : prog && !prog.next ? "CALL PROGRESS: every script step is finished. Close: confirm the day, take the deposit, wrap up.\n\n"
     : pos && pos.next && !stale ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
   const notesText = notes.length ? "WHAT THIS LEAD HAS TOLD US (their words):\n" + notes.map(x => "- " + x).join("\n") + "\n\n" : "";
-  const openText = openers.length ? `Your last answers began with: ${openers.map(x => '"' + x + '"').join(", ")}. Begin this one differently.\n` : "";
+  const says = (st && st.says) || [];
+  const openText = (says.length ? "YOUR LAST ANSWERS (the lead has already heard these: do not reuse their opening word, their phrases, their jokes or the details they mention):\n" + says.map(x => "- " + x).join("\n") + "\n" : "")
+    + (openers.length ? `Do not begin with ${openers.map(x => '"' + x.split(" ")[0] + '"').join(" or ")}.\n` : "")
+    + (st && st.noCar ? "You named the car or its color in a recent answer. In THIS answer do not mention the make, model, year or color at all: say \"it\" or \"the car\".\n" : "");
   const askedText = done.length ? "QUESTIONS THE REP HAS ALREADY ASKED ON THIS CALL (oldest first):\n" + done.map(q => "- " + q).join("\n") + "\nDo NOT give any of these again, even reworded, even if the lead's reply was short or vague: take the reply as the answer and move forward to the next question in the script that has not been asked. Repeat one only if the lead plainly did not hear it (\"what?\", \"say that again\").\n\n" : "";
   const repText = repLast ? `REP JUST SAID: "${String(repLast).slice(-300)}"\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${notesText}${askedText}${realText}${openText}${repText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
@@ -5182,10 +5218,24 @@ export class CallRoom {
   progress() {
     const steps = (this.ctx && this.ctx.steps) || [], done = this.done || new Set(), asked = this.askedSoFar();
     if (!steps.length || (!done.size && !asked.length)) return null;
-    const covered = x => done.has(x.id) || asked.some(q => coachSame(q, x.q));
-    let far = -1; steps.forEach((x, i) => { if (covered(x)) far = i; });
-    const next = steps.slice(far + 1).find(x => !covered(x)) || null;
-    return { done: steps.filter(covered).map(x => x.id), next, notes: this.leadNotes || [] };
+    // A pointer walks the script in order. It moves past a step when the notes say it is finished or the rep asked that step's question.
+    // It may hop over a step the rep chose to skip only when one of the next three steps is finished: never from discovery straight to booking.
+    // (The earlier version jumped to the furthest step that shared a couple of words with any question asked, which skipped the recap and the pitch.)
+    const hit = x => done.has(x.id) || asked.some(q => coachStepAsked(q, x.q));
+    let i = this.stepIdx || 0;
+    while (i < steps.length) {
+      if (hit(steps[i])) { i++; continue; }
+      let j = -1; for (let k = i + 1; k <= i + 3 && k < steps.length; k++) if (done.has(steps[k].id)) j = k;
+      if (j < 0) break; i = j + 1;
+    }
+    this.stepIdx = i;
+    return { done: steps.slice(0, i).map(x => x.id), next: steps[i] || null, notes: this.leadNotes || [] };
+  }
+  // did one of the last two answers already name the car or its color? (leads noticed "your black BMW" in every other sentence)
+  carSaid() {
+    const car = (this.ctx && this.ctx.car) || {}, words = [car.make, car.model, this.facts && this.facts.color].map(x => String(x || "").toLowerCase().trim()).filter(x => x.length > 2);
+    if (!words.length) return false;
+    return (this.says || []).slice(-2).some(s => { const t = " " + String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ") + " "; return words.some(w => t.includes(" " + w.replace(/[^a-z0-9]+/g, " ") + " ")); });
   }
   logTurn(r) {
     try {
@@ -5221,17 +5271,21 @@ export class CallRoom {
       const ctxMs = log.ctx = Date.now() - t0;
       // nothing from the AI after 3 seconds: the safe backup answer goes up and STAYS up (a late AI answer would change the words while the rep is reading them)
       backupTm = setTimeout(() => { if (shown || this.coachRestart || this.ended) return; backup = true; show({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } }); try { this.coachAc.abort(); } catch (e) { /* done */ } }, 3000);
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; const say = coachTidy(say0, "").say; show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.askedSoFar(), { prog: this.progress(), notes: this.leadNotes || [], openers: this.openers || [] }) || {};
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; const say = coachTidy(say0, "").say; show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.askedSoFar(), { prog: this.progress(), notes: this.leadNotes || [], openers: this.openers || [], says: (this.says || []).map(x => x.slice(0, 140)), noCar: this.carSaid() }) || {};
       if (out.prog && out.prog.next) log.why = "next " + out.prog.next.id;
       log.ms = out.ms; log.usage = out.usage; log.stop = out.stop; log.http = out.http; log.raw = out.raw;
       if (this.coachRestart) { log.outcome = "restarted"; return; } // more of the lead's sentence arrived: this answer is out of date
       if (backup) { log.outcome = "backup"; log.why = "slow"; this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: "AI took over 3s, backup answer shown" }); }
       else if (out.answer) { log.outcome = "shown"; log.raw = (out.say + " | ASK: " + out.ask).slice(0, 500);
         this.openers = [...(this.openers || []), String(out.say).split(/[,.!?]/)[0].split(/\s+/).slice(0, 3).join(" ")].filter(Boolean).slice(-3);
+        this.says = [...(this.says || []), out.say].slice(-3);
+        // the next step is a script passage and the model only bridged into it: put the passage on the card word for word, blanks filled from this call
+        const stepN = out.prog && out.prog.next, then = stepN && stepN.passage && !out.ask ? { id: stepN.id, text: coachFill(stepN.full, this.facts, this.ctx.car, this.ctx.name) } : null;
+        if (then) { out.then = then; log.raw = (out.say + " | THEN " + then.id + ": " + then.text).slice(0, 500); const sameP = this.asks.find(a => a.q === stepN.q); if (sameP) sameP.n++; else this.asks.push({ q: stepN.q, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); }
         const lastA = this.asks[this.asks.length - 1];
         if (after && lastA && !lastA.done) { lastA.n--; if (lastA.n <= 0) this.asks.pop(); } // same remark answered again: the earlier card does not count
         const sameA = out.ask ? this.asks.find(a => coachSame(a.q, out.ask)) : null;
-        if (sameA) sameA.n++; else if (out.ask) { this.asks.push({ q: out.ask, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); if (this.asks.length > 20) this.asks.shift(); } show({ type: "answer", q: said, answer: true, say: out.say, ask: out.ask, needs_eyes: out.needs_eyes, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } }); }
+        if (sameA) sameA.n++; else if (out.ask) { this.asks.push({ q: out.ask, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); if (this.asks.length > 20) this.asks.shift(); } show({ type: "answer", q: said, answer: true, say: out.say, ask: out.ask, then: out.then || null, needs_eyes: out.needs_eyes, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } }); }
       else { // no usable AI answer: show the safe backup so the rep is never left without help (unless the first sentence is already on screen)
         log.why = out.error ? "error " + out.error : "unreadable" + (out.stop ? " " + out.stop : "");
         this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: out.error ? "AI service error " + out.error + (shown ? "" : ", backup answer shown") : "reply could not be read" + (shown ? "" : ", backup answer shown") });
