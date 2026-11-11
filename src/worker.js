@@ -4116,9 +4116,10 @@ function sv(slot,l,svc){
     case 'YEAR MAKE MODEL':case 'YEAR MAKE & MODEL':return vehOf(l);
     case 'AREA':return ofv('area')||'';
     case 'WINDOWS':return FACTS.windows||'';case 'SHADE':return FACTS.shade||'';case 'TIMEFRAME':return FACTS.time||'';case 'COLOR':return FACTS.color||'';
-    case 'GOAL':case 'PROBLEM':return g.length?joinAnd(g.map(x=>GOALT[x][0])):'';
-    case 'SOLVE THEIR PROBLEM':{const u=g.filter(x=>!(x==='wash'&&g.indexOf('restore')>=0));return u.length?joinAnd(u.map(x=>GOALT[x][1])):''}
+    case 'GOAL':case 'PROBLEM':if(FACTS.ai&&FACTS.ai.problem)return FACTS.ai.problem;return g.length?joinAnd(g.map(x=>GOALT[x][0])):'';
+    case 'SOLVE THEIR PROBLEM':{if(FACTS.ai&&FACTS.ai.solve)return FACTS.ai.solve;const u=g.filter(x=>!(x==='wash'&&g.indexOf('restore')>=0));return u.length?joinAnd(u.map(x=>GOALT[x][1])):''}
   }return ''}
+function setAiFacts(m){const n={problem:String(m.problem||''),solve:String(m.solve||'')};const o=FACTS.ai||{};if(n.problem===(o.problem||'')&&n.solve===(o.solve||''))return;FACTS.ai=n;if(m.color&&!FACTS.color)FACTS.color=String(m.color);if(gScript()&&Q[ix])gFull()}
 function gAnalyze(who,text){
   if(who!=='lead')return;const t=String(text||'').toLowerCase(),F=FACTS,sv0=gsvc(Q[ix]),ok=g=>sv0==='coating'?/restore|protect|wash/.test(g):/heat|look|uv/.test(g),add=g=>{if(ok(g)&&F.goals.indexOf(g)<0&&F.goals.length<2)F.goals.push(g)};
   if(/\\b(hot|heat|cool|sweat|a\\/?c|air condition|burn|baking|boiling)\\b/.test(t))add('heat');
@@ -4406,13 +4407,14 @@ function gNext(){const box=el('gnx');if(!box)return;const sc=gScript(),l=Q[ix];i
      +'<span class="gb"><button type="button" class="btn sm g" data-said="1">Said it</button><button type="button" class="btn sm" data-skip="'+$(s.id)+'">Skip step</button><button type="button" class="btn sm" data-open="gs-'+$(s.id)+'">Open</button></span>'}
   if(od.length&&!det)h+='<div class="gts"><span class="gl">Still open</span>'+od.slice(0,5).map(o=>'<button type="button" class="gt2" data-open="gs-'+$(o.st.id)+'"><b>'+$(o.st.n)+'</b>'+$(topicOf(svc,o.st))+'</button>').join('')+'</div>';
   box.hidden=false;box.className='gnx'+(det?' det':'');box.innerHTML=h;sendPos(nl)}
-function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));return}
+function coachMsg(m){if(m.type==='hello'){(m.turns||[]).forEach(t=>addLine(t.who,t.text,true));if(m.facts)setAiFacts(m.facts);return}
   if(m.type==='live'){cs('Listening');return}
   if(m.type==='transcript'){addLine(m.who,m.text,m.final,m.low);if(m.speak&&practiceOn&&el('pspk')&&el('pspk').checked&&window.speechSynthesis){try{const u=new SpeechSynthesisUtterance(m.text);u.rate=1.05;speechSynthesis.speak(u)}catch(_){}}if(m.who==='lead'&&m.final)leadSaid(m.text,m.end);return}
   if(m.type==='practice_ready'){const l=Q[ix];if(l&&l.practice){Object.assign(l,m.lead);INFO[0]={lead:l,facts:{attempts:0,talkSecs:0,connected:0},notes:[],calls:[],texts:[],activity:[]};drawLead();drawScript();drawBrief(l);drawQ()}return}
   if(m.type==='practice_score'){practiceFinish(m.score,m.persona);return}
   if(m.type==='practice_error'){setSt(m.message||'Practice problem','bad');return}
   if(m.type==='end'){if(m.who==='lead')flushLead();return}
+  if(m.type==='facts'){setAiFacts(m);return}
   if(m.type==='coach_skip'){cs('AI quiet on "'+String(m.q||'').slice(0,40)+'" ('+(m.why||'')+')');setTimeout(()=>{if(el('cst').textContent.indexOf('AI quiet')===0)cs('Listening')},12000);return}
   if(m.type==='answer'){if(!m.early&&m.answered===false){markRedo();gMark(false)}showAns({src:'ai',q:m.q,say:m.say,ack:m.ack,comment:m.comment,ask:m.ask,anchor:m.anchor,needs_eyes:m.needs_eyes,note:m.note,ms:m.ms});return}
   if(m.type==='coach_error'){el('aip').textContent='AI unavailable';return}
@@ -4720,6 +4722,12 @@ async function coachStream(env, system, user, onSay, opts) {
     return { text, usage, ms };
   } catch (e) { return { error: "failed", ms }; } finally { clearTimeout(timer); }
 }
+// What the lead has told us so far, in their own words, for the recap line ("you're interested in a coating because ___ ... it can definitely ___")
+const FACTS_RULES = `You read a live car-detailing sales call and write two short phrases the rep will read out in the recap. Use ONLY what the lead actually said, plus the shop's own benefits from the SCRIPT or SHOP FACTS below. Reply with ONLY one JSON object: {"problem": "", "solve": "", "color": ""}.
+- "problem": why the lead wants this, phrased to finish the sentence "you're interested in getting it because ____". Start with "you" and be specific, in their words: "you have swirl marks on the bumper", "you just bought the car and want to keep it protected", "you're sick of how hot the car gets". Keep the exact spot when they named one (bumper, hood, doors). If they said they have no swirls or scratches, use their answer to "what has you interested" instead. At most 18 words.
+- "solve": how the service fixes that, phrased to finish "It can definitely ____". A verb phrase using only benefits from the SCRIPT or SHOP FACTS, matched to their problem: "bring that bumper back to looking new again", "keep the paint protected so washing is easy". At most 20 words.
+- "color": the paint color if the lead said it, otherwise "".
+- If the lead has not said enough yet, leave a field as an empty string. Never invent anything.`;
 async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}${t.low ? " (unclear audio)" : ""}: ${t.text}`).join("\n");
   const real = libPick(ctx.lib, said);
@@ -4825,7 +4833,7 @@ export class CallRoom {
   broadcast(msg) { const t = JSON.stringify(msg); for (const b of this.browsers) { try { b.send(t); } catch (e) { this.browsers.delete(b); } } }
   attachBrowser(ws) {
     this.browsers.add(ws);
-    try { ws.send(JSON.stringify({ type: "hello", turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
+    try { ws.send(JSON.stringify({ type: "hello", facts: this.facts || null, turns: this.turns.slice(-40), live: !this.ended && !!this.twilioWs })); } catch (e) { /* closed */ }
     ws.addEventListener("message", ev => { try { const m = JSON.parse(ev.data); if (m && m.type === "pos") this.pos = { next: String(m.next || "").slice(0, 400), step: String(m.step || "").slice(0, 80) }; else if (m && m.type === "practice_say") this.onPracticeSay(m.text); else if (m && m.type === "practice_end") this.scorePractice(m.covered); } catch (e) { /* ignore */ } });
     ws.addEventListener("close", () => this.browsers.delete(ws)); ws.addEventListener("error", () => this.browsers.delete(ws));
   }
@@ -4931,6 +4939,24 @@ export class CallRoom {
     this.broadcast({ type: "end", who });
     if (who === "lead" && coachAi(this.env) && this.leadBuf.length) this.askCoach();
   }
+  async refreshFacts() {
+    if (this.factsBusy || this.ended || !coachAi(this.env)) return;
+    const turns = this.turns.slice(-24);
+    if (!turns.some(t => t.who === "lead")) return;
+    this.factsBusy = true; const n = this.turns.length;
+    try {
+      if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
+      const recent = turns.map(t => `${t.who === "lead" ? "LEAD" : "REP"}: ${t.text}`).join("\n");
+      const res = await coachStream(this.env, FACTS_RULES + "\n\nService: " + (this.ctx.svc || "unknown") + "\n\n" + this.ctx.body, `Transcript:\n${recent}\n\nReturn the JSON.`, null, { max: 250, abortFalse: false, timeout: 10000 });
+      const text = res && res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
+      if (a >= 0 && b > a) {
+        const o = JSON.parse(text.slice(a, b + 1)), c = x => String(x == null ? "" : x).replace(/\s+/g, " ").trim().slice(0, 160);
+        const f = { problem: c(o.problem), solve: c(o.solve), color: c(o.color) };
+        if (JSON.stringify(f) !== JSON.stringify(this.facts || {})) { this.facts = f; this.broadcast({ type: "facts", ...f }); }
+      }
+    } catch (e) { /* the recap falls back to the standard wording */ }
+    finally { this.factsBusy = false; if (this.turns.length > n && !this.ended) this.refreshFacts(); }
+  }
   async warm() {
     if (this.warmed || !coachAi(this.env) || !this.env.DB) return; this.warmed = true;
     try { this.ctx = this.ctx || await coachContext(this.env, this.leadId); await coachStream(this.env, this.ctx.system, 'Warm-up only. Reply with {"answer": false}', null); } catch (e) { /* the real request will build it */ }
@@ -4968,7 +4994,7 @@ export class CallRoom {
       if (out && out.error) { /* shown above */ }
       else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
     } catch (e) { this.broadcast({ type: "coach_error" }); }
-    finally { this.coachBusy = false; if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
+    finally { this.coachBusy = false; this.refreshFacts(); if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
   }
   async finish() {
     if (this.ended) return; this.ended = true;
