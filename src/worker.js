@@ -4401,7 +4401,7 @@ function markRedo(){const ls=lastSaid;if(!ls||Date.now()-ls.at>20000||!/\\?\\s*$
 function showAns(o){if(o.src!=='ai')return; // only the AI coach answers: scripted answer cards are not shown
   const now=Date.now(),key=o.src==='ai'?'ai:'+String(o.q||'').toLowerCase().slice(0,40):String(o.anchor||o.q||'').toLowerCase();
   if(o.src==='ai'&&curAns&&curAns.src!=='ai'&&now-curAns.t<30000&&sameQ(curAns.q,o.q)){curAns.ai=o;drawAns();return}
-  if(curAns&&!curAns.used&&now-curAns.t<DWELL&&curAns.key!==key){o.qat=now;pend=o;clearTimeout(pendTm);pendTm=setTimeout(()=>{const p=pend;pend=null;if(p&&Date.now()-p.qat<9000)showAns(p)},DWELL-(now-curAns.t)+60);return}
+  /* a newer answer replaces the one on screen at once: no waiting */
   if(curAns&&curAns.key===key&&now-curAns.t<30000){if(o.src==='ai'){Object.assign(curAns,o);drawAns()}return}
   if(curAns){ansHist.unshift(curAns);ansHist=ansHist.slice(0,4)}
   curAns=Object.assign({},o,{t:now,key:key,used:false,ai:null});drawAns()}
@@ -4661,8 +4661,8 @@ const COACH_RULES = `You are a real-time call coach whispering to a sales rep at
 Ground rules:
 - Use ONLY facts that appear in the SCRIPT, OFFER or SHOP FACTS below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, say so in "note", set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
 - Inside "say", acknowledge what the lead said and add one short real comment taken from the script, in the script's own wording adapted to what they actually said. Answer the question first; do not read the script aloud blindly.
-- Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 35 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
-- After answering a question or objection, steer back: "ask" should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
+- Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 25 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
+- After answering a question or objection, steer back: "ask" (one short question, at most 15 words) should be the next useful question from the script that has not been covered yet, or the script's own follow-up for that objection.
 - Objections: use the matching PLAYBOOK's opening moves (empathy, then the qualifying question), not a hard close.
 - The transcript is live speech-to-text over a phone line and contains mistakes: similar-sounding words (tint heard as tent, coating as coding, XPEL as expel), wrong car names, garbled numbers. Work out what the lead most likely meant from the car-detailing context. If a word that matters (a price, a date, a car, which service) is unclear, or the line is marked unclear audio, make "say" a short clarifying question ("Sorry, did you say the sides and the back?") instead of guessing.
 - When the lead says they do not know about the product ("I don't know anything", "not really", "no idea", "never heard of it", "what is that"), always step in: this is not a normal answer. "say" is a warm one-breath reassurance plus a plain-English explanation of the product in at most two short sentences (what it is and the main benefit: protection, gloss, easier washing for a coating; heat, privacy, UV for tint), using only wording and facts from the SCRIPT, OFFER or SHOP FACTS, with no numbers or claims that are not there. "ask" is then the NEXT SCRIPT LINE so the call keeps moving. Set "answered" true.
@@ -4679,11 +4679,9 @@ Ground rules:
 - After you handle it, "ask" is the NEXT SCRIPT LINE given to you, word for word (or the closest natural bridge into it), so the call returns to the script.
 - Closing tactics that won on hundreds of real calls: (1) state the deposit as coming off the total and give the out-the-door number, then ask "debit or credit?" instead of "if that's okay" or "does that sound good?"; (2) offer both ways to pay in one breath: card over the phone, or a secure link they can Apple Pay; (3) if payment hits a snag, stay on the line ("I'll wait") instead of letting them go; (4) after any "okay", "sounds good" or a named date, stop pitching, lock the date and take the deposit; (5) never accept "call us when you're ready": hold the slot with the deposit link or set an exact time; (6) when the quote is higher than the ad, explain the scope first (vehicle size, extra windows, removal) and then give the number; (7) give a reason or a trade for a lower price (drop an add-on, a lever the OFFER allows), never an unprompted or stacked discount; (8) when a spouse, partner or parent has to approve, ask what questions they would have, answer them now, and hold the date with the refundable deposit; (9) never mention quotas, being desperate, or "that's just our policy"; (10) never improvise legal limits, windshield rules or film numbers: use only the SHOP FACTS, otherwise say the installer will confirm.
 - Closing: the goal of a call is a deposit AND a specific date. When the lead shows a buying signal (agrees to the price, asks about dates, payment or how it works, says it sounds good), do not ask "how does that sound": offer a way to pay (a secure link or the card over the phone) and a specific day. Never accept "I'll call you back" before trying to hold the spot with the deposit; if a callback is still the outcome, set an exact day and time. A lead who only needs time gets a specific follow-up time, not "whenever".
-- "anchor" is the id of the script STEP (like s15) or PLAYBOOK (like p-wife) your answer comes from.
-- "answered": true if the lead's last words also answered the rep's last question (or gave the information that script step was after). false ONLY if the lead dodged or ignored that question and the rep still needs the information (for example the rep asked what windows and the lead asked about price). An objection, "I need to think about it", or a question about something else that does not need that information is true: never make the rep ask the same question twice.
 
 Reply with ONLY one JSON object, no markdown, with the keys in exactly this order (the rep sees "say" the moment it is written, so keep everything else short):
-{"answer": true, "say": "...", "ask": "...", "anchor": "s15", "needs_eyes": false, "note": "", "answered": true}`;
+{"answer": true, "say": "...", "ask": "...", "needs_eyes": false}`;
 // one tiny request so the owner can confirm the key, model and network work without placing a call
 async function coachAiTest(env) {
   if (!coachAi(env)) return json({ ok: false, message: "The ANTHROPIC_API_KEY secret is not set in Cloudflare yet." });
@@ -4721,6 +4719,7 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
 async function coachStream(env, system, user, onSay, opts) {
   const o = opts || {};
   const t0 = Date.now(), ms = {}, ac = new AbortController(), timer = setTimeout(() => ac.abort(), o.timeout || 12000);
+  if (o.signal) { if (o.signal.aborted) ac.abort(); else o.signal.addEventListener("abort", () => ac.abort()); }
   try {
     const r = await fetch(`${env.ANTHROPIC_BASE || "https://api.anthropic.com"}/v1/messages`, {
       method: "POST", signal: ac.signal,
@@ -4771,9 +4770,9 @@ function backupAnswer(said, pos) {
   if (/(what is|what's|don'?t know|no idea|never heard)/.test(t)) return ans("No worries, that's what I'm here for. A ceramic coating is a protective layer that bonds to your paint, keeps it glossy and makes washing easier.", "");
   return ans("Got it, thanks for telling me.", "");
 }
-async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
+async function coachAnswer(env, ctx, turns, said, pos, low, onSay, signal) {
   const recent = turns.slice(-14).map(t => `${t.who === "lead" ? "LEAD" : "REP"}${t.low ? " (unclear audio)" : ""}: ${t.text}`).join("\n");
-  const real = libPick(ctx.lib, said);
+  const real = libPick(ctx.lib, said, 2);
   const realText = real.length ? "REAL ANSWERS from past calls to something similar (best closers first):\n" + real.map((r, i) => `${i + 1}. Lead said: "${r.lead_said}"\n   ${r.won ? "Rep (the call booked)" : "Rep"}: "${r.rep_response}"${r.quality && r.quality < 4 && r.better ? `\n   Better answer: "${r.better}"` : ""}`).join("\n") + "\n\n" : "";
   const nextText = pos && pos.next ? `NEXT SCRIPT LINE${pos.step ? " (" + pos.step + ")" : ""}: "${pos.next}"\n\n` : "";
   const user = `${ctx.facts}\n\nRecent transcript:\n${recent}\n\n${nextText}${realText}The lead just finished saying: "${said}"${low ? " (the audio was unclear, so some words may be wrong)" : ""}\nReturn the JSON.`;
@@ -4781,7 +4780,7 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay) {
   const forcedWords = /(not interested|no thanks|no thank you|don'?t (want|need)|not (looking|ready)|free\b|shopping|shop around|just looking|too (much|expensive|pricey)|how much|price|cost|think about|wife|husband|girlfriend|scam|catch|what('s| is)|don'?t know|no idea|never heard|why|expensive|cheap|lowest|lower price|best price|budget|afford|compare|deal|discount|looking for|competitor|another shop|other shop|quote)/i.test(said);
   const forced = true; void forcedWords; // every lead remark except a bare "yeah"/"ok" (filtered before this point) gets an answer: the coach is never silent
   const userMsg = forced ? user + "\nYou MUST answer this (answer: true). Never return answer false: acknowledge what the lead said, comment, and ask the next useful question." : user;
-  const res = await coachStream(env, ctx.system, userMsg, onSay, { max: 600, abortFalse: !forced });
+  const res = await coachStream(env, ctx.system, userMsg, onSay, { max: 400, abortFalse: !forced, signal, timeout: 8000 });
   if (res.error) return { error: res.error };
   const text = res.text || "", a = text.indexOf("{"), b = text.lastIndexOf("}");
   if (a < 0) return null;
@@ -4934,7 +4933,7 @@ export class CallRoom {
     const at = Math.round((Date.now() - this.t0) / 1000);
     this.turns.push({ who: "lead", text, at });
     this.broadcast({ type: "transcript", who: "lead", text, final: true, end: true, at, speak: true });
-    if (coachAi(this.env)) { this.leadBuf.push(text); this.askCoach(); }
+    if (coachAi(this.env)) { this.leadBuf.push(text); this.queueAsk(true); }
   }
   async onPracticeSay(text) {
     const pr = this.practice; text = String(text || "").trim().slice(0, 600);
@@ -4980,10 +4979,12 @@ export class CallRoom {
   endOfSpeech(track) {
     const who = track === "outbound" ? "lead" : "rep";
     this.broadcast({ type: "end", who });
-    if (who === "lead" && coachAi(this.env) && this.leadBuf.length) this.askCoach();
+    if (who === "lead" && coachAi(this.env) && this.leadBuf.length) this.queueAsk(true);
   }
   async refreshFacts() {
-    if (this.factsBusy || this.ended || !coachAi(this.env)) return;
+    if (this.factsBusy || this.coachBusy || this.leadBuf.length || this.ended || !coachAi(this.env)) return;
+    if (this.factsAt && Date.now() - this.factsAt < 8000) return;
+    this.factsAt = Date.now();
     const turns = this.turns.slice(-24);
     if (!turns.some(t => t.who === "lead")) return;
     this.factsBusy = true; const n = this.turns.length;
@@ -4998,7 +4999,7 @@ export class CallRoom {
         if (JSON.stringify(f) !== JSON.stringify(this.facts || {})) { this.facts = f; this.broadcast({ type: "facts", ...f }); }
       }
     } catch (e) { /* the recap falls back to the standard wording */ }
-    finally { this.factsBusy = false; if (this.turns.length > n && !this.ended) this.refreshFacts(); }
+    finally { this.factsBusy = false; }
   }
   async warm() {
     if (this.warmed || !coachAi(this.env) || !this.env.DB) return; this.warmed = true;
@@ -5018,26 +5019,42 @@ export class CallRoom {
     this.sig.talk[who] += Number(d.duration) || 0; this.sig.words[who] += text.split(/\s+/).length; this.sig.turns++;
     if (who === "lead" && /\?/.test(text)) this.sig.leadQuestions++;
     if (this.sig.firstPriceSecs == null && /\$|price|how much|cost|precio|cu[aá]nto/i.test(text)) this.sig.firstPriceSecs = at;
-    if (who === "lead" && coachAi(this.env)) { this.leadBuf.push(text); if (low) this.leadLow = true; if (d.speech_final) this.askCoach(); }
+    if (who === "lead" && coachAi(this.env)) { this.leadBuf.push(text); if (low) this.leadLow = true; if (d.speech_final) this.queueAsk(); else this.leadMore(); }
+  }
+  // The lead speaks in fragments ("How are you doing?" ... "today"). Gather them, wait a beat for more, then answer the whole thing once.
+  leadMore() { if (this.coachBusy) { this.coachRestart = true; try { this.coachAc && this.coachAc.abort(); } catch (e) { /* done */ } } }
+  queueAsk(now) {
+    clearTimeout(this.askTm);
+    if (this.coachBusy && this.leadBuf.length) this.leadMore();
+    const text = this.leadBuf.join(" ").trim(), ends = /[.?!]["')\]]?\s*$/.test(text);
+    const wait = now ? 0 : ends ? 250 : 650;
+    this.askTm = setTimeout(() => this.askCoach(), wait);
   }
   async askCoach() {
+    if (this.coachBusy) return; // the running request is restarted with the merged text when it stops
     const said = this.leadBuf.join(" ").trim(); this.leadBuf = []; const low = this.leadLow; this.leadLow = false;
     // only bare acknowledgments are ignored: any question, confusion ("hello?", "what?"), worry, objection or off-topic remark gets an answer
     if (this.ended || !said || /^(yeah|yes|ok|okay|uh huh|mm+|sure|right|no|nope|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh)[.!, ]*$/i.test(said) || (said.split(/\s+/).length < 3 && !/[?]|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b/i.test(said))) return;
-    if (this.coachBusy) { this.coachNext = said; return; }
-    this.coachBusy = true;
-    const t0 = Date.now();
+    this.coachBusy = true; this.coachRestart = false; this.coachAc = new AbortController();
+    const t0 = Date.now(); let shown = false, backupTm = 0;
     try {
       if (!this.ctx) this.ctx = await coachContext(this.env, this.leadId);
       const ctxMs = Date.now() - t0;
-      let out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } }));
-      if (!out || out.error || !out.say) out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say, t) => this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, ms: { say: Date.now() - t0, ctx: ctxMs } })); // one retry: a slow or garbled reply must not leave the rep without help
-      if (!out || out.error || !out.answer || !out.say) { // still nothing after the retry: show the safe backup answer so the rep is never left without help
+      // nothing from the AI after 3 seconds: put the safe backup answer on screen now; the real answer replaces it when it arrives
+      backupTm = setTimeout(() => { if (!shown && !this.coachRestart && !this.ended) { shown = true; this.broadcast({ type: "answer", q: said, ...backupAnswer(said, this.pos), early: true, ms: { total: Date.now() - t0 } }); } }, 3000);
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, (say) => { if (this.coachRestart) return; shown = true; this.broadcast({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal);
+      if (this.coachRestart) return; // more of the lead's sentence arrived: this answer is out of date
+      if (!out || out.error || !out.answer || !out.say) { // no usable AI answer: show the safe backup so the rep is never left without help
         this.broadcast({ type: "coach_skip", q: said.slice(0, 80), why: out && out.error ? "AI service error " + out.error + ", backup answer shown" : !out ? "reply could not be read, backup answer shown" : "chose not to answer, backup answer shown" });
         this.broadcast({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } });
-      } else if (out && out.answer && out.say) this.broadcast({ type: "answer", q: said, ...out, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
-    } catch (e) { this.broadcast({ type: "coach_error" }); }
-    finally { this.coachBusy = false; this.refreshFacts(); if (this.coachNext) { const n = this.coachNext; this.coachNext = null; this.leadBuf = [n]; this.askCoach(); } }
+      } else this.broadcast({ type: "answer", q: said, ...out, backup: false, ms: { ...out.ms, say: out.ms && out.ms.say != null ? out.ms.say + ctxMs : null, total: Date.now() - t0, ctx: ctxMs } });
+    } catch (e) { if (!this.coachRestart) this.broadcast({ type: "coach_error" }); }
+    finally {
+      clearTimeout(backupTm); this.coachBusy = false;
+      if (this.coachRestart) { this.coachRestart = false; this.leadBuf.unshift(said); this.queueAsk(true); }
+      else if (this.leadBuf.length) this.queueAsk(true);
+      else this.refreshFacts();
+    }
   }
   async finish() {
     if (this.ended) return; this.ended = true;
