@@ -293,6 +293,20 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   const v = room(); v.r.ctx.price = "599"; v.rep("Do weekdays or weekends work better?"); await sleep(50); v.lead("Yes, weekdays are better.", { end: true }); await sleep(1000);
   check("a yes before any price is not a price agreement", !/ALREADY AGREED/.test(last(aiCalls).user), 0); }
 
+// 19r. Quoting the price early (the closer's way) must not count as the lead agreeing to it, and must not move the call to booking
+{ aiCalls = []; const t = room(); t.r.ctx.price = "695"; t.r.ctx.price2 = "895";
+  t.r.ctx.steps = [{ id: "s07", phase: "", q: "Do you notice any swirl marks, scratches or dull spots?", full: "Do you notice any swirl marks, scratches or dull spots?", passage: false }, { id: "s08", phase: "", q: "Are you familiar with what a ceramic coating does?", full: "Are you familiar with what a ceramic coating does?", passage: false }, { id: "s19", phase: "", q: "With the special you get all of it for just $695. Sound good?", full: "With the special you get all of it for just $695. Sound good?", passage: false }, { id: "s20", phase: "", q: "Do weekdays or weekends usually work better for you?", full: "Do weekdays or weekends usually work better for you?", passage: false }];
+  t.r.done = new Set(); aiSay = "Great question. Right now the 5-year coating is $695, normally $1,095, and that includes the full prep."; aiAsk = "Do you notice any swirl marks, scratches or dull spots?";
+  t.lead("How much is it?", { end: true }); await sleep(900); aiSay = ""; aiAsk = "";
+  t.rep("Great question. Right now the 5-year coating is $695, normally $1,095, and that includes the full prep. Do you notice any swirl marks, scratches or dull spots?"); await sleep(50);
+  t.lead("Yes, on the hood.", { end: true }); await sleep(1000);
+  const u = last(aiCalls).user;
+  check("a yes to a different question is not a price agreement", !/ALREADY AGREED/.test(u) && !t.r.priceOk, u);
+  check("an early quote does not move the call to booking", /NEXT STEP s08/.test(u), u.match(/NEXT STEP[^\n]*/));
+  t.rep("So the 8-year is $895 and the 5-year is $695. Does the 5-year sound good to you?"); await sleep(50);
+  t.lead("Yeah, the five year works.", { end: true }); await sleep(1000);
+  check("a yes to the closing price question is an agreement and moves to booking", t.r.priceOk === true && /NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/)); }
+
 // 19j. owner's rule enforced in code: free windshield and wheel coatings / add-ons never reach the card (the AI said them on real calls)
 { aiCalls = []; const t = room();
   aiSay = "With the special, the total comes to $599 with the paint correction, free windshield and wheel coatings, and a 5 year warranty."; aiAsk = "Want me to walk you through the free add-ons that come with the special?";
