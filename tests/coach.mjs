@@ -266,6 +266,47 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   check("once the price is said the call is at booking", /NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/));
   factsReply = null; }
 
+// 19p. REAL CALL (coach-pr9): the prep passage was counted as read because earlier talk shared a few words with its first line, so it never appeared.
+{ aiCalls = []; factsCalls = []; const t = room(); delete t.r.refreshFacts;
+  const prep = "Awesome. So before any coating goes on, we do 3 things to get your paint perfect. Foam wash: Roof down to the wheels, including the wheel wells, grille & door jambs, so the car is spotless. Clay bar: Pulls out the dirt & contaminants stuck in the clear coat. Paint correction: A 1 stage correction levels out the paint, takes out the swirls & light scratches, & gives it a mirror shine.";
+  t.r.ctx.steps = [{ id: "s11", phase: "", q: "Have you ever had a coating done on a car before?", full: "Have you ever had a coating done on a car before?", passage: false },
+    { id: "s13", phase: "", q: "Awesome. So before any coating goes on, we do 3 things to get your paint perfect.", full: prep, passage: true },
+    { id: "s14", phase: "", q: "What questions do you have on that so far?", full: "What questions do you have on that so far?", passage: false }];
+  factsReply = { done: ["s11", "s13"], lead: [] }; aiAsk = "Have you ever had a coating done on a car before?";
+  t.rep("The paint correction is one of the things we do to get the scratches out before the coating goes on, so your paint looks perfect."); await sleep(50);
+  t.lead("Okay that makes sense to me.", { end: true }); await sleep(1300);
+  t.rep("Have you ever had a coating done on a car before?"); await sleep(50); aiAsk = "-";
+  t.lead("No, this is the first time.", { end: true }); await sleep(1300);
+  const a = last(t.answers());
+  check("earlier talk does not count as reading the prep passage", a.then && a.then.id === "s13" && /Foam wash: Roof down to the wheels/.test(a.then.text), { then: a.then, next: last(aiCalls).user.match(/NEXT STEP[^\n]*/) });
+  t.rep(prep.replace(/&/g, "and")); await sleep(50); aiAsk = "";
+  t.lead("Wow, okay, that is thorough.", { end: true }); await sleep(1300);
+  check("once the rep reads the prep the call moves on", /NEXT STEP s14/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/)); factsReply = null; }
+
+// 19q. REAL CALL: the lead agreed to the price, then was asked to confirm it three more times
+{ aiCalls = []; const t = room(); t.r.ctx.price = "599"; aiSay = "With the special, the price is $599 for the full package."; aiAsk = "Sound good to you?";
+  t.rep("How soon were you looking to get it done?"); await sleep(50);
+  t.lead("As soon as possible really.", { end: true }); await sleep(1000); aiSay = ""; aiAsk = "";
+  t.rep("With the special, the price is $599 for the full package. Sound good to you?"); await sleep(50);
+  t.lead("Yes, sir.", { end: true }); await sleep(1000);
+  check("after the lead says yes to the price the coach is told not to confirm it again", /PRICE: the lead has ALREADY AGREED/.test(last(aiCalls).user), last(aiCalls).user);
+  const v = room(); v.r.ctx.price = "599"; v.rep("Do weekdays or weekends work better?"); await sleep(50); v.lead("Yes, weekdays are better.", { end: true }); await sleep(1000);
+  check("a yes before any price is not a price agreement", !/ALREADY AGREED/.test(last(aiCalls).user), 0); }
+
+// 19r. Quoting the price early (the closer's way) must not count as the lead agreeing to it, and must not move the call to booking
+{ aiCalls = []; const t = room(); t.r.ctx.price = "695"; t.r.ctx.price2 = "895";
+  t.r.ctx.steps = [{ id: "s07", phase: "", q: "Do you notice any swirl marks, scratches or dull spots?", full: "Do you notice any swirl marks, scratches or dull spots?", passage: false }, { id: "s08", phase: "", q: "Are you familiar with what a ceramic coating does?", full: "Are you familiar with what a ceramic coating does?", passage: false }, { id: "s19", phase: "", q: "With the special you get all of it for just $695. Sound good?", full: "With the special you get all of it for just $695. Sound good?", passage: false }, { id: "s20", phase: "", q: "Do weekdays or weekends usually work better for you?", full: "Do weekdays or weekends usually work better for you?", passage: false }];
+  t.r.done = new Set(); aiSay = "Great question. Right now the 5-year coating is $695, normally $1,095, and that includes the full prep."; aiAsk = "Do you notice any swirl marks, scratches or dull spots?";
+  t.lead("How much is it?", { end: true }); await sleep(900); aiSay = ""; aiAsk = "";
+  t.rep("Great question. Right now the 5-year coating is $695, normally $1,095, and that includes the full prep. Do you notice any swirl marks, scratches or dull spots?"); await sleep(50);
+  t.lead("Yes, on the hood.", { end: true }); await sleep(1000);
+  const u = last(aiCalls).user;
+  check("a yes to a different question is not a price agreement", !/ALREADY AGREED/.test(u) && !t.r.priceOk, u);
+  check("an early quote does not move the call to booking", /NEXT STEP s08/.test(u), u.match(/NEXT STEP[^\n]*/));
+  t.rep("So the 8-year is $895 and the 5-year is $695. Does the 5-year sound good to you?"); await sleep(50);
+  t.lead("Yeah, the five year works.", { end: true }); await sleep(1000);
+  check("a yes to the closing price question is an agreement and moves to booking", t.r.priceOk === true && /NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/)); }
+
 // 19j. owner's rule enforced in code: free windshield and wheel coatings / add-ons never reach the card (the AI said them on real calls)
 { aiCalls = []; const t = room();
   aiSay = "With the special, the total comes to $599 with the paint correction, free windshield and wheel coatings, and a 5 year warranty."; aiAsk = "Want me to walk you through the free add-ons that come with the special?";
