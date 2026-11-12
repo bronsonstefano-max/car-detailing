@@ -307,6 +307,31 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   t.lead("Yeah, the five year works.", { end: true }); await sleep(1000);
   check("a yes to the closing price question is an agreement and moves to booking", t.r.priceOk === true && /NEXT STEP s20/.test(last(aiCalls).user), last(aiCalls).user.match(/NEXT STEP[^\n]*/)); }
 
+// 19s. A lead who asks to be booked goes straight to the price and the day, not back to discovery (the closer's way)
+{ aiCalls = []; const t = room(); t.r.ctx.price = "695"; t.r.ctx.price2 = "895"; t.r.ctx.pkg = "1";
+  const S = (id, q) => ({ id, phase: "", q, full: q, passage: false });
+  t.r.ctx.steps = [S("s07", "Do you notice any swirl marks, scratches or dull spots?"), S("s08", "Are you familiar with what a ceramic coating does?"), S("s09", "Do you keep it in a garage or outside?"), S("s19", "With the special you get all of it for just $695. Sound good?"), S("s20", "Do weekdays or weekends usually work better for you?")];
+  t.r.done = new Set(["s07"]);
+  t.rep("Are you familiar with what a ceramic coating does?"); await sleep(50);
+  t.lead("Yeah I know what it is. So schedule me, when can you get me in?", { end: true }); await sleep(900);
+  const u = last(aiCalls).user;
+  check("a ready lead is taken to the price step", /NEXT STEP s19/.test(u) && /READY: the lead has asked to be booked/.test(u), u.match(/NEXT STEP[^\n]*|READY[^\n]*/g)); }
+
+// 19t. One package per lead. A lead on the 8-year hears about the 5-year only as a save, after a second objection, and only once
+{ aiCalls = []; const t = room(); t.r.ctx.price = "895"; t.r.ctx.price2 = "695"; t.r.ctx.pkg = "2";
+  t.rep("Right now the 8-year coating is $895, normally $1,295."); await sleep(50);
+  t.lead("That's too much for me.", { end: true }); await sleep(900);
+  check("first price objection: no downsell yet", /Do NOT mention the other \(shorter\) package yet/.test(last(aiCalls).user), last(aiCalls).user);
+  t.rep("I hear you. It does come off the total and it covers the full prep."); await sleep(50);
+  aiSay = "If the 8-year is more than you want to spend right now, we do have a 5-year coating at $695."; aiAsk = "Would that work better for you?";
+  t.lead("I think I'll just call you back.", { end: true }); await sleep(1000); aiSay = ""; aiAsk = "";
+  check("second objection: save attempt with the shorter package", /SAVE ATTEMPT/.test(last(aiCalls).user), last(aiCalls).user);
+  t.rep("We do have a 5-year at $695, would that work better?"); await sleep(50);
+  t.lead("Hmm, let me see about that one.", { end: true }); await sleep(1000);
+  check("after it was offered once it is not raised again", /already been mentioned once/.test(last(aiCalls).user) && !/SAVE ATTEMPT/.test(last(aiCalls).user), last(aiCalls).user);
+  const v = room(); v.r.ctx.pkg = "1"; v.lead("That's too much for me honestly.", { end: true }); await sleep(900);
+  check("a lead on the 5-year gets no save line", !/PACKAGES:/.test(last(aiCalls).user), 0); }
+
 // 19j. owner's rule enforced in code: free windshield and wheel coatings / add-ons never reach the card (the AI said them on real calls)
 { aiCalls = []; const t = room();
   aiSay = "With the special, the total comes to $599 with the paint correction, free windshield and wheel coatings, and a 5 year warranty."; aiAsk = "Want me to walk you through the free add-ons that come with the special?";
@@ -379,6 +404,9 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   check("a step with blanks the system cannot fill is not a read-aloud passage; the recap is", book[0].passage === false && book[1].passage === true, book.map(x => [x.id, x.passage]));
   const coachFill = new Function(src.slice(c1, c2) + src.slice(a, b) + "; return coachFill;")();
   check("an unknown color is left out of the recap, not shown as a blank", coachFill(book[1].full, { problem: "you have scratches on the roof", solve: "bring that roof back" }, null, "") === "So if I’m understanding everything right, you have a 2010 Toyota Camry & you’re interested in getting a ceramic coating because you have scratches on the roof. Did I get that right? It can definitely bring that roof back. Is it cool if I walk you through our process?", coachFill(book[1].full, { problem: "x", solve: "y" }, null, ""));
+  const priceStep = { steps: [{ id: "19", main: [{ k: "say", ps: [{ t: "So normally our {yrs} year package starts at {reg}, but with the special you get all of it for just {price}. Sound good?" }] }] }] };
+  const five = coachSteps(priceStep, { coatPrice: 695, coatReg: 1095 }, { value: 695 }, "coating"), eight = coachSteps(priceStep, { coatPrice: 695, coatReg: 1095 }, { value: 895 }, "coating"), none = coachSteps(priceStep, { coatPrice: 695, coatReg: 1095 }, null, "coating");
+  check("the lead's saved amount decides the package the script quotes", five[0].q === "So normally our 5 year package starts at $1,095, but with the special you get all of it for just $695. Sound good?" && eight[0].q === "So normally our 8 year package starts at $1,295, but with the special you get all of it for just $895. Sound good?" && none[0].q === five[0].q, [five[0].q, eight[0].q, none[0].q]);
   const out = coachSteps(sc, { coatPrice: 695, coatSkip: "03" }, null, "coating");
   check("script outline is built from the imported script", out.length === 3 && out[0].passage === false && out[0].q === "Fantastic. What's the year, make & model? & what color is the paint?" && out[1].q === "Do you notice any swirl marks?" && out[2].q === "With the special it is just $695. Sound good?", out); }
 
