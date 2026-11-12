@@ -4122,15 +4122,16 @@ const numOf=s=>Number(String(s).replace(/[^0-9.]/g,''))||0;
 const firstOf=l=>{const f=String(l&&l.name||'').trim().split(/\\s+/)[0];return f&&!/^\\+?[\\d\\s()-]+$/.test(f)?f:''};
 const vehOf=l=>[l&&l.year,l&&l.make,l&&l.model].filter(Boolean).join(' ');
 function ofv(k){return OF[k]!==undefined&&OF[k]!==''?OF[k]:OFD[k]}
+const pk2=(l,svc)=>svc==='coating'&&!!l&&l.value>0&&l.value>=((numOf(OF.coatPrice)||695)+(numOf(OF.coat2Price)||895))/2;
 function vv(name,l,svc){
   switch(name){
     case 'rep':return ofv('rep')||'';case 'shop':return ofv('shop')||'';case 'address':return ofv('address')||'';case 'area':return ofv('area')||'';
     case 'special':return OF.special||'';
     case 'price':{const v=l&&l.value>0?l.value:numOf(svc==='coating'?OF.coatPrice:(OF.tintPrice||299));return v>0?mny(Math.round(v)):''}
-    case 'reg':return numOf(OF.coatReg)>0?mny(numOf(OF.coatReg)):'';
+    case 'reg':{if(pk2(l,svc))return mny(numOf(OF.coat2Reg)||1295);return numOf(OF.coatReg)>0?mny(numOf(OF.coatReg)):''}
     case 'dep':{const d=numOf(svc==='coating'?OF.coatDeposit:OF.tintDeposit)||50;return d>0?mny(d):''}
     case 'otd':{const p=vv('price',l,svc),d=vv('dep',l,svc);return p&&d?mny(Math.max(0,numOf(p)-numOf(d))):''}
-    case 'yrs':return String(numOf(OF.coatYears)||5);
+    case 'yrs':return pk2(l,svc)?String(numOf(OF.coat2Years)||8):String(numOf(OF.coatYears)||5);
     case 'floor':return mny(numOf(OF.tintFloor)||274);
     case 'days':{if(!OF.specialEnd)return '';const e=new Date(OF.specialEnd+'T00:00:00'),t=new Date();t.setHours(0,0,0,0);const d=Math.round((e-t)/864e5);return d>=0?String(d):''}
   }return ''}
@@ -4573,18 +4574,21 @@ function coachVar(name, o, lead, svc) {
   const n = x => Number(String(x || "").replace(/[^0-9.]/g, "")) || 0, m = x => "$" + Number(x).toLocaleString("en-US");
   const price = () => { const v = lead && lead.value > 0 ? lead.value : n(svc === "coating" ? o.coatPrice : (o.tintPrice || 299)); return v > 0 ? Math.round(v) : 0; };
   const dep = () => n(svc === "coating" ? o.coatDeposit : o.tintDeposit) || 50;
+  const longer = () => svc === "coating" && !!lead && lead.value > 0 && lead.value >= ((n(o.coatPrice) || 695) + (n(o.coat2Price) || 895)) / 2;
   switch (name) {
     case "rep": case "shop": case "address": case "area": return g(name) || "";
     case "special": return o.special || "";
     case "price": return price() ? m(price()) : "";
-    case "reg": return n(o.coatReg) ? m(n(o.coatReg)) : "";
+    // Two coating packages (owner: 5-year $695, normally $1,095; 8-year $895, normally $1,295). A lead only ever saw one of them:
+    // the amount saved on the lead says which. price / reg / yrs describe THIS lead's package; price2 / reg2 / yrs2 the other one.
+    case "pkg": return longer() ? "2" : "1";
+    case "reg": return longer() ? m(n(o.coat2Reg) || 1295) : (n(o.coatReg) ? m(n(o.coatReg)) : "");
     case "dep": return dep() ? m(dep()) : "";
     case "otd": return price() && dep() ? m(Math.max(0, price() - dep())) : "";
-    case "yrs": return String(n(o.coatYears) || 5);
-    // the longer coating package (owner: 8-year at $895, normally $1,295)
-    case "price2": return svc === "coating" ? m(n(o.coat2Price) || 895) : "";
-    case "reg2": return svc === "coating" ? m(n(o.coat2Reg) || 1295) : "";
-    case "yrs2": return svc === "coating" ? String(n(o.coat2Years) || 8) : "";
+    case "yrs": return longer() ? String(n(o.coat2Years) || 8) : String(n(o.coatYears) || 5);
+    case "price2": return svc !== "coating" ? "" : longer() ? m(n(o.coatPrice) || 695) : m(n(o.coat2Price) || 895);
+    case "reg2": return svc !== "coating" ? "" : longer() ? m(n(o.coatReg) || 1095) : m(n(o.coat2Reg) || 1295);
+    case "yrs2": return svc !== "coating" ? "" : longer() ? String(n(o.coatYears) || 5) : String(n(o.coat2Years) || 8);
     case "floor": return m(n(o.tintFloor) || 274);
     case "days": { if (!o.specialEnd) return ""; const d = Math.round((Date.parse(o.specialEnd + "T00:00:00Z") - Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z")) / 864e5); return d >= 0 ? String(d) : ""; }
   }
@@ -4649,6 +4653,19 @@ function coachFill(text, facts, car, name) {
     return v ? String(v) : /color/.test(k) ? "" : "___"; // an unknown color is simply left out ("a 2010 Toyota Camry"), other blanks stay visible for the rep
   }).replace(/\s{2,}/g, " ").replace(/\b(a|an) (?=[aeiou])/gi, m => (m[0] === "A" ? "An " : "an ")).trim();
 }
+// Product knowledge for coating calls: the closer's plain explanations, plus what each manufacturer publishes about the two coatings the shop installs
+// (XPEL product bulletins for FUSION PLUS PREMIUM; Ceramic Coating Inc publishes no specs). The coach may state these; SHOP FACTS win on a conflict.
+const COATING_KNOWLEDGE = `COATING KNOWLEDGE (the rep may state these. Use ONE point at a time, in plain words, when the lead asks or when it clearly answers their worry. Never lecture. If SHOP FACTS say something different, SHOP FACTS win.)
+- What it is: a liquid that bonds to the car's clear coat and cures into a hard, glossy protective layer. The main ingredient in a ceramic coating is silica dioxide.
+- Why the prep comes first: the coating bonds to smooth, clean clear coat, so the wash, the decontamination and the paint correction happen before it goes on. Whatever is under the coating gets sealed in, which is why we correct the paint first.
+- The three main benefits, for someone new to coatings: it helps protect the paint from sun fading and oxidation; it gives a deep gloss; and it makes the car much easier to keep clean, because water and grime slide off.
+- What it does not do: it is not scratch-proof or chip-proof, and it does not fix peeling or failing paint (that needs a body shop). Light swirls are taken out by the paint correction, not by the coating.
+- Curing: it cures indoors overnight before pickup, so rain cannot get on it before it sets.
+- Care afterwards: regular maintenance washes. That is all we recommend. Do not tell the lead about boosters, special soaps or a wash schedule.
+- The 5-year package is Ceramic Coating Inc's coating.
+- The 8-year package is XPEL FUSION PLUS PREMIUM, XPEL's top ceramic coating. It goes on thicker than XPEL's other coatings, it is rated 9H hardness, and it carries XPEL's own 8-year warranty, which transfers to the next owner if the car is sold. XPEL's warranty asks for a yearly inspection and top-off to stay valid: say so if the lead asks about the warranty or upkeep on the 8-year. If they ask what that visit costs, say you will confirm it and set needs_eyes true.
+- The two packages are different coatings from different makers: never say one is a stronger "concentration" of the other.
+- Never state a silica percentage, never say "graphene", and never promise the coating "prevents" damage: say it "helps protect".`;
 const KNOWLEDGE_DEFAULT = `BUSINESS
 - Divine Detailers, 5181 NW 74th Ave, Miami, FL 33166. Open Monday to Saturday, 9:00 AM to 6:00 PM. Closed Sunday. Phone (786) 757-2826. Email info@divinedetailers.com.
 - Services: window tint, ceramic coating, paint correction, paint protection film (PPF) and vinyl wraps. Tint and ceramic coating are marketed separately, so a caller is about one or the other.
@@ -4674,7 +4691,7 @@ WINDOW TINT
 - After install (general guidance): a little haze or tiny water spots for a few days to a couple of weeks is normal while the film cures. Do not roll the windows down for a few days.
 
 CERAMIC COATING
-- Our ceramic coating comes from Ceramic Coating Inc. We offer two coating packages, a 5-year and an 8-year (the exact years and prices are in the OFFER under COATING PACKAGES). Do not mention any other length.
+- We install two ceramic coatings: a 5-year from Ceramic Coating Inc and an 8-year, XPEL FUSION PLUS PREMIUM (the prices are in the OFFER). Do not mention any other length or brand.
 - Paint correction is included with the ceramic coating.
 - Time: 24 hours. The car stays with us for a day.
 - What it is: a liquid layer that bonds to the paint's clear coat. Water beads and rolls off, the car washes easier, and the paint looks glossier and deeper. It helps protect against UV, bird droppings, bug acids, tree sap and water spots.
@@ -4705,7 +4722,7 @@ VOICE (how the rep sounds; taken from the owner's best closer on real calls that
 - Never salesy, never clever. No slogans, no made-up sayings, no "great candidate", no "a lot of folks tell me". If there is nothing real to add, the reaction alone is enough.
 - Curious about the person in one short question when they open a door ("What do you do?" after they mention their work), then back to the call.
 - Narrates what he is doing so silence is never awkward: "Let me just throw you in the calendar here.", "Let me double check that on my end."
-- Honest about limits, in those words: "I do want to be transparent with you: it's not going to look like it was just repainted, but it is going to look significantly better." "It really just depends on how deep it is." Recommends the cheaper option when it fits the lead ("there's no reason to go with the bigger package if you're not keeping it that long"): that honesty is what makes the lead trust the price.
+- Honest about limits, in those words: "I do want to be transparent with you: it's not going to look like it was just repainted, but it is going to look significantly better." "It really just depends on how deep it is." That honesty is what makes the lead trust the price.
 - Checks understanding lightly: "Does that make sense?", and before hanging up: "Any last minute questions for me before I let you go?"
 - THE DEPOSIT, his way, which is the model for the close. First everything else is settled out loud: the day, the drop-off time, their number and email, what they are getting. Then, as one more small admin step, never as a pitch:
   "And the last thing I'd need from you is just the deposit. It comes off the total, we just use it to secure your spot on the calendar." (say the deposit amount from OFFER: dep)
@@ -4716,7 +4733,13 @@ VOICE (how the rep sounds; taken from the owner's best closer on real calls that
 Ground rules:
 - Use ONLY facts that appear in the SCRIPT, OFFER or SHOP FACTS below. Never invent prices, warranties, brands, durations, guarantees, discounts or claims. If a value shows [not set], do not state a number: say you will confirm it. If the lead asks something the script does not cover, set "needs_eyes" true and give a safe line such as "Good question, let me confirm that for you."
 - Inside "say", acknowledge what the lead said and add one short real comment taken from the script, in the script's own wording adapted to what they actually said. Answer the question first; do not read the script aloud blindly.
-- Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 25 words), plain spoken English, no lists. If the lead speaks Spanish, answer in Spanish.
+- Be brief and fast. "say" is what the rep says out loud: at most 2 short sentences (about 25 words), plain spoken English, no lists. When the lead asks a real question about the product, the process, the price or the logistics, answer it properly, the way the closer does: up to 3 sentences (about 45 words) is fine there. If the lead speaks Spanish, answer in Spanish.
+- LET THE LEAD LEAD (the closer's way; this is how his calls book). The script is the list of things that need to happen, not a form to march through:
+  * Whatever the lead asks or brings up comes first. Answer it fully and plainly before anything else, even when it is out of the script's order. If they are clearly interested in that thread, stay on it for one more beat (a short follow-up about their car or their situation) before moving on.
+  * Then move the call forward yourself: "ask" is the next part that has not been covered (NEXT STEP), bridged naturally from what they just said. The lead chooses the topics; you make sure the call keeps moving toward a booked day and a deposit.
+  * Discovery is a conversation. Anything the lead has already told you, even in passing, is answered: do not ask it. Two or three good discovery answers are enough to move on if the lead is engaged.
+  * A lead who is ready ("schedule me", "when can you get me in", "let's do it", "I want to get this done") is never slowed down and never sent back to discovery, the recap or the pitch. Give the price if they have not heard it, then go straight to the day, their details and the deposit.
+  * However the lead takes the call, these must all have happened before it ends as a booking: they heard the price and what is included; a day and a drop-off time are set; you have their phone and email; you said back what they are getting in one sentence; and the deposit, last.
 - "ask" is ONE short question (at most 15 words), chosen in this order: (1) the script's or PLAYBOOK's own follow-up for what the lead just said (an objection's qualifying question, or the "If yes" / "If no" follow-up to the question the rep just asked); otherwise (2) the NEXT STEP from CALL PROGRESS when it is given: use that step's question in the script's wording, shortened to fit and bridged naturally from what the lead just said. CALL PROGRESS is the system's record of the whole call, so trust it over your own reading of the last few lines; never go back to a finished step. If there is no CALL PROGRESS, use the next question from the script that the lead has not answered yet (a NEXT SCRIPT LINE, when given, is only a hint and can be wrong).
 - Follow the script's order. The call goes opener, discovery, recap, pitch (the prep, the coating), timing, price, booking, deposit. Never skip ahead: no price, dates or booking talk while CALL PROGRESS shows discovery, the recap or the pitch still to come, unless the lead asks for it directly. A.C.A. (acknowledge, comment, ask) is the shape of every discovery answer; objections get empathy, then the script's qualifying question, then the answer; the price is said once and then you stop; the close is assumptive ("debit or credit?").
 - Sound like a person who has been listening, not like a script that was handed the lead's file. When WHAT THIS LEAD HAS TOLD US is given and a note truly fits the moment, you may use it in your comment in the lead's own words ("since you're running it through the car wash every week..."), but in at most one answer out of three, and never the same detail twice. Do not keep naming the car, its color, or a joke the lead made: say it once on the whole call, then say "it" or "the car". If the lead jokes or tests you, one light line back is enough; do not repeat the joke in later answers. Match the lead's energy: relaxed with a relaxed lead, quick with a rushed one. Do not open every answer the same way ("Great question", "Got it"): vary it, and often just react to what they said.
@@ -4740,7 +4763,10 @@ Ground rules:
 - When the lead says they do not know about the product ("I don't know anything", "not really", "no idea", "never heard of it", "what is that"), always step in: this is not a normal answer. "say" is a warm one-breath reassurance plus a plain-English explanation of the product in at most two short sentences (what it is and the main benefit: protection, gloss, easier washing for a coating; heat, privacy, UV for tint), using only wording and facts from the SCRIPT, OFFER or SHOP FACTS, with no numbers or claims that are not there. "ask" is then the next unanswered question from the script so the call keeps moving.
 - Your answer is the main thing the rep reads. Answer everything: a question (even one the script covers), confusion or a request to repeat ("hello?", "what?", "wait, what is that?"), "I don't know", an objection or worry, a comparison, an off-topic remark or story, a joke, a complaint, new information that changes the plan, an unusual request, a buying signal, and also a plain answer to the rep's question (acknowledge it, comment, ask the next question).
 - Price questions ("how much", "what does it cost"): answer them straight, the way the closer does. Never dodge the number, and never say the price depends on the date. In one breath give the special price next to the normal price, then one line on what is included (only what the SCRIPT or SHOP FACTS say is included): "Great question. Right now the 5-year coating is $695, normally $1,095, and that includes the full prep and paint correction." (use the real values from COATING PACKAGES). Then carry on with the NEXT STEP: asking the price does not move the call to booking, so "ask" is the next step's question (the next discovery question if discovery is not finished), not "when do you want it done". If they ask again later, give the same number plainly, without re-explaining.
-- Two coating packages (COATING PACKAGES in the OFFER). Lead with package 1: it is the special the lead clicked on, and it is the price you quote unless they ask for more. Bring up package 2 only when the lead asks about a longer warranty or other options, or has told you they are keeping the car longer than package 1's warranty. Then lay the two side by side in one answer (years, special price, normal price) and recommend honestly from what they told you: keeping the car about as long as package 1 lasts or less, package 1 fits and there is no reason to pay for more; keeping it "till the wheels fall off", package 2 is worth it. Never push the bigger package for its own sake. These two packages override any SHOP FACTS line that says only one coating length is offered.
+- One package per lead (owner's rule). Each lead saw one coating package in the ad, and the OFFER says which under THIS LEAD'S PACKAGE. Quote and sell that one. Do not lay the two packages side by side and do not ask the lead to choose between them.
+  * When THIS LEAD'S PACKAGE is the shorter one: you may mention the other ONCE on the call, lightly, right after giving the price or when the lead asks about longer protection: "We're also running a promotion on our 8-year XPEL coating right now, $895, normally $1,295, if you'd want longer protection." (use the OTHER PACKAGE values). If they do not pick it up, never raise it again.
+  * When THIS LEAD'S PACKAGE is the longer one: never bring up the shorter package on your own, and never suggest it because of how long they will keep the car. It exists only as a SAVE: when the lead objects to the price or is about to leave the call without booking, first handle that objection the normal way, once. Only if they still will not move, offer the shorter package one time as a way to still get the car protected: "If the 8-year is more than you want to spend right now, we do have a 5-year coating at $695 that still gets you the full prep and correction." Then book that.
+  * If the lead themselves asks what else you offer, answer honestly with the other package's years and price, once.
 - "I don't have much time" / "I'm busy" / "I'm at work": follow the script's own answer. Acknowledge it and ask permission to keep it quick ("No problem, how about I keep this quick for the both of us?"). Once they agree, carry on with the NEXT STEP exactly as normal, just with short lines. Do NOT jump to the price, the date or the booking because they are short on time: the discovery questions and the recap are what make the price make sense. If they still cannot talk, set an exact callback time. Only when they demand the number outright a second time ("just give me the price") give the price from the OFFER in one line, then return to the next step.
 - "I'm not interested" / "no thanks" / "I don't need it": never give up and never argue. Acknowledge it warmly, then ask one soft curious question to find the real reason ("Totally fair. Was it the price, or just not sure it's right for the car?"), using any matching PLAYBOOK from the script. Do not stack the pitch.
 - "I thought it was free" (or any surprise about cost): acknowledge the mix-up without blame, say what the special actually is using only wording from the SCRIPT or OFFER (the special is a lower price, not free), and ask whether they would still like to hear what it includes.
@@ -4791,10 +4817,10 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
   const odP = openDays(env, 4, svc === "coating" ? "coating" : "tint").catch(() => []);
   const libP = svc ? env.DB.prepare("SELECT lead_said, rep_response, better, quality, priority, won FROM call_library WHERE svc IN (?, 'other') ORDER BY priority DESC LIMIT 2500").bind(svc).all().then(r => r.results || []).catch(() => []) : Promise.resolve([]);
   const offerText = ["rep", "shop", "address", "area", "special", "price", "reg", "dep", "otd", "yrs", "floor", "days"].map(k => `${k}: ${coachVar(k, offer, lead, svc) || "[not set]"}`).join("\n")
-    + (svc === "coating" ? `\nCOATING PACKAGES: (1) the ${coachVar("yrs", offer, lead, svc)}-year coating, special ${coachVar("price", offer, lead, svc) || "[not set]"}, normally ${coachVar("reg", offer, lead, svc) || "[not set]"}. This is the special the lead clicked on. (2) the ${coachVar("yrs2", offer, lead, svc)}-year coating, special ${coachVar("price2", offer, lead, svc)}, normally ${coachVar("reg2", offer, lead, svc)}.` : "");
-  const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
+    + (svc === "coating" ? `\nTHIS LEAD'S PACKAGE (the one they saw and asked about; quote and sell this one): the ${coachVar("yrs", offer, lead, svc)}-year coating, special ${coachVar("price", offer, lead, svc) || "[not set]"}, normally ${coachVar("reg", offer, lead, svc) || "[not set]"}.\nOTHER PACKAGE (the lead has NOT seen it; see the package rule before ever mentioning it): the ${coachVar("yrs2", offer, lead, svc)}-year coating, special ${coachVar("price2", offer, lead, svc)}, normally ${coachVar("reg2", offer, lead, svc)}.` : "");
+  const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}${svc === "coating" ? "\n\n" + COATING_KNOWLEDGE : ""}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
   let steps = []; try { steps = coachSteps(sc, offer, lead, svc); } catch (e) { /* the coach still works from the script text */ }
-  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), price: String(coachVar("price", offer, lead, svc) || "").replace(/[^0-9]/g, ""), price2: String(coachVar("price2", offer, lead, svc) || "").replace(/[^0-9]/g, ""), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
+  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), price: String(coachVar("price", offer, lead, svc) || "").replace(/[^0-9]/g, ""), price2: String(coachVar("price2", offer, lead, svc) || "").replace(/[^0-9]/g, ""), pkg: coachVar("pkg", offer, lead, svc), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
   // The calendar (an outside service) and the answer library are slow and the first answer does not need them: they fill in as soon as they arrive.
   const fill = Promise.all([
     odP.then(od => { if (od && od.length) ctx.facts += `\nOpen days on our calendar right now (ONLY for the booking step, after the lead has agreed to the price, and only if the lead has not named a day of their own): ${od.map(d => d.say).join(", ")}.`; }),
@@ -4855,7 +4881,7 @@ const FACTS_RULES = `You keep the running notes for a live car-detailing sales c
 - "done": the ids of the SCRIPT STEPS (listed in the message) that are finished. A step is finished when the rep said its line or asked its question in any wording, OR the lead already gave the information that step asks for, even without being asked. A step that asks for two things (the car AND its color) is finished only when the lead has given both. Do not mark a step finished just because of where it sits in the list. Copy the ids exactly.
 - "lead": up to 8 short notes on what the lead has told us about themselves, the car and what they want, as close to their own words as possible, the most useful for rapport first: "parks outside under a tree", "runs it through the car wash every week", "keeping it about another year", "noticed the swirls a couple of months ago". Only things the lead said. No guesses, nothing the rep said.
 - If the lead has not said enough yet, leave a field as an empty string or an empty list. Never invent anything. The transcript is live speech-to-text from a phone line and has mistakes (paint heard as pain, coating as coding): read through them.`;
-const COACH_BUILD = "coach-pr12";
+const COACH_BUILD = "coach-pr13";
 const COACH_ACK = /^((yeah|yes|yep|yup|ok|okay|uh[ -]?huh|mm+|m+hm+|sure|right|no|nope|nah|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh|correct|exactly|perfect|awesome|bye)[.!, ]*)+$/i;
 const COACH_FILLER = /^((um+|uh+|hm+|mm+|ah+|er+|oh|so|and|well|like|you know)[.!, ]*)+$/i;
 const COACH_INTENT = /\?|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b|not interested|no thanks|no thank you|expensive|pricey|too much|how much|price|cost|free\b|busy|later|call (me )?back|not now|bad time|can'?t talk|driving|working|wrong number|stop calling|remove me|who is this|sounds good|let'?s do it|i'?ll take it|book it|sign me up|think about|no idea|don'?t know|espa[nñ]ol|spanish/i;
@@ -4974,6 +5000,8 @@ async function coachAnswer(env, ctx, turns, said, pos, low, onSay, signal, repLa
     + (openers.length ? `Do not begin with ${openers.map(x => '"' + x.split(" ")[0] + '"').join(" or ")}.\n` : "")
     + (st && st.noCar ? "You named the car or its color in a recent answer. In THIS answer do not mention the make, model, year or color at all: say \"it\" or \"the car\".\n" : "")
     + (st && st.noName ? "You used the lead's name in a recent answer. Do NOT use their name in this answer.\n" : "")
+    + (st && st.ready && !st.priceOk ? "READY: the lead has asked to be booked. Do not go back to discovery, the recap or the pitch. If they have not heard the price yet, give it in this answer; then go to the day, their details and the deposit.\n" : "")
+    + (st && st.otherSaid ? "PACKAGES: the other package has already been mentioned once on this call. Do not bring it up again unless the lead asks about it.\n" : st && st.pkg === "2" && st.saveTry === 1 ? "PACKAGES: handle this objection the normal way. Do NOT mention the other (shorter) package yet.\n" : st && st.pkg === "2" && st.saveTry >= 2 ? "PACKAGES: SAVE ATTEMPT. The lead is about to leave without booking. Offer the OTHER PACKAGE once now, plainly, as a way to still get the car protected, and ask if that works.\n" : "")
     + (st && st.priceOk ? "PRICE: the lead has ALREADY AGREED to the price. Do not ask whether the price works, do not ask them to confirm it, and do not restate the price or the out-the-door number unless they ask. Move to the next step (the day, their details, the deposit).\n" : "")
     + (st && st.depNo === 1 ? "DEPOSIT: the lead has pushed back on the deposit once. Stay relaxed, as in VOICE. Say ONE time, in plain words: it comes off the total, it is only what holds their day (and that it is refundable, if the SCRIPT or SHOP FACTS say so), the balance is due after they see the car and are happy with it, and the easy way is a payment link by text so nothing is read over the phone. Then ask once which they prefer.\n" : "")
     + (st && st.depNo >= 2 ? `DEPOSIT: the lead has refused the deposit ${st.depNo} times. Do NOT ask for the deposit again and do not argue. The day is NOT reserved without it: do not say the spot is held, set, locked or booked, and do not say \"see you then\". Say kindly and plainly that without the deposit you cannot hold the day, that you will text the secure link so they can lock it in whenever they are ready, and that walk-ins are subject to what is open that day. \"ask\" is only: the best number for that text, or leave it empty if they are ending the call.\n` : "")
@@ -5298,6 +5326,7 @@ export class CallRoom {
     }
     const price = this.ctx.price, pi = price && price.length >= 2 ? steps.findIndex(x => String(x.full || x.q).replace(/[^0-9$]/g, " ").includes("$" + price)) : -1;
     if (pi >= i && this.priceOk) i = pi + 1; // only the lead agreeing to the price puts the pitch behind us (an early quote does not)
+    else if (pi > i && this.ready) i = this.priceAt ? pi + 1 : pi; // a lead who asked to be booked goes straight to the price (or past it, if they have heard it)
     this.stepIdx = i;
     return { done: steps.slice(0, i).map(x => x.id), next: steps[i] || null, notes: this.leadNotes || [] };
   }
@@ -5341,6 +5370,10 @@ export class CallRoom {
       // nothing from the AI after 3 seconds: the safe backup answer goes up and STAYS up (a late AI answer would change the words while the rep is reading them)
       backupTm = setTimeout(() => { if (shown || this.coachRestart || this.ended) return; backup = true; show({ type: "answer", q: said, ...backupAnswer(said, this.pos), ms: { total: Date.now() - t0 } }); try { this.coachAc.abort(); } catch (e) { /* done */ } }, 3000);
       // The next step is a script passage: unless the lead just asked something or objected, the card is a one-sentence bridge plus the passage word for word.
+      // A lead who asks to be booked is taken straight to the price and the day (the closer never sends a ready lead back to discovery).
+      if (/(schedule me|book me|book it|set (it|me|that|this) up|put me (down|on|in)|sign me up|let'?s (do it|do this|get it done|book|schedule|go ahead)|when can (i|you|we)|what(?:'s| is| are) your (availability|schedule|next opening|openings)|how soon can|i want to (get|do|book|schedule)|i'?d like to (get|book|schedule|do)|get me in|i'?m ready|can i (bring|drop) it|go ahead and (book|schedule))/i.test(frag) && !/(not|n't) (ready|sure|interested)/i.test(frag)) this.ready = true;
+      // A lead on the longer package who objects to the price or is leaving without booking: the first time the objection is handled normally, the second time the shorter package may be offered once.
+      if (this.ctx.pkg === "2" && /(too (much|expensive|high|pricey)|expensive|can'?t afford|out of (my )?(budget|price range)|cheaper|lower price|think about it|think it over|call (you )?back|not today|i'?ll pass|let you know|get back to you|shop(ping)? around|talk to my (wife|husband))/i.test(frag)) this.saveTry = (this.saveTry || 0) + 1;
       // Did the lead just agree to the price? Only a yes to a closing question about it counts ("$695, sound good?" -> "Yes sir").
       // A yes to some other question asked in the same breath as the price ("...it's $695. Do you notice any swirl marks?" -> "Yes") does not.
       // Quoting the price early, the way the closer does, must not move the call to booking: only the lead's agreement does.
@@ -5361,7 +5394,7 @@ export class CallRoom {
       if (/(don'?t|do not|not gonna|ain'?t|won'?t|not going to)[^.?!]{0,30}(deposit|over the phone|card)|no deposit|without (a |the )?deposit|pay (when|once|after) i (get|am|'m) there|pay (everything|it all|in full|the rest)? ?(up front|when i|at pick ?up|in person|on that day|that day)|i'?ll pay (when|there|then|in person)|just drive (there|in|on)/i.test(frag)) this.depNo = (this.depNo || 0) + 1;
       // More words on the same remark after a card went up: keep the same question (and the same passage) on the card unless the new words ask or object.
       const keepAsk = after && prev && prev.ask && !needs(frag) ? prev.ask : "";
-      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; let say = coachOwner(coachTidy(say0, "").say, svcNow); if (forceThen) say = coachFirst(say); show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.asks.filter(a => a.q.length <= 140).map(a => a.q), { prog, notes: this.leadNotes || [], openers: this.openers || [], says: (this.says || []).map(x => x.slice(0, 140)), noCar: over.car, noName: over.name, passage: forceThen, depNo: this.depNo || 0, priceOk: !!this.priceOk }) || {};
+      const out = await coachAnswer(this.env, this.ctx, this.turns, said, this.pos, low, say0 => { if (this.coachRestart || backup) return; let say = coachOwner(coachTidy(say0, "").say, svcNow); if (forceThen) say = coachFirst(say); show({ type: "answer", q: said, answer: true, say, ask: "", early: true, backup: false, ms: { say: Date.now() - t0, ctx: ctxMs } }); }, this.coachAc.signal, repLast, this.asks.filter(a => a.q.length <= 140).map(a => a.q), { prog, notes: this.leadNotes || [], openers: this.openers || [], says: (this.says || []).map(x => x.slice(0, 140)), noCar: over.car, noName: over.name, passage: forceThen, depNo: this.depNo || 0, priceOk: !!this.priceOk, ready: !!this.ready, pkg: this.ctx.pkg, saveTry: this.saveTry || 0, otherSaid: !!this.otherSaid }) || {};
       if (stepN) log.why = "next " + stepN.id + (forceThen ? " passage" : "");
       log.ms = out.ms; log.usage = out.usage; log.stop = out.stop; log.http = out.http; log.raw = out.raw;
       if (this.coachRestart) { log.outcome = "restarted"; return; } // more of the lead's sentence arrived: this answer is out of date
@@ -5375,6 +5408,7 @@ export class CallRoom {
         // put the passage on the card word for word, blanks filled from this call; the AI's line is cut to its first sentence so it does not pre-empt the passage
         const then = stepN && stepN.passage && (forceThen || !out.ask) ? { id: stepN.id, text: coachFill(stepN.full, this.facts, this.ctx.car, this.ctx.name) } : null;
         if (!then && keepAsk) out.ask = keepAsk;
+        if (this.ctx.price2 && (out.say + " " + out.ask).replace(/[^0-9]/g, " ").split(/\s+/).includes(this.ctx.price2)) this.otherSaid = true;
         { const dg = (out.say + " " + out.ask + " " + (then ? then.text : "")).replace(/[^0-9]/g, " ").split(/\s+/); if (this.ctx.price && (dg.includes(this.ctx.price) || (this.ctx.price2 && dg.includes(this.ctx.price2)))) this.priceAt = Date.now(); }
         if (then) { out.then = then; out.ask = ""; out.say = coachFirst(out.say); const sameP = this.asks.find(a => a.q === stepN.q); if (sameP) sameP.n++; else this.asks.push({ q: stepN.q, full: stepN.full, n: 1, at: Math.round((Date.now() - this.t0) / 1000) }); }
         log.raw = (out.say + (then ? " | THEN " + then.id + ": " + then.text : " | ASK: " + out.ask)).slice(0, 500);
