@@ -150,6 +150,30 @@ const all = (await get("/admin/dialer/queue?mode=smart")).leads || [], ids = all
 eq("Smart mode combines every open pipeline stage in one ranked list", [stages.has("new"), stages.has("quoted"), stages.has("deposit"), ids.includes(207), !!(all[0] && all[0].rank)], [true, true, true, false, true]);
 const pg1 = await (await fetch(B + "/admin/pipeline", { headers: { cookie } })).text(), pg2 = await (await fetch(B + "/admin/dialer", { headers: { cookie } })).text();
 eq("every owner page can ring the CRM, the dialer has its own phone", [pg1.includes('id="pbx"'), pg2.includes('id="pbx"')], [true, false]);
+// ---- which of our numbers a call goes out from
+sql([
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (401,'quote','First Timer','3055500401','Window Tint','new',400,datetime('now','-1 hour'))`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (402,'quote','Retry Lead','3055500402','Window Tint','new',400,datetime('now','-2 days'))`,
+  `INSERT INTO dial_calls (lead_id,call_sid,duration,by_user,started_at,tw_status,talk,src,logged,from_num) VALUES (402,'CA${"1".repeat(32)}',0,'bronson',datetime('now','-1 day'),'no-answer',0,'twilio',2,'+13055550000')`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (403,'quote','Reached On Two','3055500403','Window Tint','contacted',400,datetime('now','-3 days'))`,
+  `INSERT INTO dial_calls (lead_id,call_sid,duration,by_user,started_at,tw_status,talk,src,logged,from_num) VALUES (403,'CA${"2".repeat(32)}',120,'bronson',datetime('now','-1 day'),'completed',120,'twilio',2,'+13055550002')`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (404,'quote','Texted Us','3055500404','Window Tint','contacted',400,datetime('now','-3 days'))`,
+  `INSERT INTO dial_calls (lead_id,call_sid,duration,by_user,started_at,tw_status,talk,src,logged,from_num) VALUES (404,'CA${"3".repeat(32)}',0,'bronson',datetime('now','-1 day'),'no-answer',0,'twilio',2,'+13055550002')`,
+  `INSERT INTO messages (lead_id,phone,direction,body,status,sid,by_user,auto,is_read,at) VALUES (404,'3055500404','in','call me in 5','received','SM${"4".repeat(32)}','',0,0,datetime('now','-2 days'))`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (405,'quote','Reached On Resting','3055500405','Window Tint','contacted',400,datetime('now','-3 days'))`,
+  `INSERT INTO lead_numbers (lead_id,num,kind) VALUES (405,'+13055550001','reach')`,
+]);
+const dialFrom = async (id, n) => { const r = await twilioBody("/api/twilio/voice", { leadId: String(id), To: "30555004" + String(id).slice(1), CallSid: "CA" + String(n).repeat(32), From: "client:bronson" }); const m = /callerId="([^"]+)"/.exec(r.text); return m ? m[1] : r.text.slice(0, 80); };
+const MAIN = "+13055550000", P1 = "+13055550001", P2 = "+13055550002";
+eq("first call goes out from the main number", await dialFrom(401, "a"), MAIN);
+const retry = await dialFrom(402, "b");
+eq("a retry rotates to one of the other numbers", [retry !== MAIN, [P1, P2].includes(retry)], [true, true]);
+eq("a lead we reached is called from the number we reached them on", await dialFrom(403, "c"), P2);
+eq("a lead who texted recently is called from the main number", await dialFrom(404, "d"), MAIN);
+sql([`INSERT INTO number_health (num, level, at) VALUES ('+13055550001', 2, datetime('now')) ON CONFLICT(num) DO UPDATE SET level = 2`]);
+eq("if the number we reached them on is resting, the main number is used", await dialFrom(405, "e"), MAIN);
+const fr = await get("/admin/dialer/from?id=402");
+eq("the dialer can show which number it will use and why", [fr.success, typeof fr.why, fr.multi], [true, "string", true]);
 const mdl = await get("/admin/rank/model?fresh=1");
 eq("the model reports what it learned", [mdl.success, typeof mdl.model.pb0, mdl.model.haz.length], [true, "number", 8]);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
