@@ -21,7 +21,7 @@ for f in ${JSON.stringify(files)}:
 `;
 const sql = list => execFileSync("python3", ["-c", py], { input: JSON.stringify(list) });
 const ts = minAgo => `datetime('now','-${minAgo} minutes')`;
-const month = new Date().toISOString().slice(0, 7);
+const month = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7); // Eastern days, like the scorecard
 // ---- the known data. minutes are minutes ago.
 const S = [];
 const lead = (id, name, mins, extra = "") => S.push(`INSERT INTO leads (id,type,name,phone,service,stage,value,created_at,contacted${extra ? "," + extra[0] : ""}) VALUES (${id},'quote','${name}','30555501${id}0','Window Tint','new',0,${ts(mins)},0${extra ? "," + extra[1] : ""})`);
@@ -80,7 +80,8 @@ eq("calls per booking (cohort)", c.dials_per_booking, 2);
 eq("touchpoints per booking (2 calls + 1 text)", c.touchpoints_per_booking, 3);
 // ad spend: the month's 3000 spread over the days of the last 30 that fall in this month
 const today = new Date(); const dim = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).getUTCDate();
-const inMonth = Array.from({ length: 30 }, (_, i) => new Date(Date.now() - i * 864e5)).filter(d => d.toISOString().slice(0, 7) === month).length;
+const etDay = d => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+const inMonth = Array.from({ length: 30 }, (_, i) => etDay(new Date(Date.now() - i * 864e5))).filter(d => d.slice(0, 7) === month).length;
 const spend = 3000 * Math.min(inMonth, dim) / dim;
 near("meta spend in range", sc.cost.meta.spend, spend, 2);
 eq("paid leads (2 meta)", sc.cost.meta.leads, 2);
@@ -107,5 +108,21 @@ eq("unsigned callback refused", (await fetch(`${T}/api/twilio/voice/status?lead=
 await twilio(`/api/twilio/voice/status?lead=103&p=${sid}&u=bronson`, { CallStatus: "completed", CallDuration: "90" }); // Twilio retries: must not double count
 const sc2 = await get("/admin/scorecard?days=30");
 eq("exactly one new call counted after a repeated callback", sc2.activity.dials, 5);
+
+// ---- calls TO the CRM number
+const twilioBody = async (path, f) => { const url = T + path; let data = url; for (const k of Object.keys(f).sort()) data += k + f[k]; const r = await fetch(url, { method: "POST", headers: { "x-twilio-signature": createHmac("sha1", "tok").update(data).digest("base64"), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) }); return { status: r.status, text: await r.text() }; };
+const inc = await twilioBody("/api/twilio/voice/incoming", { From: "+13055558899", To: "+13055550000", CallSid: "CA" + "f".repeat(32) });
+eq("incoming call rings the CRM dialer first, not the cell yet", [inc.status, inc.text.includes("<Client><Identity>bronson</Identity>"), inc.text.includes("+13055557777")], [200, true, false]);
+const newLead = (await get("/admin/calendar/find?q=305")).leads.find(l => String(l.phone).includes("8899"));
+eq("an unknown caller becomes a lead", !!newLead, true);
+const lid = newLead ? newLead.id : 0;
+const end1 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
+eq("not answered in the CRM: the cell rings next", [end1.status, end1.text.includes("<Dial"), end1.text.includes("+13055557777"), end1.text.includes("<Record")], [200, true, true, false]);
+const end1b = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=2`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
+eq("not answered on the cell either: AI-voice voicemail", [end1b.status, end1b.text.includes("<Record"), end1b.text.includes("Polly.Matthew-Neural"), end1b.text.includes("Divine Detailers")], [200, true, true, true]);
+eq("voicemail callback saved", await twilio(`/api/twilio/voice/voicemail?lead=${lid}`, { RecordingSid: "RE" + "a".repeat(32), RecordingDuration: "14" }), 204);
+const end2 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "completed", DialCallDuration: "75" });
+eq("answered call just hangs up", end2.text.includes("<Hangup/>") && !end2.text.includes("<Record"), true);
+eq("unsigned incoming refused", (await fetch(`${T}/api/twilio/voice/incoming`, { method: "POST", body: new URLSearchParams({ From: "+13055558899" }) })).status, 403);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
 process.exit(fails ? 1 : 0);
