@@ -150,6 +150,11 @@ async function ensureTableRun(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS call_transcripts (call_sid TEXT PRIMARY KEY, lead_id INTEGER, turns TEXT, signals TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), ended_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS coach_turns (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), call_sid TEXT, build TEXT, gen INTEGER, said TEXT, trig TEXT, outcome TEXT, why TEXT, restarts INTEGER, wait_ms INTEGER, dg_lag_ms INTEGER, ctx_ms INTEGER, first_ms INTEGER, say_ms INTEGER, total_ms INTEGER, shown_ms INTEGER, rep_spoke INTEGER, http INTEGER, stop TEXT, in_tok INTEGER, cache_read INTEGER, cache_write INTEGER, out_tok INTEGER, raw TEXT)"),
     db.prepare("CREATE INDEX IF NOT EXISTS coach_turns_sid ON coach_turns (call_sid, id)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS call_from (call_sid TEXT PRIMARY KEY, lead_id INTEGER, num TEXT, why TEXT, at TEXT NOT NULL DEFAULT (datetime('now')))"),
+    db.prepare("CREATE INDEX IF NOT EXISTS call_from_lead ON call_from (lead_id, at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS call_from_at ON call_from (at)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS lead_numbers (id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, num TEXT NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL DEFAULT (datetime('now')))"),
+    db.prepare("CREATE INDEX IF NOT EXISTS lead_numbers_lead ON lead_numbers (lead_id, kind, id)"),
     db.prepare("CREATE TABLE IF NOT EXISTS call_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), path TEXT, call_sid TEXT, lead INTEGER, step INTEGER, status TEXT, note TEXT)"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
@@ -3488,6 +3493,44 @@ async function voiceToken(env, identity) {
 const xmlRes = body => new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`, { headers: { "content-type": "text/xml" } });
 const twAuth = env => ({ authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_TOKEN}`) });
 // Twilio calls this when the browser starts a call: it checks the number belongs to a lead, then dials it with recording on
+// ---- Which of our numbers to dial from. Main number: TWILIO_VOICE_FROM (or TWILIO_FROM). Rotation numbers: the rest of TWILIO_NUMBERS.
+// Rules, in order: 1) a lead we already reached is called from the number we reached them on; 2) a lead who texted us in the last 7 days, and every first call, use the main number;
+// 3) everything else rotates across the numbers by how many dials each has placed today (daily cap DIAL_CAP, default 40; new numbers ramp up; a red number is rested, a yellow one gets half).
+const callerPool = env => { const main = e164(env.TWILIO_VOICE_FROM || env.TWILIO_FROM); const extra = String(env.TWILIO_NUMBERS || "").split(/[\s,]+/).map(e164).filter(x => x && x !== main); return { main, nums: main ? [main, ...new Set(extra)] : [...new Set(extra)] }; };
+async function pickCaller(env, leadId) {
+  const pool = callerPool(env), main = pool.main;
+  if (!main) return { num: "", why: "No caller ID number is set up." };
+  if (pool.nums.length < 2) return { num: main, why: "Only one number is set up" };
+  await ensureTable(env.DB);
+  const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || [];
+  const first = async (sql, ...b) => env.DB.prepare(sql).bind(...b).first().catch(() => null);
+  const cap = Math.max(5, Number(env.DIAL_CAP) || 40), startUtc = etStartUtc(todayStr());
+  const health = new Map((await q("SELECT num, level FROM number_health")).map(r => [normNum(r.num), r.level]));
+  const used = new Map((await q("SELECT num, COUNT(*) n FROM call_from WHERE at >= ? GROUP BY num", startUtc)).map(r => [r.num, r.n]));
+  const firstUse = new Map((await q("SELECT num, MIN(at) at FROM call_from GROUP BY num")).map(r => [r.num, r.at]));
+  const limit = n => { const lv = health.get(n) || 0; if (lv >= 2) return 0; let c = cap; if (n !== main) { const fu = firstUse.get(n), days = fu ? Math.floor((Date.now() - Date.parse(String(fu).replace(" ", "T") + "Z")) / 864e5) : 0; c = days < 7 ? Math.min(cap, 20) : days < 14 ? Math.min(cap, 30) : cap; } return lv === 1 ? Math.floor(c / 2) : c; };
+  const usable = n => pool.nums.includes(n) && limit(n) > 0;
+  const lead = await first("SELECT phone FROM leads WHERE id = ?", leadId);
+  // 1) already reached: same number as the call that reached them
+  let reach = (await first("SELECT num FROM lead_numbers WHERE lead_id = ? AND kind = 'reach' ORDER BY id DESC LIMIT 1", leadId) || {}).num || "";
+  if (!reach) reach = normNum((await first("SELECT COALESCE(NULLIF(d.from_num,''), c.num) n FROM dial_calls d LEFT JOIN call_from c ON c.call_sid = d.call_sid WHERE d.lead_id = ? AND d.duration >= ? ORDER BY d.id DESC LIMIT 1", leadId, contactMinSecs(env)) || {}).n);
+  if (reach) return usable(reach) ? { num: reach, why: "Same number you reached them on" } : { num: main, why: "The number you reached them on is resting, so the main number" };
+  // 2) texted us recently: main number
+  if (await first("SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in' AND at >= datetime('now','-7 days') LIMIT 1", leadId)) return { num: main, why: "They texted you recently" };
+  // 3) first call: main number
+  const tried = await first("SELECT (SELECT COUNT(*) FROM dial_calls WHERE lead_id = ?) + (SELECT COUNT(*) FROM call_from WHERE lead_id = ?) n", leadId, leadId);
+  if (!tried || !tried.n) return { num: main, why: "First call" };
+  // 4) rotate: stay on the number last used for this lead when it has room, else the least used number today (a matching area code wins a close call)
+  const room = pool.nums.filter(n => (used.get(n) || 0) < limit(n));
+  const last = normNum((await first("SELECT num n FROM call_from WHERE lead_id = ? ORDER BY at DESC, rowid DESC LIMIT 1", leadId) || await first("SELECT from_num n FROM dial_calls WHERE lead_id = ? AND COALESCE(from_num,'') != '' ORDER BY id DESC LIMIT 1", leadId) || {}).n);
+  if (last && last !== main && room.includes(last)) return { num: last, why: "Same number as your last try" };
+  const area = x => last10(x).slice(0, 3), la = lead ? area(lead.phone) : "";
+  const pickFrom = room.length ? room : pool.nums.filter(n => limit(n) > 0);
+  if (!pickFrom.length) return { num: main, why: "Every number is resting, so the main number" };
+  pickFrom.sort((a, b) => ((used.get(a) || 0) - (la && area(a) === la ? 8 : 0)) - ((used.get(b) || 0) - (la && area(b) === la ? 8 : 0)) || (a === main) - (b === main));
+  const n = pickFrom[0];
+  return { num: n, why: room.length ? "Rotating: least used number today" : "Every number is at today's limit", used: used.get(n) || 0, cap: limit(n) };
+}
 async function handleVoice(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
@@ -3495,10 +3538,11 @@ async function handleVoice(request, env) {
   await ensureTable(env.DB);
   const lead = Number.isInteger(Number(params.leadId)) ? await env.DB.prepare("SELECT id, phone FROM leads WHERE id = ?").bind(Number(params.leadId)).first() : null;
   if (!lead || !last10(lead.phone) || last10(lead.phone) !== last10(params.To)) return xmlRes("<Say>This call cannot be placed.</Say><Hangup/>");
-  const from = e164(env.TWILIO_VOICE_FROM || env.TWILIO_FROM);
+  const pick = await pickCaller(env, lead.id).catch(() => ({ num: e164(env.TWILIO_VOICE_FROM || env.TWILIO_FROM), why: "" })), from = pick.num;
   if (!from) return xmlRes("<Say>No caller ID number is set up.</Say><Hangup/>");
   const base = env.PUBLIC_URL || "https://divinedetailers.com";
   const sid = /^CA[0-9a-f]{32}$/.test(String(params.CallSid || "")) ? params.CallSid : "";
+  if (sid) await env.DB.prepare("INSERT OR IGNORE INTO call_from (call_sid, lead_id, num, why) VALUES (?,?,?,?)").bind(sid, lead.id, from, String(pick.why || "").slice(0, 120)).run().catch(() => {});
   const who = String(params.From || params.Caller || "").replace(/^client:/, "").replace(/[^a-z0-9_.-]/gi, "").slice(0, 30);
   const stream = sid && coachEnabled(env) ? `<Start><Stream url="${base.replace(/^http/, "ws")}/api/twilio/stream/${sid}/${await coachSig(env, sid)}" track="both_tracks"><Parameter name="lead" value="${lead.id}"/></Stream></Start>` : "";
   return xmlRes(`${stream}<Dial callerId="${from}" answerOnBridge="true" timeout="40" record="record-from-answer-dual" recordingStatusCallback="${base}/api/twilio/voice/recording?lead=${lead.id}" recordingStatusCallbackEvent="completed"><Number statusCallback="${base}/api/twilio/voice/status?lead=${lead.id}&amp;p=${sid}&amp;f=${encodeURIComponent(from)}&amp;u=${encodeURIComponent(who)}" statusCallbackEvent="answered completed">${e164(lead.phone)}</Number></Dial>`);
@@ -3593,6 +3637,7 @@ async function handleVoiceIncomingEnd(request, env) {
   if (st === "completed" && secs > 0) {
     await callLog(env, id, `Incoming call answered ${step === 1 ? "in the CRM" : "on your cell"}: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
     if (id) await env.DB.prepare("UPDATE leads SET answered = 1, contacted = 1 WHERE id = ?").bind(id).run().catch(() => {});
+    if (id && normNum(params.To)) await env.DB.prepare("INSERT INTO lead_numbers (lead_id, num, kind) VALUES (?,?, 'reach')").bind(id, normNum(params.To)).run().catch(() => {});
     return xmlRes("<Hangup/>");
   }
   const fwd = e164(env.CALL_FORWARD_TO), base = incomingBase(env);
@@ -3913,7 +3958,7 @@ async function dialerLog(env, b, user) {
   const dur = Math.max(0, Math.min(14400, Math.floor(Number(b.duration)) || 0));
   const mmss = `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}`;
   const sid = /^CA[0-9a-f]{32}$/.test(String(b.sid || "")) ? b.sid : "";
-  await recordDial(env, { lead: b.lead_id, sid, user, from: normNum(env.TWILIO_VOICE_FROM || env.TWILIO_FROM) || null, browser: dur });
+  await recordDial(env, { lead: b.lead_id, sid, user, from: (sid && (await env.DB.prepare('SELECT num FROM call_from WHERE call_sid = ?').bind(sid).first().catch(() => null) || {}).num) || null, browser: dur });
   if (Number.isFinite(Number(b.score)) && b.score !== null && b.score !== "") await env.DB.prepare("UPDATE dial_calls SET rank_score = ?, rank_pos = ? WHERE id = (SELECT id FROM dial_calls WHERE lead_id = ? ORDER BY id DESC LIMIT 1) AND rank_score IS NULL").bind(Number(b.score), Number.isFinite(Number(b.pos)) ? Number(b.pos) : null, b.lead_id).run().catch(() => {});
   // the result picked after the call decides what happened (a voicemail greeting can run a minute or more), so only a call of 3+ minutes counts as contact on its own
   if (dur > Math.max(contactMinSecs(env), 180) && isNewish(cur.stage)) {
@@ -4110,7 +4155,7 @@ ${BNAV_CSS}
 ${LEADM_CSS}
 .inb{position:fixed;right:18px;bottom:18px;z-index:90;width:min(340px,calc(100vw - 28px));background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:14px 16px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:17px;line-height:1.2}.inbt .inbph{color:var(--mut);font-size:13px;margin-top:2px}.inbi{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}.inbi i{font-style:normal;font-size:11.5px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}.inbi i.n{color:var(--accent)}.inbq{margin-top:9px;font-size:12px;color:var(--mut);line-height:1.4;max-height:9.5em;overflow:auto;display:flex;flex-direction:column;gap:6px}.inbq .nt{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px}.inbq .nt b{color:var(--accent);font-weight:600}.inbq:empty{display:none}.inba{display:flex;gap:8px;margin-top:12px}.inba button{flex:1;border:0;border-radius:999px;padding:10px 0;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@media(max-width:820px){.inb{bottom:calc(84px + env(safe-area-inset-bottom,0px))}}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
 /* smart queue */
-.nudge{outline:2px solid var(--warn,#f5a623);outline-offset:6px;border-radius:12px;animation:ndg .5s ease-in-out 2}.btn.warnb{border-color:var(--warn,#f5a623)!important;color:var(--warn,#f5a623)!important}@keyframes ndg{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}.btn.sv,.btn.on.sv,button.btn.on.sv{background:var(--accent)!important;border-color:var(--accent)!important;color:#04120a!important;animation:svp .35s ease-out}.btn .ck{width:16px;height:16px;vertical-align:-3px;margin-right:6px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;animation:svd .35s .1s ease-out forwards}@keyframes svd{to{stroke-dashoffset:0}}@keyframes svp{40%{transform:scale(1.08)}}.whyn{margin:14px 0 4px;padding:10px 14px;border:1px solid var(--accent-line);background:var(--accent-bg);border-radius:12px}.whyn h4{margin:0 0 6px;color:var(--accent)}.whyn ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--text)}.q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
+.nudge{outline:2px solid var(--warn,#f5a623);outline-offset:6px;border-radius:12px;animation:ndg .5s ease-in-out 2}.btn.warnb{border-color:var(--warn,#f5a623)!important;color:var(--warn,#f5a623)!important}@keyframes ndg{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}.fromln{margin:8px 0 0;font-size:13px;color:var(--mut)}.fromln b{color:var(--accent);font-weight:600}.btn.sv,.btn.on.sv,button.btn.on.sv{background:var(--accent)!important;border-color:var(--accent)!important;color:#04120a!important;animation:svp .35s ease-out}.btn .ck{width:16px;height:16px;vertical-align:-3px;margin-right:6px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;animation:svd .35s .1s ease-out forwards}@keyframes svd{to{stroke-dashoffset:0}}@keyframes svp{40%{transform:scale(1.08)}}.whyn{margin:14px 0 4px;padding:10px 14px;border:1px solid var(--accent-line);background:var(--accent-bg);border-radius:12px}.whyn h4{margin:0 0 6px;color:var(--accent)}.whyn ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--text)}.q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
 main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
 /* queue */
 .rail{background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 24px 0 0;box-shadow:none}
@@ -4193,11 +4238,11 @@ function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
   let open='',ask='',offer='';{const bl=briefLines(l);if(bl){open=bl.open;ask=bl.ask;offer=bl.offer}else if(gsvc(l)){const S=secs(fillT(ST[gsvc(l)],l)),off=S.find(x=>/price|offer|quote/i.test(x.h));open=S[0]&&S[0].l[0];ask=S[1]&&S[1].l[0];offer=off&&off.l[0]}}
   const hist=(l.texts||[]).map(t=>(t.direction==='in'?'They texted: ':'You texted: ')+t.body).concat((l.history||[]).slice(0,3).map(h=>h.reason));
   b.innerHTML='<div class="tabs" id="btabs"><button type="button" data-b="brief" class="'+(bt==='brief'?'on':'')+'">Brief</button><button type="button" data-b="info" class="'+(bt==='info'?'on':'')+'">Lead info</button></div><div id="bbody" class="bbody"'+(bt==='brief'?'':' hidden')+'><div class="bh"><span class="av">'+$(initials(l.name))+'</span><div style="min-width:0;flex:1"><h2>'+$(l.name||pretty(l.phone))+'</h2><div class="ph">'+$(pretty(l.phone))+'</div></div>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div>'
-   +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
+   +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div><div class="fromln" id="fromchip" hidden></div>'
    +(l.rank&&l.rank.detail&&l.rank.detail.length?'<div class="whyn"><h4>Why this lead is next</h4><ul>'+l.rank.detail.map(x=>'<li>'+$(x)+'</li>').join('')+'</ul></div>':'')+'<div class="bgrid"><div class="bc"><h4>What they asked for</h4><p class="big">'+$(l.service||'Quote request')+'</p>'+(car?'<p>'+$(car)+'</p>':'')+lines.map(x=>'<p class="mut">'+$(x)+'</p>').join('')+(hist.length?'<h4>History</h4>'+hist.map(x=>'<p class="mut">'+$(x)+'</p>').join(''):'')+'</div>'
    +'<div class="bc">'+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div></div><div id="infoc" class="inf"'+(bt==='info'?'':' hidden')+'></div>'
    +'<div class="bact"><button class="btn skip" id="sk2" type="button">Skip</button><button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button></div>';
-  el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
+  el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();loadFrom(l);if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
 function syncCb(){const b=el('cb2');if(b)b.disabled=!dev||!inHours()||(state!=='idle'&&state!=='ended')}
 let mt='script',bt='brief',itab='ov',INFO={},SNIPD=[];
 window.lmDone=()=>{const l=Q.find(x=>x.id===LM.id);if(l&&LM.d){['name','email','phone','service','year','make','model','value','stage'].forEach(k=>{l[k]=LM.d.lead[k]});try{drawLead();drawBrief(l);drawQ()}catch(_){}}};
@@ -4281,6 +4326,7 @@ async function initDev(){if(typeof Twilio==='undefined'||!Twilio.Device){setup('
 let inbound=false,inCall=null;
 function liveStart(){state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};LH={};LH={};BR={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()}
 // a lead calls the CRM number: the dialer rings here (the page must be open); Answer takes the call with the same script and coach
+let fromReq=0;function loadFrom(l){const c=el('fromchip');if(!c||!l||!l.id||l.practice)return;const n=++fromReq;fetch('/admin/dialer/from?id='+l.id).then(r=>r.json()).then(d=>{if(n!==fromReq||!d||!d.success||!d.multi)return;c.textContent='';c.appendChild(document.createTextNode('Calling from '));const bb=document.createElement('b');bb.textContent=d.label;c.appendChild(bb);c.appendChild(document.createTextNode(' \u00b7 '+d.why));c.title=d.cap?(d.used+' of '+d.cap+' dials used today on this number'):'';c.hidden=false}).catch(()=>{})}
 function hideIncoming(){el('inb').hidden=true;inCall=null}
 function onIncoming(c){if(state==='live'||state==='connecting'){try{c.reject()}catch(_){}return}
   inCall=c;const g=k=>{try{return c.customParameters.get(k)||''}catch(_){return ''}};
@@ -6079,7 +6125,7 @@ export default {
       if (p === "/pipeline" || p === "/admin/pipeline") return adminRoute("/admin/pipeline", request, env);
       if (p.startsWith("/admin/push/")) return adminRoute(p, request, env);
       if (p.startsWith("/send/")) return adminRoute("/admin/send/" + p.slice(6), request, env);
-      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/coach/turns" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/calendar/find" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/users" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
+      if (p === "/admin/stage" || p === "/admin/coach/ws" || p === "/admin/coach/status" || p === "/admin/coach/aitest" || p === "/admin/coach/turns" || p === "/admin/dialer/token" || p === "/admin/dialer/queue" || p === "/admin/dialer/from" || p === "/admin/dialer/lead" || p === "/admin/dialer/script" || p === "/admin/dialer/library" || p === "/admin/dialer/practice" || p === "/admin/dialer/offer" || p === "/admin/dialer/note" || p === "/admin/dialer/log" || p === "/admin/dialer/vmdrop" || p === "/admin/dialer/audio" || p === "/admin/dialer/audio/play" || p === "/admin/dialer/settings" || p === "/admin/automations/data" || p === "/admin/campaigns/data" || p === "/admin/campaigns/preview" || p === "/admin/campaigns/mark-meta" || p === "/admin/campaign" || p === "/admin/campaign/test" || p === "/admin/campaign/cancel" || p === "/admin/calendar/urable" || p === "/admin/calendar/find" || p === "/admin/automation" || p === "/admin/automation/toggle" || p === "/admin/automation/delete" || p === "/admin/threads" || p === "/admin/thread" || p === "/admin/msgstats/data" || p === "/admin/dials/data" || p === "/admin/users" || p === "/admin/dashboard/data" || p === "/admin/numbers/check" || p === "/admin/star" || p === "/admin/tags" || p === "/admin/note" || p === "/admin/markunread" || p === "/admin/snippets" || p === "/admin/snippets/render" || p === "/admin/unread" || p === "/admin/msg" || p === "/admin/book" || p === "/admin/leadinfo" || p === "/admin/lead" || p === "/admin/add" || p === "/admin/touch" || p === "/admin/appt" || p === "/admin/delete" || p === "/admin/queue" || p === "/admin/queue/start" || p === "/admin/queue/stop" || p === "/admin/dial" || p === "/admin/outcome" || p === "/admin/callrailtest" || p === "/admin/verifyshop" || p === "/admin/purge" || p === "/admin/calls" || p === "/admin/adspend" || p === "/admin/jobcost" || p === "/admin/demo" || p === "/admin/testalert") return adminRoute(p, request, env);
       if (p === "/leads.csv" || p === "/admin/leads.csv") return adminRoute("/admin/leads.csv", request, env);
       if (p === "/admin/contacted") return adminRoute("/admin/contacted", request, env);
       if (p === "/login" || p === "/logout") return loginRoute(p, request, env);
@@ -6936,6 +6982,7 @@ async function adminRouteCore(p, request, env, a0) {
       return json({ success: true, token: await voiceToken(env, a) });
     }
     if (p === "/admin/dialer/queue" && request.method === "GET") return dialerQueue(env, new URL(request.url));
+    if (p === "/admin/dialer/from" && request.method === "GET") { const id = Number(new URL(request.url).searchParams.get("id")); if (!Number.isInteger(id)) return json({ success: false }, 400); const k = await pickCaller(env, id).catch(() => null); return k && k.num ? json({ success: true, num: k.num, label: prettyPhone(k.num), why: k.why, used: k.used, cap: k.cap, multi: callerPool(env).nums.length > 1 }) : json({ success: false }); }
     if (p === "/admin/dialer/lead" && request.method === "GET") return dialerLead(env, Number(new URL(request.url).searchParams.get("id")));
     if (p === "/admin/dialer/script" && request.method === "GET") return dialerScriptGet(env, new URL(request.url).searchParams.get("svc") || "");
     if (p === "/admin/dialer/script" && request.method === "POST") return dialerScriptSave(env, await request.json().catch(() => ({})));
@@ -7116,6 +7163,7 @@ async function adminRouteCore(p, request, env, a0) {
     const st2 = [env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) VALUES (?,?,?,?,?)").bind(b.id, cur.stage, tgt, "Call result: " + b.outcome, user)];
     if (tgt !== cur.stage) st2.push(env.DB.prepare("UPDATE leads SET stage = ?, stage_changed_at = datetime('now') WHERE id = ?").bind(tgt, b.id));
     if (rule.talked) st2.push(env.DB.prepare("UPDATE leads SET contacted = 1 WHERE id = ?").bind(b.id));
+    if (rule.talked) { const lf = await env.DB.prepare("SELECT num FROM call_from WHERE lead_id = ? AND at >= datetime('now','-6 hours') ORDER BY at DESC, rowid DESC LIMIT 1").bind(b.id).first().catch(() => null); if (lf && lf.num) st2.push(env.DB.prepare("INSERT INTO lead_numbers (lead_id, num, kind) VALUES (?,?, 'reach')").bind(b.id, lf.num)); }
     if (tgt === "lost" && reason) st2.push(env.DB.prepare("UPDATE leads SET lost_reason = ? WHERE id = ?").bind(reason, b.id));
     const dayStr = n => addDays(todayStr(), n);
     if (rule.follow) {
