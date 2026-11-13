@@ -3496,13 +3496,72 @@ async function handleVoiceStatus(request, env) {
   await recordDial(env, { lead, sid, user, from: normNum(u.searchParams.get("f")) || null, tw: ev, talk });
   return new Response(null, { status: 204 });
 }
+// ---- Calls TO the CRM's Twilio number: ring the owner's cell (CALL_FORWARD_TO), fall back to voicemail, and log everything on the lead.
+// Twilio Console > the number > Voice Configuration > "A call comes in" > Webhook, POST, https://divinedetailers.com/api/twilio/voice/incoming
+const xmlAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+async function incomingLead(env, from) {
+  const d = last10(from);
+  if (d.length < 10) return null; // withheld or odd numbers have no lead
+  const hit = ((await env.DB.prepare("SELECT id, name, stage, phone FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND phone LIKE ? ORDER BY id DESC LIMIT 20").bind("%" + d.slice(-4) + "%").all()).results || []).find(x => last10(x.phone) === d);
+  if (hit) return hit;
+  const ins = await env.DB.prepare("INSERT INTO leads (type,name,email,phone,service,make,year,model,message,utm_source,utm_medium,stage,value,answered) VALUES ('call',?,'',?,'','','','','Incoming call','Phone call','phone','new',0,0)").bind(prettyPhone(from), from).run();
+  return { id: ins.meta && ins.meta.last_row_id, name: prettyPhone(from), stage: "new" };
+}
+const callLog = (env, lead, reason) => lead ? env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind(reason, lead).run().catch(() => {}) : null;
+const incomingBase = env => env.PUBLIC_URL || "https://divinedetailers.com";
+function voicemailTwiml(env, lead) {
+  const base = incomingBase(env);
+  return `<Say>You've reached Divine Detailers. We can't take your call right now. Please leave your name and number after the tone, and we will call you right back.</Say><Record maxLength="180" timeout="6" playBeep="true" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/voicemail?lead=${lead || 0}`)}" recordingStatusCallbackEvent="completed"/><Hangup/>`;
+}
+async function handleVoiceIncoming(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  await ensureTable(env.DB);
+  const lead = await incomingLead(env, params.From).catch(() => null), id = lead ? lead.id : 0;
+  await callLog(env, id, "Incoming call");
+  sendPush(env, { title: "Incoming call", message: lead ? lead.name || prettyPhone(params.From) : "Unknown number", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
+  const fwd = e164(env.CALL_FORWARD_TO);
+  if (!fwd) return xmlRes(voicemailTwiml(env, id));
+  const base = incomingBase(env), rec = env.RECORD_INBOUND === "on" ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/recording?lead=${id}&dir=in`)}" recordingStatusCallbackEvent="completed"` : "";
+  return xmlRes(`<Dial timeout="22" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}`)}"><Number>${fwd}</Number></Dial>`);
+}
+// after the cell stops ringing or the talk ends: log it, and send an unanswered call to voicemail
+async function handleVoiceIncomingEnd(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  await ensureTable(env.DB);
+  const id = Number(new URL(request.url).searchParams.get("lead")) || 0, st = String(params.DialCallStatus || ""), secs = Math.max(0, parseInt(params.DialCallDuration, 10) || 0);
+  if (st === "completed" && secs > 0) {
+    await callLog(env, id, `Incoming call answered: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
+    if (id) await env.DB.prepare("UPDATE leads SET answered = 1, contacted = 1 WHERE id = ?").bind(id).run().catch(() => {});
+    return xmlRes("<Hangup/>");
+  }
+  await callLog(env, id, "Missed incoming call");
+  sendPush(env, { title: "Missed call", message: "Nobody picked up. They may leave a voicemail.", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
+  return xmlRes(voicemailTwiml(env, id));
+}
+async function handleVoiceVoicemail(request, env) {
+  if (!env.DB) return new Response("No database", { status: 503 });
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  await ensureTable(env.DB);
+  const id = Number(new URL(request.url).searchParams.get("lead")) || 0, sid = String(params.RecordingSid || ""), secs = Math.max(0, parseInt(params.RecordingDuration, 10) || 0);
+  if (id && /^RE[0-9a-f]{32}$/.test(sid)) {
+    await saveRecording(env, { callId: "tw:" + sid, leadId: id, direction: "inbound", url: "/admin/rec/" + sid, duration: secs });
+    await callLog(env, id, `Voicemail left: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
+    sendPush(env, { title: "New voicemail", message: `${secs} seconds. Open the lead to listen.`, click: env.CRM_HOST ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
+  }
+  return new Response(null, { status: 204 });
+}
 async function handleVoiceRecording(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
   if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
   await ensureTable(env.DB);
   const lead = Number(new URL(request.url).searchParams.get("lead")), sid = String(params.RecordingSid || "");
-  if (Number.isInteger(lead) && /^RE[0-9a-f]{32}$/.test(sid)) await saveRecording(env, { callId: "tw:" + sid, leadId: lead, direction: "outbound", url: "/admin/rec/" + sid, duration: params.RecordingDuration });
+  if (Number.isInteger(lead) && /^RE[0-9a-f]{32}$/.test(sid)) await saveRecording(env, { callId: "tw:" + sid, leadId: lead, direction: new URL(request.url).searchParams.get("dir") === "in" ? "inbound" : "outbound", url: "/admin/rec/" + sid, duration: params.RecordingDuration });
   return new Response(null, { status: 204 });
 }
 // recordings stay private in Twilio: the CRM streams them to a signed-in owner
@@ -5859,9 +5918,9 @@ export default {
       if (!coachEnabled(env) || !/^CA[0-9a-f]{32}$/.test(sid || "") || sig !== (await coachSig(env, sid))) return new Response("Forbidden", { status: 403 });
       return env.COACH.get(env.COACH.idFromName(sid)).fetch(request);
     }
-    if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording" || p === "/api/twilio/voice/status") {
+    if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording" || p === "/api/twilio/voice/status" || p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end" || p === "/api/twilio/voice/voicemail") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
-      try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : p === "/api/twilio/voice/status" ? await handleVoiceStatus(request, env) : await handleVoiceRecording(request, env); }
+      try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : p === "/api/twilio/voice/status" ? await handleVoiceStatus(request, env) : p === "/api/twilio/voice/incoming" ? await handleVoiceIncoming(request, env) : p === "/api/twilio/voice/incoming-end" ? await handleVoiceIncomingEnd(request, env) : p === "/api/twilio/voice/voicemail" ? await handleVoiceVoicemail(request, env) : await handleVoiceRecording(request, env); }
       catch (e) { console.error("voice error", e && e.message); return new Response("Server error", { status: 500 }); }
     }
     if (p.startsWith("/vm/") && request.method === "GET") return publicVoicemail(env, p.slice(4).replace(/\.\w+$/, ""));
