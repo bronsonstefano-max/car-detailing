@@ -123,6 +123,8 @@ eq("not answered on the cell either: AI-voice voicemail", [end1b.status, end1b.t
 eq("voicemail callback saved", await twilio(`/api/twilio/voice/voicemail?lead=${lid}`, { RecordingSid: "RE" + "a".repeat(32), RecordingDuration: "14" }), 204);
 const end2 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "completed", DialCallDuration: "75" });
 eq("answered call just hangs up", end2.text.includes("<Hangup/>") && !end2.text.includes("<Record"), true);
+const scr0 = await twilioBody("/api/twilio/voice/screen", { CallSid: "CA" + "7".repeat(32) }), scr1 = await twilioBody("/api/twilio/voice/screen", { Digits: "1" }), scr2 = await twilioBody("/api/twilio/voice/screen", { Digits: "5" });
+eq("the cell leg asks you to press 1, and only 1 connects", [scr0.text.includes("<Gather") && scr0.text.includes("Press 1"), !scr1.text.includes("Hangup") && !scr1.text.includes("Gather"), scr2.text.includes("<Hangup/>"), end1.text.includes("/api/twilio/voice/screen")], [true, true, true, true]);
 eq("unsigned incoming refused", (await fetch(`${T}/api/twilio/voice/incoming`, { method: "POST", body: new URLSearchParams({ From: "+13055558899" }) })).status, 403);
 
 // ---- smart queue: who to call next
