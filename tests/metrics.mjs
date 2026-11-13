@@ -112,7 +112,7 @@ eq("exactly one new call counted after a repeated callback", sc2.activity.dials,
 // ---- calls TO the CRM number
 const twilioBody = async (path, f) => { const url = T + path; let data = url; for (const k of Object.keys(f).sort()) data += k + f[k]; const r = await fetch(url, { method: "POST", headers: { "x-twilio-signature": createHmac("sha1", "tok").update(data).digest("base64"), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) }); return { status: r.status, text: await r.text() }; };
 const inc = await twilioBody("/api/twilio/voice/incoming", { From: "+13055558899", To: "+13055550000", CallSid: "CA" + "f".repeat(32) });
-eq("incoming call rings the cell", [inc.status, inc.text.includes("<Dial"), inc.text.includes("+13055557777")], [200, true, true]);
+eq("incoming call rings the CRM dialer and the cell", [inc.status, inc.text.includes("<Dial"), inc.text.includes("<Client><Identity>bronson</Identity>"), inc.text.includes("+13055557777")], [200, true, true, true]);
 const newLead = (await get("/admin/calendar/find?q=305")).leads.find(l => String(l.phone).includes("8899"));
 eq("an unknown caller becomes a lead", !!newLead, true);
 const lid = newLead ? newLead.id : 0;

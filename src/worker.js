@@ -3438,7 +3438,7 @@ async function voiceToken(env, identity) {
   const enc = o => jwtB64(new TextEncoder().encode(JSON.stringify(o)));
   const now = Math.floor(Date.now() / 1000);
   const head = enc({ alg: "HS256", typ: "JWT", cty: "twilio-fpa;v=1" });
-  const body = enc({ jti: `${env.TWILIO_API_KEY_SID}-${now}`, iss: env.TWILIO_API_KEY_SID, sub: env.TWILIO_SID, iat: now, exp: now + 3600, grants: { identity, voice: { incoming: { allow: false }, outgoing: { application_sid: env.TWILIO_TWIML_APP_SID } } } });
+  const body = enc({ jti: `${env.TWILIO_API_KEY_SID}-${now}`, iss: env.TWILIO_API_KEY_SID, sub: env.TWILIO_SID, iat: now, exp: now + 3600, grants: { identity, voice: { incoming: { allow: true }, outgoing: { application_sid: env.TWILIO_TWIML_APP_SID } } } });
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TWILIO_API_KEY_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(head + "." + body));
   return head + "." + body + "." + jwtB64(sig);
@@ -3521,10 +3521,13 @@ async function handleVoiceIncoming(request, env) {
   const lead = await incomingLead(env, params.From).catch(() => null), id = lead ? lead.id : 0;
   await callLog(env, id, "Incoming call");
   sendPush(env, { title: "Incoming call", message: lead ? lead.name || prettyPhone(params.From) : "Unknown number", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
-  const fwd = e164(env.CALL_FORWARD_TO);
-  if (!fwd) return xmlRes(voicemailTwiml(env, id));
-  const base = incomingBase(env), rec = env.RECORD_INBOUND === "on" ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/recording?lead=${id}&dir=in`)}" recordingStatusCallbackEvent="completed"` : "";
-  return xmlRes(`<Dial timeout="22" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}`)}"><Number>${fwd}</Number></Dial>`);
+  const fwd = e164(env.CALL_FORWARD_TO), base = incomingBase(env);
+  const sid = /^CA[0-9a-f]{32}$/.test(String(params.CallSid || "")) ? params.CallSid : "";
+  const stream = sid && coachEnabled(env) ? `<Start><Stream url="${xmlAttr(base.replace(/^http/, "ws") + "/api/twilio/stream/" + sid + "/" + await coachSig(env, sid))}" track="both_tracks"><Parameter name="lead" value="${id}"/></Stream></Start>` : "";
+  const rec = env.RECORD_INBOUND === "on" ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/recording?lead=${id}&dir=in`)}" recordingStatusCallbackEvent="completed"` : "";
+  // the CRM's browser dialer rings first (it must be open and signed in); your cell rings at the same time when CALL_FORWARD_TO is set
+  const client = `<Client><Identity>${OWNER}</Identity><Parameter name="lead" value="${id}"/><Parameter name="from" value="${xmlAttr(prettyPhone(params.From))}"/><Parameter name="name" value="${xmlAttr(lead && lead.name ? lead.name : "")}"/></Client>`;
+  return xmlRes(`${stream}<Dial timeout="22" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}`)}">${client}${fwd ? `<Number>${fwd}</Number>` : ""}</Dial>`);
 }
 // after the cell stops ringing or the talk ends: log it, and send an unanswered call to voicemail
 async function handleVoiceIncomingEnd(request, env) {
@@ -3963,6 +3966,7 @@ ${BNAV_CSS}
 /* dialer idle screen, redesign: quiet dark surfaces, hairlines instead of boxes, one accent, text over chips */
 #topbar .btn.sm{background:none;border:1px solid var(--line2);color:var(--mut);font-size:12.5px;font-weight:600;border-radius:999px;padding:6px 14px;min-height:0}#topbar .btn.sm:hover{color:var(--text);border-color:#344150}
 ${LEADM_CSS}
+.inb{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:22px;background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:12px 18px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:16px}.inbt span{color:var(--mut);font-size:13px}.inba{display:flex;gap:8px}.inba button{border:0;border-radius:999px;padding:9px 22px;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
 main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
 /* queue */
 .rail{background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 24px 0 0;box-shadow:none}
@@ -4018,6 +4022,7 @@ ${bnav("dialer", tc, true)}
 </main>
 <dialog id="vdlg"></dialog><dialog id="sdlg"></dialog><dialog id="gdlg"></dialog><dialog id="prdlg"></dialog>
 ${LEADM_HTML}
+<div class="inb" id="inb" hidden><div class="inbt"><b id="inbn">Incoming call</b><span id="inbp"></span></div><div class="inba"><button type="button" class="inbd" id="inbd">Decline</button><button type="button" class="inbg" id="inbg">Answer</button></div></div>
 <script src="/assets/twilio-voice.min.js"></script>
 <script>${LEADM_JS}</script>
 <script>
@@ -4127,19 +4132,33 @@ async function initDev(){if(typeof Twilio==='undefined'||!Twilio.Device){setup('
   dev=new Twilio.Device(j.token,{codecPreferences:['opus','pcmu'],closeProtection:'A call is in progress. Leave anyway?'});
   dev.on('error',e=>setSt('Error: '+((e&&e.message)||e),'bad'));
   dev.on('tokenWillExpire',async()=>{const k=await tok();if(k.success)dev.updateToken(k.token)});
+  dev.on('incoming',onIncoming);try{await dev.register()}catch(_){}
   setSt('Ready','ok');drawCtl()}
+let inbound=false,inCall=null;
+function liveStart(){state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};LH={};LH={};BR={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()}
+// a lead calls the CRM number: the dialer rings here (the page must be open); Answer takes the call with the same script and coach
+function hideIncoming(){el('inb').hidden=true;inCall=null}
+function onIncoming(c){if(state==='live'||state==='connecting'){try{c.reject()}catch(_){}return}
+  inCall=c;const g=k=>{try{return c.customParameters.get(k)||''}catch(_){return ''}};el('inbn').textContent='Incoming call'+(g('name')?': '+g('name'):'');el('inbp').textContent=g('from')||'Unknown number';el('inb').hidden=false;
+  const gone=()=>{if(inCall===c)hideIncoming()};c.on('cancel',gone);c.on('disconnect',gone);c.on('reject',gone)}
+async function answerIncoming(){const c=inCall;if(!c)return;let lead=0;try{lead=+c.customParameters.get('lead')||0}catch(_){}hideIncoming();
+  try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop())}catch(_){setSt('Allow the microphone to answer','bad');try{c.reject()}catch(_){}return}
+  if(lead){WANT=lead;await loadQ()}inbound=true;call=c;state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();
+  c.on('accept',liveStart);c.on('disconnect',()=>endCall());c.on('cancel',()=>endCall());c.on('reject',()=>endCall());c.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'));c.accept()}
+function declineIncoming(){const c=inCall;hideIncoming();try{c&&c.reject()}catch(_){}}
+el('inbg').onclick=answerIncoming;el('inbd').onclick=declineIncoming;
 async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended'))return;
   if(!inHours()){setSt('Outside calling hours','bad');return}
   try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop())}catch(_){setSt('Allow the microphone to call','bad');return}
   state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();setSt('Connecting...','warn');
   try{call=await dev.connect({params:{To:e164(l.phone),leadId:String(l.id)}})}catch(e){state='idle';setSt('Could not start the call','bad');drawCtl();return}
   call.on('ringing',()=>setSt('Ringing...','warn'));
-  call.on('accept',()=>{state='live';t0=Date.now();sid=(call.parameters&&call.parameters.CallSid)||'';setSt('Connected','ok');gi=0;gPlay=null;gHot='';FACTS={goals:[]};COV={};SAID={};LH={};LH={};lastSaid=null;priceAt=0;depAsked=false;sigAt=0;gOpenPh='';drawScript();drawQ();coachStart(sid);clearInterval(tmr);tmr=setInterval(tick,500);drawCtl()});
+  call.on('accept',liveStart);
   call.on('disconnect',()=>endCall());call.on('cancel',()=>endCall());call.on('reject',()=>endCall());
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;outSaved=false;outPick='';const l=Q[ix];made++;if(l)CALLED.add(l.id);if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
   el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();bannerDraw();
-  if(l){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}}
+  if(l&&!inbound){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}inbound=false}
 async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
   const r=await fetch('/admin/dialer/vmdrop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sid:sid,kind:k,lead_id:l.id})});const j=await r.json().catch(()=>({}));setSt(j.success?'Voicemail dropped':(j.message||'Could not drop it'),j.success?'ok':'bad');drawCtl();if(j.success)saveOutcome('Left a voicemail')}
 const LOSTR=${JSON.stringify(LOST_REASONS)};
