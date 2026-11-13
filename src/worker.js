@@ -1610,6 +1610,7 @@ main{padding:0 22px 40px;display:grid;grid-template-columns:repeat(auto-fill,min
   .actions .btn,.actions select{min-height:46px;font-size:15px;text-align:center;display:flex;align-items:center;justify-content:center}.actions select.stage{text-align:left;display:block}
   .grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 }
+${LEADM_CSS}
 </style></head>
 <body><header><h1>Divine Detailers <b>leads</b></h1>${nav("leads", tc, user === OWNER)}
 <div class="stats"><div class="stat"><b>${last24}</b><span>leads in the past 24 hours</span></div><div class="stat hot"><b>${notContacted}</b><span>${own ? "Meta leads not contacted" : "leads not contacted"}</span></div><div class="stat"><b>${last7}</b><span>leads in the past 7 days</span></div></div></header>
@@ -1619,6 +1620,9 @@ ${FOLLOW_HTML}
 ${OUTCOME_HTML}
 <main id="list">${cards || '<p class="empty">No leads yet. They will appear here the moment someone submits a form.</p>'}</main>
 ${restCards.length ? `<div style="text-align:center;padding:4px 14px 20px"><button type="button" id="moreb" class="chip">Show ${restCards.length} older leads</button></div><script type="application/json" id="rest">${JSON.stringify(restCards).replace(/</g, "\\u003c")}</script>` : ""}
+${LEADM_HTML}
+<script>${LEADM_JS}
+window.lmDone=()=>location.reload();const LM_OWNER=${user === OWNER};</script>
 <script>
 const list=document.getElementById('list'),q=document.getElementById('q');let f='all',REST=[];try{const r=document.getElementById('rest');if(r)REST=JSON.parse(r.textContent)}catch(_){}
 function more(){if(!REST.length)return;list.insertAdjacentHTML('beforeend',REST.join(''));REST=[];const b=document.getElementById('moreb');if(b)b.parentNode.remove()}
@@ -1627,7 +1631,7 @@ function apply(){const t=q.value.trim().toLowerCase(),td=t.replace(/\\D/g,'');if
 q.addEventListener('input',apply);document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));f=c.dataset.f;apply()}));
 ${FOLLOW_JS}
 ${OUTCOME_JS}
-document.addEventListener('click',e=>{const c=e.target.closest('article.lead');if(!c||e.target.closest('a,button,select,input,textarea,label,summary,details'))return;location.href='/admin/pipeline#id='+c.dataset.id});
+document.addEventListener('click',e=>{const c=e.target.closest('article.lead');if(!c||e.target.closest('a,button,select,input,textarea,label,summary,details'))return;if(LM_OWNER){openLead(+c.dataset.id);return}location.href='/admin/pipeline#id='+c.dataset.id});
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
 document.addEventListener('click',e=>{const a=e.target.closest('a[href^="tel:"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;markCall(+h.dataset.id,((h.querySelector('h3,b')||{}).textContent||'').trim());try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 document.addEventListener('change',async e=>{const s=e.target.closest('select.stage');if(!s)return;const to=s.value,id=+s.dataset.id;const nm=(s.closest('.lead').querySelector('h3')||{}).textContent;s.disabled=true;
@@ -1671,7 +1675,7 @@ dialog{background:#0f1319;color:#e8eaed;border:1px solid #2a313a;border-radius:1
 select,input,textarea{width:100%;background:#12171e;border:1px solid #2a313a;color:#fff;border-radius:10px;padding:10px 12px;font:inherit}textarea{min-height:84px;resize:vertical}
 .acts{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #2a313a;background:#151a21;color:#e8eaed;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}.btn.call{background:#32cd32;border-color:#32cd32;color:#04120a}.btn.go{background:#32cd32;border-color:#32cd32;color:#04120a;margin-left:auto}
 ${BNAV_CSS}
-${FOLLOW_CSS}
+${FOLLOW_CSS}${LEADM_CSS}
 .rp{display:flex;flex-direction:column;gap:8px}.next{margin-top:8px;font-size:13px;color:#c9a8ff}.next.late{color:#ff9a9a;font-weight:700}
 .hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.hist li{font-size:13.5px;color:#cfd3d9;border-left:2px solid #2a313a;padding-left:10px}.hist small{display:block;color:#7c838d;font-size:12px}.sum2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 16px}.sum2 b{display:block;font-size:16px;font-weight:700}.sum2 small{display:block;color:#8a9099;font-size:12.5px;margin-top:2px}
 .src{background:#0d1116;border:1px solid #1d2229;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:7px}.srch{display:flex;align-items:center;gap:10px;margin-bottom:2px}.spill{font-size:12px;font-weight:700;letter-spacing:.04em;padding:3px 10px;border-radius:999px;background:#171c23;color:#c3c8cf}.spill.ad{background:#14263f;color:#8ec0ff}.sm{color:#7c838d;font-size:12.5px}
@@ -1705,10 +1709,13 @@ ${QUEUE_HTML}
 <div class="board" id="board"></div>
 <dialog id="dlg"></dialog>
 ${FOLLOW_HTML}
+${LEADM_HTML}
 ${OUTCOME_HTML}
 <script type="application/json" id="data">${payload}</script>
 <script>
 const IS_OWNER=${user === OWNER};
+${LEADM_JS}
+window.lmDone=()=>location.reload();
 ${FOLLOW_JS}
 ${OUTCOME_JS}
 ${QUEUE_JS}
@@ -1790,7 +1797,7 @@ board.addEventListener('drop',async e=>{const c=e.target.closest('.col');if(!c||
 board.addEventListener('click',async e=>{const st=e.target.closest('[data-star]');if(st){e.stopPropagation();const id=+st.dataset.star,l=L.find(x=>x.id===id);if(l){l.starred=l.starred?0:1;draw();try{await fetch('/admin/star',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,on:!!l.starred})})}catch(_){}}return}if(e.target.closest('[data-stop]'))return;const d=e.target.closest('[data-open]');if(d){open(+d.dataset.open);return}const c=e.target.closest('.card');if(c)open(+c.dataset.id)});
 document.addEventListener('click',e=>{const a=e.target.closest('a[href^=\"tel:\"]');if(!a)return;const h=a.closest('[data-id]');if(!h||!h.dataset.id)return;markCall(+h.dataset.id,((h.querySelector('h3,b')||{}).textContent||'').trim());try{fetch('/admin/touch',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({id:+h.dataset.id,label:'Called'})})}catch(_){}});
 const SVC=['Window Tint','PPF / Clear Bra','Ceramic Coating','Paint Correction','Vinyl Wraps','Exterior Detailing','Other'];
-function open(id){const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
+function open(id){if(IS_OWNER){openLead(id);return}const l=L.find(x=>x.id===id);if(!l)return;dlg.dataset.id=id;const tel=(l.phone||'').replace(/[^\\d+]/g,''),veh=[l.year,l.make,l.model].filter(Boolean).join(' '),isCall=l.type==='call';
   const ed='<details class="ed"'+((isCall||!l.service)?' open':'')+'><summary>Edit contact and vehicle</summary><div class="g2"><div><label>Name</label><input id="en" value="'+$(l.name||'')+'" autocomplete="off"></div><div><label>Phone</label><input id="ep" type="tel" inputmode="tel" value="'+$(l.phone||'')+'"></div><div><label>Email</label><input id="ee" type="email" value="'+$(l.email||'')+'"></div><div><label>Service</label><select id="es"><option value="">Not set</option>'+SVC.map(x=>'<option'+(x===l.service?' selected':'')+'>'+x+'</option>').join('')+'</select></div><div><label>Make</label><input id="em" value="'+$(l.make||'')+'"></div><div><label>Model</label><input id="ed2" value="'+$(l.model||'')+'"></div><div><label>Year</label><input id="ey" inputmode="numeric" value="'+$(l.year||'')+'"></div></div></details>';
   dlg.innerHTML='<div class="dh"><div><h3>'+$(l.name||l.phone||l.email||'Unknown caller')+'</h3><div style="color:#8a9099;font-size:13px">'+$(l.ago)+' &middot; '+$(l.abs)+' ET &middot; '+$(l.src)+'</div></div><button class="x" onclick="dlg.close()" aria-label="Close">&times;</button></div><div class="db">'+
   '<div class="acts">'+(tel?'<a class="btn call" href="'+(IS_OWNER?'/admin/dialer?lead='+l.id:'tel:'+$(tel))+'">Call '+$(l.phone)+'</a>':'')+(l.email?'<a class="btn" href="mailto:'+$(l.email)+'">Email</a>':'')+(l.recording?'<a class="btn rec" href="'+$(l.recording)+'" target="_blank" rel="noopener">&#9654; Listen</a>':'')+'</div>'+
