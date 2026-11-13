@@ -150,6 +150,7 @@ async function ensureTableRun(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS call_transcripts (call_sid TEXT PRIMARY KEY, lead_id INTEGER, turns TEXT, signals TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), ended_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS coach_turns (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), call_sid TEXT, build TEXT, gen INTEGER, said TEXT, trig TEXT, outcome TEXT, why TEXT, restarts INTEGER, wait_ms INTEGER, dg_lag_ms INTEGER, ctx_ms INTEGER, first_ms INTEGER, say_ms INTEGER, total_ms INTEGER, shown_ms INTEGER, rep_spoke INTEGER, http INTEGER, stop TEXT, in_tok INTEGER, cache_read INTEGER, cache_write INTEGER, out_tok INTEGER, raw TEXT)"),
     db.prepare("CREATE INDEX IF NOT EXISTS coach_turns_sid ON coach_turns (call_sid, id)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS call_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), path TEXT, call_sid TEXT, lead INTEGER, step INTEGER, status TEXT, note TEXT)"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
   if (flagAuto.meta && flagAuto.meta.changes) await seedAutomations(db);
@@ -1987,12 +1988,19 @@ async function sendLeadText(env, lead, body, { user = "system", auto = false, la
 async function twilioSigOk(env, request, params) {
   if (!env.TWILIO_TOKEN) return false;
   const sig = request.headers.get("x-twilio-signature") || "";
-  let data = request.url;
-  for (const k of Object.keys(params).sort()) data += k + params[k];
+  if (!sig) return false;
+  const u = new URL(request.url), pub = (env.PUBLIC_URL || "https://divinedetailers.com").replace(/\/$/, "");
+  // the URL Twilio signed can differ from the one this Worker sees behind a proxy, so the public address is accepted too
+  const urls = [...new Set([request.url, "https://" + u.host + u.pathname + u.search, pub + u.pathname + u.search])];
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TWILIO_TOKEN), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
-  let bin = ""; for (const b of mac) bin += String.fromCharCode(b);
-  return !!sig && safeEqual(btoa(bin), sig);
+  for (const base of urls) {
+    let data = base;
+    for (const k of Object.keys(params).sort()) data += k + params[k];
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
+    let bin = ""; for (const x of mac) bin += String.fromCharCode(x);
+    if (safeEqual(btoa(bin), sig)) return true;
+  }
+  return false;
 }
 const twiml = () => new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', { headers: { "content-type": "text/xml" } });
 async function handleTwilioSms(request, env) {
@@ -3500,6 +3508,9 @@ async function handleVoiceStatus(request, env) {
 }
 // ---- Calls TO the CRM's Twilio number: ring the owner's cell (CALL_FORWARD_TO), fall back to voicemail, and log everything on the lead.
 // Twilio Console > the number > Voice Configuration > "A call comes in" > Webhook, POST, https://divinedetailers.com/api/twilio/voice/incoming
+const callEvent = (env, e) => env.DB.prepare("INSERT INTO call_events (path, call_sid, lead, step, status, note) VALUES (?,?,?,?,?,?)").bind(String(e.path || "").slice(0, 60), String(e.sid || "").slice(0, 40), Number(e.lead) || 0, Number(e.step) || 0, String(e.status || "").slice(0, 40), String(e.note || "").slice(0, 300)).run().catch(() => {});
+const sigFail = (env, request, name) => callEvent(env, { path: name, status: "403", note: "signature failed for " + request.url }).then(() => new Response("Forbidden", { status: 403 }));
+const SAFE_VM = `<Say>Thanks for calling Divine Detailers. Please leave your name and number after the beep and we will call you right back.</Say><Record maxLength="180" timeout="6" playBeep="true"/><Hangup/>`;
 const CRM_RING_SECS = 24, CELL_RING_SECS = 18; // about 4 rings in the CRM (a ring cycle is 6 seconds), then about 3 on the cell
 const xmlAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 async function incomingLead(env, from) {
@@ -3524,9 +3535,10 @@ async function voicemailTwiml(env, lead) {
 async function handleVoiceIncoming(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
-  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "incoming");
   await ensureTable(env.DB);
   const lead = await incomingLead(env, params.From).catch(() => null), id = lead ? lead.id : 0;
+  await callEvent(env, { path: "incoming", sid: params.CallSid, lead: id, step: 1, status: "ringing the CRM", note: "from " + String(params.From || "") + (e164(env.CALL_FORWARD_TO) ? "; cell is set" : "; CALL_FORWARD_TO is not set") });
   await callLog(env, id, "Incoming call");
   sendPush(env, { title: "Incoming call", message: lead ? lead.name || prettyPhone(params.From) : "Unknown number", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
   const fwd = e164(env.CALL_FORWARD_TO), base = incomingBase(env);
@@ -3541,10 +3553,11 @@ async function handleVoiceIncoming(request, env) {
 async function handleVoiceIncomingEnd(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
-  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "incoming-end");
   await ensureTable(env.DB);
   const u = new URL(request.url), id = Number(u.searchParams.get("lead")) || 0, step = Number(u.searchParams.get("s")) || 1;
   const st = String(params.DialCallStatus || ""), secs = Math.max(0, parseInt(params.DialCallDuration, 10) || 0);
+  await callEvent(env, { path: "incoming-end", sid: params.CallSid, lead: id, step, status: st, note: `${secs}s; next: ${st === "completed" && secs > 0 ? "hang up" : step === 1 && e164(env.CALL_FORWARD_TO) ? "ring the cell" : "voicemail"}` });
   if (st === "completed" && secs > 0) {
     await callLog(env, id, `Incoming call answered ${step === 1 ? "in the CRM" : "on your cell"}: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
     if (id) await env.DB.prepare("UPDATE leads SET answered = 1, contacted = 1 WHERE id = ?").bind(id).run().catch(() => {});
@@ -3562,7 +3575,7 @@ async function handleVoiceIncomingEnd(request, env) {
 async function handleVoiceVoicemail(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
-  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "voicemail");
   await ensureTable(env.DB);
   const id = Number(new URL(request.url).searchParams.get("lead")) || 0, sid = String(params.RecordingSid || ""), secs = Math.max(0, parseInt(params.RecordingDuration, 10) || 0);
   if (id && /^RE[0-9a-f]{32}$/.test(sid)) {
@@ -4039,7 +4052,7 @@ ${BNAV_CSS}
 /* dialer idle screen, redesign: quiet dark surfaces, hairlines instead of boxes, one accent, text over chips */
 #topbar .btn.sm{background:none;border:1px solid var(--line2);color:var(--mut);font-size:12.5px;font-weight:600;border-radius:999px;padding:6px 14px;min-height:0}#topbar .btn.sm:hover{color:var(--text);border-color:#344150}
 ${LEADM_CSS}
-.inb{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:22px;background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:12px 18px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:16px}.inbt span{color:var(--mut);font-size:13px}.inba{display:flex;gap:8px}.inba button{border:0;border-radius:999px;padding:9px 22px;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
+.inb{position:fixed;right:18px;bottom:18px;z-index:90;width:min(340px,calc(100vw - 28px));background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:14px 16px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:17px;line-height:1.2}.inbt .inbph{color:var(--mut);font-size:13px;margin-top:2px}.inbi{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}.inbi i{font-style:normal;font-size:11.5px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}.inbi i.n{color:var(--accent)}.inbq{margin-top:9px;font-size:12px;color:var(--mut);line-height:1.4;max-height:3.9em;overflow:hidden}.inba{display:flex;gap:8px;margin-top:12px}.inba button{flex:1;border:0;border-radius:999px;padding:10px 0;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
 /* smart queue */
 .q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
 main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
@@ -4097,7 +4110,7 @@ ${bnav("dialer", tc, true)}
 </main>
 <dialog id="vdlg"></dialog><dialog id="sdlg"></dialog><dialog id="gdlg"></dialog><dialog id="prdlg"></dialog>
 ${LEADM_HTML}
-<div class="inb" id="inb" hidden><div class="inbt"><b id="inbn">Incoming call</b><span id="inbp"></span></div><div class="inba"><button type="button" class="inbd" id="inbd">Decline</button><button type="button" class="inbg" id="inbg">Answer</button></div></div>
+<div class="inb" id="inb" hidden><div class="inbt"><b id="inbn">Unknown caller</b><div class="inbph" id="inbp"></div></div><div class="inbi" id="inbi"></div><div class="inbq" id="inbq"></div><div class="inba"><button type="button" class="inbd" id="inbd">Decline</button><button type="button" class="inbg" id="inbg">Answer</button></div></div>
 <script src="/assets/twilio-voice.min.js"></script>
 <script>${LEADM_JS}</script>
 <script>
@@ -4214,8 +4227,22 @@ function liveStart(){state='live';t0=Date.now();sid=(call.parameters&&call.param
 // a lead calls the CRM number: the dialer rings here (the page must be open); Answer takes the call with the same script and coach
 function hideIncoming(){el('inb').hidden=true;inCall=null}
 function onIncoming(c){if(state==='live'||state==='connecting'){try{c.reject()}catch(_){}return}
-  inCall=c;const g=k=>{try{return c.customParameters.get(k)||''}catch(_){return ''}};el('inbn').textContent='Incoming call'+(g('name')?': '+g('name'):'');el('inbp').textContent=g('from')||'Unknown number';el('inb').hidden=false;
+  inCall=c;const g=k=>{try{return c.customParameters.get(k)||''}catch(_){return ''}};
+  el('inbn').textContent=g('name')||'Unknown caller';el('inbp').textContent=pretty(g('from'))||'Unknown number';el('inbi').textContent='';el('inbq').textContent='';el('inb').hidden=false;
+  const lid=+g('lead')||0;if(lid)fetch('/admin/dialer/lead?id='+lid,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(inCall!==c||!d||!d.success)return;fillIncoming(d)}).catch(()=>{});
   const gone=()=>{if(inCall===c)hideIncoming()};c.on('cancel',gone);c.on('disconnect',gone);c.on('reject',gone)}
+function fillIncoming(d){const l=d.lead||{},f=d.facts||{},chips=[],add=(t,n)=>{if(t)chips.push([t,n])};
+  const car=[l.year,l.make,l.model].filter(Boolean).join(' ');
+  add(l.service,1);add(car);add(l.value?'$'+Number(l.value).toLocaleString('en-US'):'',1);add(l.stage);
+  add(l.created_at?'Came in '+ago(l.created_at):'');
+  add(f.attempts?f.attempts+(f.attempts===1?' call':' calls')+' so far':'First call');
+  if(f.textsIn)add(f.textsIn+' text'+(f.textsIn===1?'':'s')+' from them');
+  if(l.appt_at)add('Appt booked',1);
+  if(l.follow_up_date)add('Callback '+l.follow_up_date,1);
+  if(l.utm_source||l.type)add(String(l.utm_source||l.type));
+  const box=el('inbi');box.textContent='';for(const x of chips.slice(0,9)){const i=document.createElement('i');i.textContent=x[0];if(x[1])i.className='n';box.appendChild(i)}
+  const n=(d.notes||[])[0],t=(d.texts||[]).filter(m=>m.direction==='in').slice(-1)[0],txt=n?'Note: '+n.text:t?'Last text: '+t.body:(l.message?'Said: '+l.message:'');
+  el('inbq').textContent=txt.length>150?txt.slice(0,147)+'...':txt}
 async function answerIncoming(){const c=inCall;if(!c)return;let lead=0;try{lead=+c.customParameters.get('lead')||0}catch(_){}hideIncoming();
   try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop())}catch(_){setSt('Allow the microphone to answer','bad');try{c.reject()}catch(_){}return}
   if(lead){WANT=lead;await loadQ()}inbound=true;call=c;state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();
@@ -5979,6 +6006,7 @@ export default {
       if (p === "/playbook" || p === "/admin/playbook") return adminRoute("/admin/playbook", request, env);
       if (p === "/admin/scorecard") return adminRoute("/admin/scorecard", request, env);
       if (p === "/admin/rank/model") return adminRoute("/admin/rank/model", request, env);
+      if (p === "/admin/calls/debug") return adminRoute("/admin/calls/debug", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
       if (p === "/calendar" || p === "/admin/calendar") return adminRoute("/admin/calendar", request, env);
@@ -6018,7 +6046,7 @@ export default {
     if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording" || p === "/api/twilio/voice/status" || p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end" || p === "/api/twilio/voice/voicemail") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : p === "/api/twilio/voice/status" ? await handleVoiceStatus(request, env) : p === "/api/twilio/voice/incoming" ? await handleVoiceIncoming(request, env) : p === "/api/twilio/voice/incoming-end" ? await handleVoiceIncomingEnd(request, env) : p === "/api/twilio/voice/voicemail" ? await handleVoiceVoicemail(request, env) : await handleVoiceRecording(request, env); }
-      catch (e) { console.error("voice error", e && e.message); return new Response("Server error", { status: 500 }); }
+      catch (e) { console.error("voice error", e && e.message); if (env.DB) await callEvent(env, { path: p.replace("/api/twilio/voice/", ""), status: "error", note: String(e && e.message || e) }); if (p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end") return xmlRes(SAFE_VM); return new Response("Server error", { status: 500 }); }
     }
     if (p.startsWith("/vm/") && request.method === "GET") return publicVoicemail(env, p.slice(4).replace(/\.\w+$/, ""));
     if (p === "/api/twilio/sms" || p === "/api/twilio/status") {
@@ -6987,6 +7015,7 @@ async function adminRouteCore(p, request, env, a0) {
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/playbook") return a === OWNER ? playbookPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/calls/debug") { if (a !== OWNER) return json({ success: false }, 403); await ensureTable(env.DB); const { results } = await env.DB.prepare("SELECT at, path, call_sid, lead, step, status, note FROM call_events ORDER BY id DESC LIMIT 60").all(); return json({ success: true, events: results || [] }); }
   if (p === "/admin/rank/model") return a === OWNER ? json({ success: true, model: (await rankModel(env, new URL(request.url).searchParams.get("fresh") === "1")).model }) : json({ success: false }, 403);
   if (p === "/admin/scorecard") return a === OWNER ? json(await scorecard(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
