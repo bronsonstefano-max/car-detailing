@@ -124,5 +124,22 @@ eq("voicemail callback saved", await twilio(`/api/twilio/voice/voicemail?lead=${
 const end2 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "completed", DialCallDuration: "75" });
 eq("answered call just hangs up", end2.text.includes("<Hangup/>") && !end2.text.includes("<Record"), true);
 eq("unsigned incoming refused", (await fetch(`${T}/api/twilio/voice/incoming`, { method: "POST", body: new URLSearchParams({ From: "+13055558899" }) })).status, 403);
+
+// ---- smart queue: who to call next
+sql([
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at,follow_up,follow_up_date) VALUES (201,'quote','Due Callback','3055500201','Window Tint','contacted',400,datetime('now','-10 days'),'Call back',date('now','-1 day'))`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (202,'quote','Brand New','3055500202','Window Tint','new',400,datetime('now','-5 minutes'))`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (203,'quote','Tried Just Now','3055500203','Window Tint','new',400,datetime('now','-3 days'))`,
+  `INSERT INTO dial_calls (lead_id,call_sid,duration,by_user,started_at,tw_status,talk,src,logged) VALUES (203,'CA${"9".repeat(32)}',0,'bronson',datetime('now','-30 minutes'),'no-answer',0,'twilio',2)`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (204,'quote','Untouched Older','3055500204','Window Tint','new',400,datetime('now','-5 days'))`,
+]);
+const qd = await get("/admin/dialer/queue"), order = (qd.leads || []).map(l => l.id), pos = id => order.indexOf(id);
+eq("queue is ranked and shows why", !!(qd.leads[0] && qd.leads[0].rank && qd.leads[0].rank.why), true);
+eq("a due callback and a brand new lead are at the top (a caller who just rang is also new)", [pos(201) < 3, pos(202) < 3, pos(201) < pos(204), pos(202) < pos(204)], [true, true, true, true]);
+eq("a lead tried 30 minutes ago drops below an untouched one", pos(204) < pos(203), true);
+const old = (await get("/admin/dialer/queue?order=old")).leads || [];
+eq("the old order is still available", old.length > 0 && !old[0].rank, true);
+const mdl = await get("/admin/rank/model?fresh=1");
+eq("the model reports what it learned", [mdl.success, typeof mdl.model.pb0, mdl.model.haz.length], [true, "number", 8]);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
 process.exit(fails ? 1 : 0);

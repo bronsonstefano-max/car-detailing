@@ -150,6 +150,7 @@ async function ensureTableRun(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS call_transcripts (call_sid TEXT PRIMARY KEY, lead_id INTEGER, turns TEXT, signals TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')), ended_at TEXT)"),
     db.prepare("CREATE TABLE IF NOT EXISTS coach_turns (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), call_sid TEXT, build TEXT, gen INTEGER, said TEXT, trig TEXT, outcome TEXT, why TEXT, restarts INTEGER, wait_ms INTEGER, dg_lag_ms INTEGER, ctx_ms INTEGER, first_ms INTEGER, say_ms INTEGER, total_ms INTEGER, shown_ms INTEGER, rep_spoke INTEGER, http INTEGER, stop TEXT, in_tok INTEGER, cache_read INTEGER, cache_write INTEGER, out_tok INTEGER, raw TEXT)"),
     db.prepare("CREATE INDEX IF NOT EXISTS coach_turns_sid ON coach_turns (call_sid, id)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS call_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), path TEXT, call_sid TEXT, lead INTEGER, step INTEGER, status TEXT, note TEXT)"),
   ]);
   const flagAuto = await db.prepare("INSERT OR IGNORE INTO app_flags (k) VALUES ('automations_v1')").run();
   if (flagAuto.meta && flagAuto.meta.changes) await seedAutomations(db);
@@ -199,6 +200,8 @@ async function ensureTableRun(db) {
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN tw_status TEXT").run().catch(() => {});
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN talk INTEGER").run().catch(() => {});
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN src TEXT").run().catch(() => {});
+  await db.prepare("ALTER TABLE dial_calls ADD COLUMN rank_score REAL").run().catch(() => {});
+  await db.prepare("ALTER TABLE dial_calls ADD COLUMN rank_pos INTEGER").run().catch(() => {});
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN logged INTEGER").run().catch(() => {});
   await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS dial_calls_sid ON dial_calls(call_sid) WHERE call_sid IS NOT NULL AND call_sid <> ''").run().catch(() => {});
   await db.prepare("ALTER TABLE messages ADD COLUMN from_num TEXT").run().catch(() => {});
@@ -1985,12 +1988,19 @@ async function sendLeadText(env, lead, body, { user = "system", auto = false, la
 async function twilioSigOk(env, request, params) {
   if (!env.TWILIO_TOKEN) return false;
   const sig = request.headers.get("x-twilio-signature") || "";
-  let data = request.url;
-  for (const k of Object.keys(params).sort()) data += k + params[k];
+  if (!sig) return false;
+  const u = new URL(request.url), pub = (env.PUBLIC_URL || "https://divinedetailers.com").replace(/\/$/, "");
+  // the URL Twilio signed can differ from the one this Worker sees behind a proxy, so the public address is accepted too
+  const urls = [...new Set([request.url, "https://" + u.host + u.pathname + u.search, pub + u.pathname + u.search])];
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TWILIO_TOKEN), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
-  let bin = ""; for (const b of mac) bin += String.fromCharCode(b);
-  return !!sig && safeEqual(btoa(bin), sig);
+  for (const base of urls) {
+    let data = base;
+    for (const k of Object.keys(params).sort()) data += k + params[k];
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
+    let bin = ""; for (const x of mac) bin += String.fromCharCode(x);
+    if (safeEqual(btoa(bin), sig)) return true;
+  }
+  return false;
 }
 const twiml = () => new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', { headers: { "content-type": "text/xml" } });
 async function handleTwilioSms(request, env) {
@@ -3498,6 +3508,9 @@ async function handleVoiceStatus(request, env) {
 }
 // ---- Calls TO the CRM's Twilio number: ring the owner's cell (CALL_FORWARD_TO), fall back to voicemail, and log everything on the lead.
 // Twilio Console > the number > Voice Configuration > "A call comes in" > Webhook, POST, https://divinedetailers.com/api/twilio/voice/incoming
+const callEvent = (env, e) => env.DB.prepare("INSERT INTO call_events (path, call_sid, lead, step, status, note) VALUES (?,?,?,?,?,?)").bind(String(e.path || "").slice(0, 60), String(e.sid || "").slice(0, 40), Number(e.lead) || 0, Number(e.step) || 0, String(e.status || "").slice(0, 40), String(e.note || "").slice(0, 300)).run().catch(() => {});
+const sigFail = (env, request, name) => callEvent(env, { path: name, status: "403", note: "signature failed for " + request.url }).then(() => new Response("Forbidden", { status: 403 }));
+const SAFE_VM = `<Say>Thanks for calling Divine Detailers. Please leave your name and number after the beep and we will call you right back.</Say><Record maxLength="180" timeout="6" playBeep="true"/><Hangup/>`;
 const CRM_RING_SECS = 24, CELL_RING_SECS = 18; // about 4 rings in the CRM (a ring cycle is 6 seconds), then about 3 on the cell
 const xmlAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 async function incomingLead(env, from) {
@@ -3522,9 +3535,10 @@ async function voicemailTwiml(env, lead) {
 async function handleVoiceIncoming(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
-  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "incoming");
   await ensureTable(env.DB);
   const lead = await incomingLead(env, params.From).catch(() => null), id = lead ? lead.id : 0;
+  await callEvent(env, { path: "incoming", sid: params.CallSid, lead: id, step: 1, status: "ringing the CRM", note: "from " + String(params.From || "") + (e164(env.CALL_FORWARD_TO) ? "; cell is set" : "; CALL_FORWARD_TO is not set") });
   await callLog(env, id, "Incoming call");
   sendPush(env, { title: "Incoming call", message: lead ? lead.name || prettyPhone(params.From) : "Unknown number", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
   const fwd = e164(env.CALL_FORWARD_TO), base = incomingBase(env);
@@ -3539,10 +3553,11 @@ async function handleVoiceIncoming(request, env) {
 async function handleVoiceIncomingEnd(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
-  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "incoming-end");
   await ensureTable(env.DB);
   const u = new URL(request.url), id = Number(u.searchParams.get("lead")) || 0, step = Number(u.searchParams.get("s")) || 1;
   const st = String(params.DialCallStatus || ""), secs = Math.max(0, parseInt(params.DialCallDuration, 10) || 0);
+  await callEvent(env, { path: "incoming-end", sid: params.CallSid, lead: id, step, status: st, note: `${secs}s; next: ${st === "completed" && secs > 0 ? "hang up" : step === 1 && e164(env.CALL_FORWARD_TO) ? "ring the cell" : "voicemail"}` });
   if (st === "completed" && secs > 0) {
     await callLog(env, id, `Incoming call answered ${step === 1 ? "in the CRM" : "on your cell"}: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
     if (id) await env.DB.prepare("UPDATE leads SET answered = 1, contacted = 1 WHERE id = ?").bind(id).run().catch(() => {});
@@ -3560,7 +3575,7 @@ async function handleVoiceIncomingEnd(request, env) {
 async function handleVoiceVoicemail(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
-  if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "voicemail");
   await ensureTable(env.DB);
   const id = Number(new URL(request.url).searchParams.get("lead")) || 0, sid = String(params.RecordingSid || ""), secs = Math.max(0, parseInt(params.RecordingDuration, 10) || 0);
   if (id && /^RE[0-9a-f]{32}$/.test(sid)) {
@@ -3615,6 +3630,61 @@ async function openDays(env, n = 6, svc = "tint") {
   } catch (_) { return []; }
 }
 const DIAL_STAGES = ["nocontact", "contacted", "quoted", "aged", "interested", "deposit", "lost"];
+// ---- Smart queue: who to call next. Learns from the CRM's own history (every call, result, booking and ad source) and shows why a lead is where it is.
+const RK_DAY = 864e5, RK_BUCKETS = [[0, 1 / 24], [1 / 24, 0.25], [0.25, 1], [1, 3], [3, 7], [7, 14], [14, 30], [30, 1e9]]; // lead age in days
+let rankCache = { at: 0, model: null, byId: new Map() };
+const rkSvc = t => /tint/i.test(t || "") ? "tint" : /coat|ceramic/i.test(t || "") ? "coat" : "oth";
+const rkCh = r => r.channel || (r.type === "call" ? "call" : "organic");
+const rkBucket = days => { for (let i = 0; i < RK_BUCKETS.length; i++) if (days >= RK_BUCKETS[i][0] && days < RK_BUCKETS[i][1]) return i; return RK_BUCKETS.length - 1; };
+async function rankModel(env, force) {
+  if (!force && rankCache.model && Date.now() - rankCache.at < 600000) return rankCache;
+  const rows = await speedRows(env).catch(() => []), now = Date.now(), age = r => (now - Date.parse(r.created)) / RK_DAY;
+  const mature = rows.filter(r => age(r) >= 14 || r.booked), won = mature.filter(r => r.booked).length;
+  const pb0 = mature.length >= 30 ? Math.max(0.02, won / mature.length) : 0.12; // overall chance a lead books; a sensible default until there is data
+  const liftBy = (keyFn, K = 10) => { const g = {}; for (const r of mature) { const k = keyFn(r); (g[k] = g[k] || { b: 0, n: 0 }); g[k].n++; if (r.booked) g[k].b++; } const out = {}; for (const k of Object.keys(g)) out[k] = Math.round(((g[k].b + K * pb0) / (g[k].n + K)) / pb0 * 100) / 100; return { lift: out, n: Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.n])) }; };
+  const svc = liftBy(r => rkSvc(r.service)), ch = liftBy(rkCh);
+  // chance a lead books per day, by how old it is (only leads still open count as "at risk")
+  const prior = pb0 / 20, haz = RK_BUCKETS.map(([a, b]) => { let ev = 0, ex = 0; for (const r of rows) { const A = age(r); if (A < a) continue; const bd = r.booked ? r.booked_days : null; if (bd != null && bd < a) continue; const end = bd != null && bd < b ? bd : Math.min(A, b); ex += Math.max(0, end - a); if (bd != null && bd >= a && bd < b) ev++; } return Math.max(0.0005, (ev + 20 * prior) / (ex + 20)); });
+  // chance a call gets a conversation: by attempt number (given the earlier ones failed), once reached before, and by hour of day
+  let ok = 0, tot = 0; const tryN = Array.from({ length: 6 }, () => ({ ok: 0, n: 0 })), hr = Array.from({ length: 24 }, () => ({ ok: 0, n: 0 })), fol = { ok: 0, n: 0 };
+  for (const r of rows) { let seen = false; (r.outs || []).forEach((o, i) => { tot++; if (o.ok) ok++; if (o.h >= 0 && o.h < 24) { hr[o.h].n++; if (o.ok) hr[o.h].ok++; } if (seen) { fol.n++; if (o.ok) fol.ok++; } else { const t = tryN[Math.min(i, 5)]; t.n++; if (o.ok) t.ok++; } if (o.ok) seen = true; }); }
+  const g = tot >= 30 ? Math.max(0.05, ok / tot) : 0.35, sh = (o, K, d) => (o.ok + K * d) / (o.n + K);
+  const valued = rows.filter(r => r.booked && r.value > 0), avgV = valued.length >= 5 ? Math.round(valued.reduce((a, r) => a + r.value, 0) / valued.length) : 600;
+  const model = { updated: new Date().toISOString(), leads: rows.length, mature: mature.length, booked: won, pb0: Math.round(pb0 * 1000) / 1000, dials: tot, reach: Math.round(g * 1000) / 1000, avgV,
+    svc: svc.lift, svcN: svc.n, ch: ch.lift, chN: ch.n, haz: haz.map(x => Math.round(x * 10000) / 10000), reachTry: tryN.map(t => Math.round(sh(t, 6, g) * 1000) / 1000), reachFollow: Math.round(sh(fol, 6, Math.min(0.9, g + 0.25)) * 1000) / 1000,
+    reachHour: hr.map(h => Math.round(sh(h, 8, g) / g * 100) / 100), hourN: hr.map(h => h.n) };
+  rankCache = { at: Date.now(), model, byId: new Map(rows.map(r => [r.id, r])) };
+  env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES ('rank_model', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(JSON.stringify(model)).run().catch(() => {});
+  return rankCache;
+}
+function rankOne(l, M, f, now) {
+  const created = Date.parse(String(l.created_at).replace(" ", "T") + (/Z$/.test(l.created_at) ? "" : "Z")), ageD = Math.max(0, (now - created) / RK_DAY), ageM = ageD * 1440;
+  const etH = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" }).format(new Date(now)));
+  const dials = f ? f.calls : 0, reachedBefore = !!(f && f.reached), why = [];
+  const tryRate = reachedBefore ? M.reachFollow : M.reachTry[Math.min(dials, 5)];
+  let hourLift = M.reachHour[etH] == null ? 1 : M.reachHour[etH];
+  const failedNow = f ? (f.outs || []).filter(o => !o.ok && Math.abs(o.h - etH) <= 1).length : 0; // already tried around this hour and missed: a different hour is a better bet
+  if (failedNow) hourLift *= 0.75;
+  const svcL = M.svc[rkSvc(l.service)] || 1, chL = M.ch[l.gc ? "google" : l.utm_medium === "paid_social" ? "meta" : l.type === "call" ? "call" : "organic"] || 1;
+  const V = Math.min(2.5, Math.max(0.5, (l.value || M.avgV) / M.avgV));
+  const replied = (l.inq || 0) > 0, engage = 1 + (replied || (f && f.texts_in > 0) ? 0.4 : 0) + (reachedBefore ? 0.3 : 0);
+  let sc = tryRate * hourLift * M.haz[rkBucket(ageD)] * svcL * chL * V * engage * 1e4;
+  const due = l.cb ? Math.max(0, Math.floor((Date.parse(todayStr() + "T12:00:00Z") - Date.parse(l.follow_up_date + "T12:00:00Z")) / RK_DAY)) : -1;
+  if (due >= 0) { sc *= 6 + Math.min(due, 3); why.push(due > 0 ? "Callback overdue" : "Callback due"); }
+  if (ageM < 15 && !dials) { sc *= 8; why.push("New " + Math.max(1, Math.round(ageM)) + " min"); } else if (ageM < 60 && !dials) { sc *= 5; why.push("New lead"); } else if (ageM < 360 && !dials) { sc *= 2.5; why.push("New today"); } else if (ageM < 1440 && !dials) sc *= 1.5;
+  if (replied) { sc *= 2.5; why.push("Replied by text"); }
+  if (l.stage === "deposit") { sc *= 3; why.push("Deposit pending"); } else if (l.stage === "interested") sc *= 1.5; else if (l.stage === "quoted") sc *= 1.3;
+  if (l.tries3 > 0) { sc *= 0.12; why.push("Tried today"); } else if (l.tries24 >= 2) sc *= 0.5; else if (l.last_try && now - Date.parse(String(l.last_try).replace(" ", "T") + "Z") < RK_DAY) sc *= 0.8;
+  if (failedNow && !l.tries3) why.push("Try another hour");
+  if (hourLift >= 1.15 && !why.length) why.push("Good hour to call");
+  if (svcL >= 1.25 && !why.length) why.push("Books well");
+  return { score: Math.round(sc * 10) / 10, why: why.slice(0, 3) };
+}
+async function rankLeads(env, rows) {
+  const { model, byId } = await rankModel(env), now = Date.now();
+  for (const l of rows) l.rank = rankOne(l, model, byId.get(l.id), now);
+  return rows.sort((a, b) => b.rank.score - a.rank.score);
+}
 async function dialerQueue(env, url) {
   await ensureTable(env.DB);
   // ?stages=aged,contacted dials everyone in those pipeline stages (any age), least recently tried first. Without it: new leads and follow-ups that are due.
@@ -3624,8 +3694,10 @@ async function dialerQueue(env, url) {
   const where = want.length
     ? `l.stage IN (${want.map(() => "?").join(",")})`
     : `((l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-14 days')) OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('done','lost','aged')))`;
-  const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT 120" : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT 60";
-  const sel = (w, o) => `SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
+  const smart = String((url && url.searchParams.get("order")) || "smart") !== "old";
+  const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT " + (smart ? 400 : 120) : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT " + (smart ? 300 : 60);
+  const sel = (w, o) => `SELECT l.id, l.type, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium, (CASE WHEN COALESCE(l.gclid,'') != '' THEN 1 ELSE 0 END) gc,
+      (SELECT COUNT(*) FROM messages m WHERE m.lead_id = l.id AND m.direction = 'in' AND m.is_read = 0) inq,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-1 day')) tries24,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-3 hours')) tries3,
       (SELECT MAX(d.started_at) FROM dial_calls d WHERE d.lead_id = l.id) last_try,
@@ -3636,6 +3708,7 @@ async function dialerQueue(env, url) {
   let rows = (await env.DB.prepare(sel(where, order)).bind(...want).all()).results || [];
   // ?lead=ID puts one lead (clicked from the pipeline) first, whatever its stage
   const one = Number(url && url.searchParams.get("lead"));
+  if (smart && rows.length) { try { await rankLeads(env, rows); rows = rows.slice(0, want.length ? 120 : 60); } catch (e) { rows = rows.slice(0, want.length ? 120 : 60); } }
   if (Number.isInteger(one) && one > 0) { const r1 = (await env.DB.prepare(sel("l.id = ?", "l.id")).bind(one).all().catch(() => ({ results: [] }))).results || []; if (r1.length) rows = r1.concat(rows.filter(r => r.id !== one)); }
   const ids = rows.map(r => r.id);
   const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
@@ -3785,6 +3858,7 @@ async function dialerLog(env, b, user) {
   const mmss = `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}`;
   const sid = /^CA[0-9a-f]{32}$/.test(String(b.sid || "")) ? b.sid : "";
   await recordDial(env, { lead: b.lead_id, sid, user, from: normNum(env.TWILIO_VOICE_FROM || env.TWILIO_FROM) || null, browser: dur });
+  if (Number.isFinite(Number(b.score)) && b.score !== null && b.score !== "") await env.DB.prepare("UPDATE dial_calls SET rank_score = ?, rank_pos = ? WHERE id = (SELECT id FROM dial_calls WHERE lead_id = ? ORDER BY id DESC LIMIT 1) AND rank_score IS NULL").bind(Number(b.score), Number.isFinite(Number(b.pos)) ? Number(b.pos) : null, b.lead_id).run().catch(() => {});
   // the result picked after the call decides what happened (a voicemail greeting can run a minute or more), so only a call of 3+ minutes counts as contact on its own
   if (dur > Math.max(contactMinSecs(env), 180) && isNewish(cur.stage)) {
     await env.DB.batch([
@@ -3978,7 +4052,9 @@ ${BNAV_CSS}
 /* dialer idle screen, redesign: quiet dark surfaces, hairlines instead of boxes, one accent, text over chips */
 #topbar .btn.sm{background:none;border:1px solid var(--line2);color:var(--mut);font-size:12.5px;font-weight:600;border-radius:999px;padding:6px 14px;min-height:0}#topbar .btn.sm:hover{color:var(--text);border-color:#344150}
 ${LEADM_CSS}
-.inb{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:22px;background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:12px 18px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:16px}.inbt span{color:var(--mut);font-size:13px}.inba{display:flex;gap:8px}.inba button{border:0;border-radius:999px;padding:9px 22px;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
+.inb{position:fixed;right:18px;bottom:18px;z-index:90;width:min(340px,calc(100vw - 28px));background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:14px 16px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:17px;line-height:1.2}.inbt .inbph{color:var(--mut);font-size:13px;margin-top:2px}.inbi{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}.inbi i{font-style:normal;font-size:11.5px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}.inbi i.n{color:var(--accent)}.inbq{margin-top:9px;font-size:12px;color:var(--mut);line-height:1.4;max-height:9.5em;overflow:auto;display:flex;flex-direction:column;gap:6px}.inbq .nt{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px}.inbq .nt b{color:var(--accent);font-weight:600}.inbq:empty{display:none}.inba{display:flex;gap:8px;margin-top:12px}.inba button{flex:1;border:0;border-radius:999px;padding:10px 0;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
+/* smart queue */
+.q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
 main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
 /* queue */
 .rail{background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 24px 0 0;box-shadow:none}
@@ -4034,7 +4110,7 @@ ${bnav("dialer", tc, true)}
 </main>
 <dialog id="vdlg"></dialog><dialog id="sdlg"></dialog><dialog id="gdlg"></dialog><dialog id="prdlg"></dialog>
 ${LEADM_HTML}
-<div class="inb" id="inb" hidden><div class="inbt"><b id="inbn">Incoming call</b><span id="inbp"></span></div><div class="inba"><button type="button" class="inbd" id="inbd">Decline</button><button type="button" class="inbg" id="inbg">Answer</button></div></div>
+<div class="inb" id="inb" hidden><div class="inbt"><b id="inbn">Unknown caller</b><div class="inbph" id="inbp"></div></div><div class="inbi" id="inbi"></div><div class="inbq" id="inbq"></div><div class="inba"><button type="button" class="inbd" id="inbd">Decline</button><button type="button" class="inbg" id="inbg">Answer</button></div></div>
 <script src="/assets/twilio-voice.min.js"></script>
 <script>${LEADM_JS}</script>
 <script>
@@ -4151,8 +4227,23 @@ function liveStart(){state='live';t0=Date.now();sid=(call.parameters&&call.param
 // a lead calls the CRM number: the dialer rings here (the page must be open); Answer takes the call with the same script and coach
 function hideIncoming(){el('inb').hidden=true;inCall=null}
 function onIncoming(c){if(state==='live'||state==='connecting'){try{c.reject()}catch(_){}return}
-  inCall=c;const g=k=>{try{return c.customParameters.get(k)||''}catch(_){return ''}};el('inbn').textContent='Incoming call'+(g('name')?': '+g('name'):'');el('inbp').textContent=g('from')||'Unknown number';el('inb').hidden=false;
+  inCall=c;const g=k=>{try{return c.customParameters.get(k)||''}catch(_){return ''}};
+  el('inbn').textContent=g('name')||'Unknown caller';el('inbp').textContent=pretty(g('from'))||'Unknown number';el('inbi').textContent='';el('inbq').textContent='';el('inb').hidden=false;
+  const lid=+g('lead')||0;if(lid)fetch('/admin/dialer/lead?id='+lid,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(inCall!==c||!d||!d.success)return;fillIncoming(d)}).catch(()=>{});
   const gone=()=>{if(inCall===c)hideIncoming()};c.on('cancel',gone);c.on('disconnect',gone);c.on('reject',gone)}
+function fillIncoming(d){const l=d.lead||{},f=d.facts||{},chips=[],add=(t,n)=>{if(t)chips.push([t,n])};
+  const car=[l.year,l.make,l.model].filter(Boolean).join(' ');
+  add(l.service,1);add(car);add(l.value?'$'+Number(l.value).toLocaleString('en-US'):'',1);add(l.stage);
+  add(l.created_at?'Came in '+ago(l.created_at):'');
+  add(f.attempts?f.attempts+(f.attempts===1?' call':' calls')+' so far':'First call');
+  if(f.textsIn)add(f.textsIn+' text'+(f.textsIn===1?'':'s')+' from them');
+  if(l.appt_at)add('Appt booked',1);
+  if(l.follow_up_date)add('Callback '+l.follow_up_date,1);
+  if(l.utm_source||l.type)add(String(l.utm_source||l.type));
+  const box=el('inbi');box.textContent='';for(const x of chips.slice(0,9)){const i=document.createElement('i');i.textContent=x[0];if(x[1])i.className='n';box.appendChild(i)}
+  const q=el('inbq');q.textContent='';const add2=(h,t)=>{if(!t)return;const r=document.createElement('div');r.className='nt';const b=document.createElement('b');b.textContent=h;r.appendChild(b);r.appendChild(document.createTextNode(' '+(t.length>200?t.slice(0,197)+'...':t)));q.appendChild(r)};
+  const seen=new Set();for(const t of [l.notes].concat((d.notes||[]).slice(0,3).map(x=>x.text))){const k=String(t||'').trim();if(k&&!seen.has(k)){seen.add(k);add2('Note',k)}}
+  const tin=(d.texts||[]).filter(m=>m.direction==='in').slice(-1)[0];if(tin)add2('Last text',tin.body);else if(l.message)add2('Said',l.message)}
 async function answerIncoming(){const c=inCall;if(!c)return;let lead=0;try{lead=+c.customParameters.get('lead')||0}catch(_){}hideIncoming();
   try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop())}catch(_){setSt('Allow the microphone to answer','bad');try{c.reject()}catch(_){}return}
   if(lead){WANT=lead;await loadQ()}inbound=true;call=c;state='connecting';muted=false;sid='';t0=0;vmArm=null;el('after').hidden=true;drawCtl();
@@ -4170,7 +4261,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;outSaved=false;outPick='';const l=Q[ix];made++;if(l)CALLED.add(l.id);if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
   el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();bannerDraw();
-  if(l&&!inbound){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}inbound=false}
+  if(l&&!inbound){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur,score:l.rank?l.rank.score:null,pos:ix})})}catch(_){}}inbound=false}
 async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
   const r=await fetch('/admin/dialer/vmdrop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sid:sid,kind:k,lead_id:l.id})});const j=await r.json().catch(()=>({}));setSt(j.success?'Voicemail dropped':(j.message||'Could not drop it'),j.success?'ok':'bad');drawCtl();if(j.success)saveOutcome('Left a voicemail')}
 const LOSTR=${JSON.stringify(LOST_REASONS)};
@@ -4198,15 +4289,17 @@ el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.misse
 el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
 function next(){if(state==='live'||state==='connecting')return;outSaved=true;outPick='';state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
-function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')}
+function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')+'<button type="button" data-smart="1" class="'+(SMART?'on':'')+'" title="Orders the list by who is most likely to book right now. It learns from your results.">Smart order</button>'}
 let OPEN_BY={tint:[],coating:[]};let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
-async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
-el('qf').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
+let SMART=true;try{SMART=localStorage.getItem('dq_order')!=='old'}catch(_){}
+const qparams=()=>{const a=[];if(QS.length)a.push('stages='+QS.join(','));if(WANT)a.push('lead='+WANT);if(!SMART)a.push('order=old');return a.length?'?'+a.join('&'):''};
+async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+qparams())).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
+el('qf').addEventListener('click',e=>{const sm=e.target.closest('[data-smart]');if(sm){if(state==='live'||state==='connecting')return;SMART=!SMART;try{localStorage.setItem('dq_order',SMART?'smart':'old')}catch(_){}loadQ();return}const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
 const stLab=k=>(QF.find(f=>f[0]===k)||[0,k])[1]||'';
 function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
   {const nx=Q[ix+1],left=Math.max(0,Q.length-ix-1),fr=Q.slice(ix+1).some(x=>x.fresh);el('nextline').innerHTML=nx?'Next: <b>'+$(shortN(nx.name)||pretty(nx.phone))+'</b> \\u00b7 '+svcLab(nx)+' \\u00b7 '+left+' waiting'+(fr?' <span class="pill ok nb">New lead</span>':''):'Last lead in the queue'}
   el('rs').innerHTML='<span><b>'+Math.max(0,Q.length-ix)+'</b> in queue</span><span><b>'+made+'</b> called</span>';
-  el('q').innerHTML=Q.map((l,i)=>i<ix?(CALLED.has(l.id)?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Called</small></span></div>':'<button class="it" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+nm(l)+'</b><small>Skipped, not called. Tap to call</small></span><span class="bd">Skipped</span></button>'):'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+(QS.length?stLab(l.stage)+' \u00b7 '+(l.last_try?'last tried '+ago(l.last_try):'never called'):ago(l.created_at))+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd">Waiting</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
+  el('q').innerHTML=Q.map((l,i)=>i<ix?(CALLED.has(l.id)?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Called</small></span></div>':'<button class="it" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+nm(l)+'</b><small>Skipped, not called. Tap to call</small></span><span class="bd">Skipped</span></button>'):'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+(QS.length?stLab(l.stage)+' \u00b7 '+(l.last_try?'last tried '+ago(l.last_try):'never called'):ago(l.created_at))+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd'+(l.rank&&l.rank.why&&l.rank.why[0]?' why':'')+'">'+(l.rank&&l.rank.why&&l.rank.why[0]?$(l.rank.why[0]):'Waiting')+'</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
 el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
 el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
 // ---- guided scripts: private, owner-only, loaded from the database (never part of the page source) ----
@@ -5913,6 +6006,8 @@ export default {
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/playbook" || p === "/admin/playbook") return adminRoute("/admin/playbook", request, env);
       if (p === "/admin/scorecard") return adminRoute("/admin/scorecard", request, env);
+      if (p === "/admin/rank/model") return adminRoute("/admin/rank/model", request, env);
+      if (p === "/admin/calls/debug") return adminRoute("/admin/calls/debug", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
       if (p === "/calendar" || p === "/admin/calendar") return adminRoute("/admin/calendar", request, env);
@@ -5952,7 +6047,7 @@ export default {
     if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording" || p === "/api/twilio/voice/status" || p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end" || p === "/api/twilio/voice/voicemail") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
       try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : p === "/api/twilio/voice/status" ? await handleVoiceStatus(request, env) : p === "/api/twilio/voice/incoming" ? await handleVoiceIncoming(request, env) : p === "/api/twilio/voice/incoming-end" ? await handleVoiceIncomingEnd(request, env) : p === "/api/twilio/voice/voicemail" ? await handleVoiceVoicemail(request, env) : await handleVoiceRecording(request, env); }
-      catch (e) { console.error("voice error", e && e.message); return new Response("Server error", { status: 500 }); }
+      catch (e) { console.error("voice error", e && e.message); if (env.DB) await callEvent(env, { path: p.replace("/api/twilio/voice/", ""), status: "error", note: String(e && e.message || e) }); if (p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end") return xmlRes(SAFE_VM); return new Response("Server error", { status: 500 }); }
     }
     if (p.startsWith("/vm/") && request.method === "GET") return publicVoicemail(env, p.slice(4).replace(/\.\w+$/, ""));
     if (p === "/api/twilio/sms" || p === "/api/twilio/status") {
@@ -6921,6 +7016,8 @@ async function adminRouteCore(p, request, env, a0) {
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/playbook") return a === OWNER ? playbookPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/calls/debug") { if (a !== OWNER) return json({ success: false }, 403); await ensureTable(env.DB); const { results } = await env.DB.prepare("SELECT at, path, call_sid, lead, step, status, note FROM call_events ORDER BY id DESC LIMIT 60").all(); return json({ success: true, events: results || [] }); }
+  if (p === "/admin/rank/model") return a === OWNER ? json({ success: true, model: (await rankModel(env, new URL(request.url).searchParams.get("fresh") === "1")).model }) : json({ success: false }, 403);
   if (p === "/admin/scorecard") return a === OWNER ? json(await scorecard(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
