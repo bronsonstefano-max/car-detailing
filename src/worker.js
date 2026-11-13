@@ -199,6 +199,8 @@ async function ensureTableRun(db) {
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN tw_status TEXT").run().catch(() => {});
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN talk INTEGER").run().catch(() => {});
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN src TEXT").run().catch(() => {});
+  await db.prepare("ALTER TABLE dial_calls ADD COLUMN rank_score REAL").run().catch(() => {});
+  await db.prepare("ALTER TABLE dial_calls ADD COLUMN rank_pos INTEGER").run().catch(() => {});
   await db.prepare("ALTER TABLE dial_calls ADD COLUMN logged INTEGER").run().catch(() => {});
   await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS dial_calls_sid ON dial_calls(call_sid) WHERE call_sid IS NOT NULL AND call_sid <> ''").run().catch(() => {});
   await db.prepare("ALTER TABLE messages ADD COLUMN from_num TEXT").run().catch(() => {});
@@ -3615,6 +3617,61 @@ async function openDays(env, n = 6, svc = "tint") {
   } catch (_) { return []; }
 }
 const DIAL_STAGES = ["nocontact", "contacted", "quoted", "aged", "interested", "deposit", "lost"];
+// ---- Smart queue: who to call next. Learns from the CRM's own history (every call, result, booking and ad source) and shows why a lead is where it is.
+const RK_DAY = 864e5, RK_BUCKETS = [[0, 1 / 24], [1 / 24, 0.25], [0.25, 1], [1, 3], [3, 7], [7, 14], [14, 30], [30, 1e9]]; // lead age in days
+let rankCache = { at: 0, model: null, byId: new Map() };
+const rkSvc = t => /tint/i.test(t || "") ? "tint" : /coat|ceramic/i.test(t || "") ? "coat" : "oth";
+const rkCh = r => r.channel || (r.type === "call" ? "call" : "organic");
+const rkBucket = days => { for (let i = 0; i < RK_BUCKETS.length; i++) if (days >= RK_BUCKETS[i][0] && days < RK_BUCKETS[i][1]) return i; return RK_BUCKETS.length - 1; };
+async function rankModel(env, force) {
+  if (!force && rankCache.model && Date.now() - rankCache.at < 600000) return rankCache;
+  const rows = await speedRows(env).catch(() => []), now = Date.now(), age = r => (now - Date.parse(r.created)) / RK_DAY;
+  const mature = rows.filter(r => age(r) >= 14 || r.booked), won = mature.filter(r => r.booked).length;
+  const pb0 = mature.length >= 30 ? Math.max(0.02, won / mature.length) : 0.12; // overall chance a lead books; a sensible default until there is data
+  const liftBy = (keyFn, K = 10) => { const g = {}; for (const r of mature) { const k = keyFn(r); (g[k] = g[k] || { b: 0, n: 0 }); g[k].n++; if (r.booked) g[k].b++; } const out = {}; for (const k of Object.keys(g)) out[k] = Math.round(((g[k].b + K * pb0) / (g[k].n + K)) / pb0 * 100) / 100; return { lift: out, n: Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.n])) }; };
+  const svc = liftBy(r => rkSvc(r.service)), ch = liftBy(rkCh);
+  // chance a lead books per day, by how old it is (only leads still open count as "at risk")
+  const prior = pb0 / 20, haz = RK_BUCKETS.map(([a, b]) => { let ev = 0, ex = 0; for (const r of rows) { const A = age(r); if (A < a) continue; const bd = r.booked ? r.booked_days : null; if (bd != null && bd < a) continue; const end = bd != null && bd < b ? bd : Math.min(A, b); ex += Math.max(0, end - a); if (bd != null && bd >= a && bd < b) ev++; } return Math.max(0.0005, (ev + 20 * prior) / (ex + 20)); });
+  // chance a call gets a conversation: by attempt number (given the earlier ones failed), once reached before, and by hour of day
+  let ok = 0, tot = 0; const tryN = Array.from({ length: 6 }, () => ({ ok: 0, n: 0 })), hr = Array.from({ length: 24 }, () => ({ ok: 0, n: 0 })), fol = { ok: 0, n: 0 };
+  for (const r of rows) { let seen = false; (r.outs || []).forEach((o, i) => { tot++; if (o.ok) ok++; if (o.h >= 0 && o.h < 24) { hr[o.h].n++; if (o.ok) hr[o.h].ok++; } if (seen) { fol.n++; if (o.ok) fol.ok++; } else { const t = tryN[Math.min(i, 5)]; t.n++; if (o.ok) t.ok++; } if (o.ok) seen = true; }); }
+  const g = tot >= 30 ? Math.max(0.05, ok / tot) : 0.35, sh = (o, K, d) => (o.ok + K * d) / (o.n + K);
+  const valued = rows.filter(r => r.booked && r.value > 0), avgV = valued.length >= 5 ? Math.round(valued.reduce((a, r) => a + r.value, 0) / valued.length) : 600;
+  const model = { updated: new Date().toISOString(), leads: rows.length, mature: mature.length, booked: won, pb0: Math.round(pb0 * 1000) / 1000, dials: tot, reach: Math.round(g * 1000) / 1000, avgV,
+    svc: svc.lift, svcN: svc.n, ch: ch.lift, chN: ch.n, haz: haz.map(x => Math.round(x * 10000) / 10000), reachTry: tryN.map(t => Math.round(sh(t, 6, g) * 1000) / 1000), reachFollow: Math.round(sh(fol, 6, Math.min(0.9, g + 0.25)) * 1000) / 1000,
+    reachHour: hr.map(h => Math.round(sh(h, 8, g) / g * 100) / 100), hourN: hr.map(h => h.n) };
+  rankCache = { at: Date.now(), model, byId: new Map(rows.map(r => [r.id, r])) };
+  env.DB.prepare("INSERT INTO dial_settings (k, v) VALUES ('rank_model', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(JSON.stringify(model)).run().catch(() => {});
+  return rankCache;
+}
+function rankOne(l, M, f, now) {
+  const created = Date.parse(String(l.created_at).replace(" ", "T") + (/Z$/.test(l.created_at) ? "" : "Z")), ageD = Math.max(0, (now - created) / RK_DAY), ageM = ageD * 1440;
+  const etH = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" }).format(new Date(now)));
+  const dials = f ? f.calls : 0, reachedBefore = !!(f && f.reached), why = [];
+  const tryRate = reachedBefore ? M.reachFollow : M.reachTry[Math.min(dials, 5)];
+  let hourLift = M.reachHour[etH] == null ? 1 : M.reachHour[etH];
+  const failedNow = f ? (f.outs || []).filter(o => !o.ok && Math.abs(o.h - etH) <= 1).length : 0; // already tried around this hour and missed: a different hour is a better bet
+  if (failedNow) hourLift *= 0.75;
+  const svcL = M.svc[rkSvc(l.service)] || 1, chL = M.ch[l.gc ? "google" : l.utm_medium === "paid_social" ? "meta" : l.type === "call" ? "call" : "organic"] || 1;
+  const V = Math.min(2.5, Math.max(0.5, (l.value || M.avgV) / M.avgV));
+  const replied = (l.inq || 0) > 0, engage = 1 + (replied || (f && f.texts_in > 0) ? 0.4 : 0) + (reachedBefore ? 0.3 : 0);
+  let sc = tryRate * hourLift * M.haz[rkBucket(ageD)] * svcL * chL * V * engage * 1e4;
+  const due = l.cb ? Math.max(0, Math.floor((Date.parse(todayStr() + "T12:00:00Z") - Date.parse(l.follow_up_date + "T12:00:00Z")) / RK_DAY)) : -1;
+  if (due >= 0) { sc *= 6 + Math.min(due, 3); why.push(due > 0 ? "Callback overdue" : "Callback due"); }
+  if (ageM < 15 && !dials) { sc *= 8; why.push("New " + Math.max(1, Math.round(ageM)) + " min"); } else if (ageM < 60 && !dials) { sc *= 5; why.push("New lead"); } else if (ageM < 360 && !dials) { sc *= 2.5; why.push("New today"); } else if (ageM < 1440 && !dials) sc *= 1.5;
+  if (replied) { sc *= 2.5; why.push("Replied by text"); }
+  if (l.stage === "deposit") { sc *= 3; why.push("Deposit pending"); } else if (l.stage === "interested") sc *= 1.5; else if (l.stage === "quoted") sc *= 1.3;
+  if (l.tries3 > 0) { sc *= 0.12; why.push("Tried today"); } else if (l.tries24 >= 2) sc *= 0.5; else if (l.last_try && now - Date.parse(String(l.last_try).replace(" ", "T") + "Z") < RK_DAY) sc *= 0.8;
+  if (failedNow && !l.tries3) why.push("Try another hour");
+  if (hourLift >= 1.15 && !why.length) why.push("Good hour to call");
+  if (svcL >= 1.25 && !why.length) why.push("Books well");
+  return { score: Math.round(sc * 10) / 10, why: why.slice(0, 3) };
+}
+async function rankLeads(env, rows) {
+  const { model, byId } = await rankModel(env), now = Date.now();
+  for (const l of rows) l.rank = rankOne(l, model, byId.get(l.id), now);
+  return rows.sort((a, b) => b.rank.score - a.rank.score);
+}
 async function dialerQueue(env, url) {
   await ensureTable(env.DB);
   // ?stages=aged,contacted dials everyone in those pipeline stages (any age), least recently tried first. Without it: new leads and follow-ups that are due.
@@ -3624,8 +3681,10 @@ async function dialerQueue(env, url) {
   const where = want.length
     ? `l.stage IN (${want.map(() => "?").join(",")})`
     : `((l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-14 days')) OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('done','lost','aged')))`;
-  const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT 120" : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT 60";
-  const sel = (w, o) => `SELECT l.id, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium,
+  const smart = String((url && url.searchParams.get("order")) || "smart") !== "old";
+  const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT " + (smart ? 400 : 120) : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT " + (smart ? 300 : 60);
+  const sel = (w, o) => `SELECT l.id, l.type, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium, (CASE WHEN COALESCE(l.gclid,'') != '' THEN 1 ELSE 0 END) gc,
+      (SELECT COUNT(*) FROM messages m WHERE m.lead_id = l.id AND m.direction = 'in' AND m.is_read = 0) inq,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-1 day')) tries24,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-3 hours')) tries3,
       (SELECT MAX(d.started_at) FROM dial_calls d WHERE d.lead_id = l.id) last_try,
@@ -3636,6 +3695,7 @@ async function dialerQueue(env, url) {
   let rows = (await env.DB.prepare(sel(where, order)).bind(...want).all()).results || [];
   // ?lead=ID puts one lead (clicked from the pipeline) first, whatever its stage
   const one = Number(url && url.searchParams.get("lead"));
+  if (smart && rows.length) { try { await rankLeads(env, rows); rows = rows.slice(0, want.length ? 120 : 60); } catch (e) { rows = rows.slice(0, want.length ? 120 : 60); } }
   if (Number.isInteger(one) && one > 0) { const r1 = (await env.DB.prepare(sel("l.id = ?", "l.id")).bind(one).all().catch(() => ({ results: [] }))).results || []; if (r1.length) rows = r1.concat(rows.filter(r => r.id !== one)); }
   const ids = rows.map(r => r.id);
   const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
@@ -3785,6 +3845,7 @@ async function dialerLog(env, b, user) {
   const mmss = `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}`;
   const sid = /^CA[0-9a-f]{32}$/.test(String(b.sid || "")) ? b.sid : "";
   await recordDial(env, { lead: b.lead_id, sid, user, from: normNum(env.TWILIO_VOICE_FROM || env.TWILIO_FROM) || null, browser: dur });
+  if (Number.isFinite(Number(b.score)) && b.score !== null && b.score !== "") await env.DB.prepare("UPDATE dial_calls SET rank_score = ?, rank_pos = ? WHERE id = (SELECT id FROM dial_calls WHERE lead_id = ? ORDER BY id DESC LIMIT 1) AND rank_score IS NULL").bind(Number(b.score), Number.isFinite(Number(b.pos)) ? Number(b.pos) : null, b.lead_id).run().catch(() => {});
   // the result picked after the call decides what happened (a voicemail greeting can run a minute or more), so only a call of 3+ minutes counts as contact on its own
   if (dur > Math.max(contactMinSecs(env), 180) && isNewish(cur.stage)) {
     await env.DB.batch([
@@ -3979,6 +4040,8 @@ ${BNAV_CSS}
 #topbar .btn.sm{background:none;border:1px solid var(--line2);color:var(--mut);font-size:12.5px;font-weight:600;border-radius:999px;padding:6px 14px;min-height:0}#topbar .btn.sm:hover{color:var(--text);border-color:#344150}
 ${LEADM_CSS}
 .inb{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:22px;background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:12px 18px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:16px}.inbt span{color:var(--mut);font-size:13px}.inba{display:flex;gap:8px}.inba button{border:0;border-radius:999px;padding:9px 22px;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
+/* smart queue */
+.q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
 main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
 /* queue */
 .rail{background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 24px 0 0;box-shadow:none}
@@ -4170,7 +4233,7 @@ async function dial(){const l=Q[ix];if(!l||!dev||(state!=='idle'&&state!=='ended
   call.on('error',e=>setSt('Call error: '+((e&&e.message)||e),'bad'))}
 async function endCall(){if(state==='ended'||state==='idle')return;outSaved=false;outPick='';const l=Q[ix];made++;if(l)CALLED.add(l.id);if(l)setTimeout(()=>loadInfo(l.id,true),2500);clearInterval(tmr);const dur=t0?Math.round((Date.now()-t0)/1000):0;state='ended';call=null;t0=0;vmArm=null;setSt(dur?'Call ended':'Not connected',dur?'':'warn');
   el('after').hidden=false;el('am').textContent='';drawOuts();drawCtl();bannerDraw();
-  if(l&&!inbound){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur})})}catch(_){}}inbound=false}
+  if(l&&!inbound){l.tries24=(l.tries24||0)+1;try{await fetch('/admin/dialer/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lead_id:l.id,sid:sid,duration:dur,score:l.rank?l.rank.score:null,pos:ix})})}catch(_){}}inbound=false}
 async function vmDrop(k){const l=Q[ix];if(state!=='live'||!sid||!l)return;if(vmArm!==k){vmArm=k;drawCtl();setTimeout(()=>{if(vmArm===k){vmArm=null;drawCtl()}},3000);return}vmArm=null;
   const r=await fetch('/admin/dialer/vmdrop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sid:sid,kind:k,lead_id:l.id})});const j=await r.json().catch(()=>({}));setSt(j.success?'Voicemail dropped':(j.message||'Could not drop it'),j.success?'ok':'bad');drawCtl();if(j.success)saveOutcome('Left a voicemail')}
 const LOSTR=${JSON.stringify(LOST_REASONS)};
@@ -4198,15 +4261,17 @@ el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.misse
 el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
 function next(){if(state==='live'||state==='connecting')return;outSaved=true;outPick='';state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
-function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')}
+function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')+'<button type="button" data-smart="1" class="'+(SMART?'on':'')+'" title="Orders the list by who is most likely to book right now. It learns from your results.">Smart order</button>'}
 let OPEN_BY={tint:[],coating:[]};let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
-async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
-el('qf').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
+let SMART=true;try{SMART=localStorage.getItem('dq_order')!=='old'}catch(_){}
+const qparams=()=>{const a=[];if(QS.length)a.push('stages='+QS.join(','));if(WANT)a.push('lead='+WANT);if(!SMART)a.push('order=old');return a.length?'?'+a.join('&'):''};
+async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+qparams())).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
+el('qf').addEventListener('click',e=>{const sm=e.target.closest('[data-smart]');if(sm){if(state==='live'||state==='connecting')return;SMART=!SMART;try{localStorage.setItem('dq_order',SMART?'smart':'old')}catch(_){}loadQ();return}const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
 const stLab=k=>(QF.find(f=>f[0]===k)||[0,k])[1]||'';
 function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
   {const nx=Q[ix+1],left=Math.max(0,Q.length-ix-1),fr=Q.slice(ix+1).some(x=>x.fresh);el('nextline').innerHTML=nx?'Next: <b>'+$(shortN(nx.name)||pretty(nx.phone))+'</b> \\u00b7 '+svcLab(nx)+' \\u00b7 '+left+' waiting'+(fr?' <span class="pill ok nb">New lead</span>':''):'Last lead in the queue'}
   el('rs').innerHTML='<span><b>'+Math.max(0,Q.length-ix)+'</b> in queue</span><span><b>'+made+'</b> called</span>';
-  el('q').innerHTML=Q.map((l,i)=>i<ix?(CALLED.has(l.id)?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Called</small></span></div>':'<button class="it" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+nm(l)+'</b><small>Skipped, not called. Tap to call</small></span><span class="bd">Skipped</span></button>'):'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+(QS.length?stLab(l.stage)+' \u00b7 '+(l.last_try?'last tried '+ago(l.last_try):'never called'):ago(l.created_at))+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd">Waiting</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
+  el('q').innerHTML=Q.map((l,i)=>i<ix?(CALLED.has(l.id)?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Called</small></span></div>':'<button class="it" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+nm(l)+'</b><small>Skipped, not called. Tap to call</small></span><span class="bd">Skipped</span></button>'):'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+(QS.length?stLab(l.stage)+' \u00b7 '+(l.last_try?'last tried '+ago(l.last_try):'never called'):ago(l.created_at))+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd'+(l.rank&&l.rank.why&&l.rank.why[0]?' why':'')+'">'+(l.rank&&l.rank.why&&l.rank.why[0]?$(l.rank.why[0]):'Waiting')+'</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
 el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
 el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
 // ---- guided scripts: private, owner-only, loaded from the database (never part of the page source) ----
@@ -5913,6 +5978,7 @@ export default {
       if (p === "/rate" || p === "/admin/rate") return adminRoute("/admin/rate", request, env);
       if (p === "/playbook" || p === "/admin/playbook") return adminRoute("/admin/playbook", request, env);
       if (p === "/admin/scorecard") return adminRoute("/admin/scorecard", request, env);
+      if (p === "/admin/rank/model") return adminRoute("/admin/rank/model", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
       if (p === "/calendar" || p === "/admin/calendar") return adminRoute("/admin/calendar", request, env);
@@ -6921,6 +6987,7 @@ async function adminRouteCore(p, request, env, a0) {
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/playbook") return a === OWNER ? playbookPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/rank/model") return a === OWNER ? json({ success: true, model: (await rankModel(env, new URL(request.url).searchParams.get("fresh") === "1")).model }) : json({ success: false }, 403);
   if (p === "/admin/scorecard") return a === OWNER ? json(await scorecard(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/demo" && request.method === "POST") return demoRoute(request, env);
