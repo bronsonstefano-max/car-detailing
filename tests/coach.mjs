@@ -332,6 +332,21 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   const v = room(); v.r.ctx.pkg = "1"; v.lead("That's too much for me honestly.", { end: true }); await sleep(900);
   check("a lead on the 5-year gets no save line", !/PACKAGES:/.test(last(aiCalls).user), 0); }
 
+// 19u. REAL CALL (coach-pr13, both phones in one room): garbled echoes of the rep got through and the coach answered the rep ("Hey, Brian, no worries")
+{ aiCalls = []; const t = room(); t.r.ctx.shop = "Divine Detailers";
+  t.lead("Hey, Angel. It's Brian from the Divine Detailers.", { end: true }); await sleep(900);
+  check("the rep introducing the shop is not answered", aiCalls.length === 0 && t.logs.some(l => l.why === "echo"), t.logs);
+  t.r.lastMsg = { type: "answer", say: "Awesome. Glad to hear it's still on your list. Let's get you started.", ask: "You doing anything exciting today?" };
+  t.lead("Awesome. Glad that you're still on your list. We'll get you started.", { end: true }); await sleep(900);
+  check("a garbled reading of the card is not answered", aiCalls.length === 0, aiCalls.map(c => c.said));
+  t.r.lastMsg = { type: "answer", say: "It includes a full prep and paint correction, and the coating locks that in.", ask: "Do you notice any swirl marks, scratches or dull spots on the paint right now?" };
+  t.lead("that in. Do you notice any swirl marks, brushes, or don't fall from the paint?", { end: true }); await sleep(900);
+  check("the tail of the rep's own question is not answered", aiCalls.length === 0, aiCalls.map(c => c.said));
+  t.lead("Do I notice any swirl marks?", { end: true }); await sleep(900);
+  check("a lead repeating a few words back as a question is still answered", aiCalls.length === 1, aiCalls.map(c => c.said));
+  const v = room(); v.r.ctx.shop = "Divine Detailers"; v.lead("Is this Divine Detailers?", { end: true }); await sleep(900);
+  check("a lead asking if this is the shop is answered", aiCalls.length >= 1 && last(aiCalls).said === "Is this Divine Detailers?", last(aiCalls).said); }
+
 // 19j. owner's rule enforced in code: free windshield and wheel coatings / add-ons never reach the card (the AI said them on real calls)
 { aiCalls = []; const t = room();
   aiSay = "With the special, the total comes to $599 with the paint correction, free windshield and wheel coatings, and a 5 year warranty."; aiAsk = "Want me to walk you through the free add-ons that come with the special?";
