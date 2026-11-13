@@ -4824,7 +4824,7 @@ async function coachContext(env, leadId, forceSvc, fakeLead) {
     + (svc === "coating" ? `\nTHIS LEAD'S PACKAGE (the one they saw and asked about; quote and sell this one): the ${coachVar("yrs", offer, lead, svc)}-year coating, special ${coachVar("price", offer, lead, svc) || "[not set]"}, normally ${coachVar("reg", offer, lead, svc) || "[not set]"}.\nOTHER PACKAGE (the lead has NOT seen it; see the package rule before ever mentioning it): the ${coachVar("yrs2", offer, lead, svc)}-year coating, special ${coachVar("price2", offer, lead, svc)}, normally ${coachVar("reg2", offer, lead, svc)}.` : "");
   const system = COACH_RULES + `\n\nOFFER (values the rep may say):\n${offerText}\n\nSHOP FACTS (confirmed by the owner; the rep may state these):\n${String(offer.knowledge || KNOWLEDGE_DEFAULT)}${svc === "coating" ? "\n\n" + COATING_KNOWLEDGE : ""}\n\nSCRIPT (${svc || "no script for this service"}):\n` + (sc ? coachScriptText(sc, offer, lead, svc) : "(No script has been imported for this service. Only give generic, safe, non-factual guidance, and set needs_eyes true for any factual question.)");
   let steps = []; try { steps = coachSteps(sc, offer, lead, svc); } catch (e) { /* the coach still works from the script text */ }
-  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), price: String(coachVar("price", offer, lead, svc) || "").replace(/[^0-9]/g, ""), price2: String(coachVar("price2", offer, lead, svc) || "").replace(/[^0-9]/g, ""), pkg: coachVar("pkg", offer, lead, svc), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
+  const ctx = { system, facts, svc, lib: [], steps, body: system.slice(COACH_RULES.length), price: String(coachVar("price", offer, lead, svc) || "").replace(/[^0-9]/g, ""), price2: String(coachVar("price2", offer, lead, svc) || "").replace(/[^0-9]/g, ""), pkg: coachVar("pkg", offer, lead, svc), shop: coachVar("shop", offer, lead, svc), car: lead ? { year: lead.year, make: lead.make, model: lead.model } : null, name: lead ? lead.name : "" };
   // The calendar (an outside service) and the answer library are slow and the first answer does not need them: they fill in as soon as they arrive.
   const fill = Promise.all([
     odP.then(od => { if (od && od.length) ctx.facts += `\nOpen days on our calendar right now (ONLY for the booking step, after the lead has agreed to the price, and only if the lead has not named a day of their own): ${od.map(d => d.say).join(", ")}.`; }),
@@ -4885,7 +4885,7 @@ const FACTS_RULES = `You keep the running notes for a live car-detailing sales c
 - "done": the ids of the SCRIPT STEPS (listed in the message) that are finished. A step is finished when the rep said its line or asked its question in any wording, OR the lead already gave the information that step asks for, even without being asked. A step that asks for two things (the car AND its color) is finished only when the lead has given both. Do not mark a step finished just because of where it sits in the list. Copy the ids exactly.
 - "lead": up to 8 short notes on what the lead has told us about themselves, the car and what they want, as close to their own words as possible, the most useful for rapport first: "parks outside under a tree", "runs it through the car wash every week", "keeping it about another year", "noticed the swirls a couple of months ago". Only things the lead said. No guesses, nothing the rep said.
 - If the lead has not said enough yet, leave a field as an empty string or an empty list. Never invent anything. The transcript is live speech-to-text from a phone line and has mistakes (paint heard as pain, coating as coding): read through them.`;
-const COACH_BUILD = "coach-pr13";
+const COACH_BUILD = "coach-pr14";
 const COACH_ACK = /^((yeah|yes|yep|yup|ok|okay|uh[ -]?huh|mm+|m+hm+|sure|right|no|nope|nah|thanks|thank you|good|fine|cool|great|alright|all right|got it|i see|oh|correct|exactly|perfect|awesome|bye)[.!, ]*)+$/i;
 const COACH_FILLER = /^((um+|uh+|hm+|mm+|ah+|er+|oh|so|and|well|like|you know)[.!, ]*)+$/i;
 const COACH_INTENT = /\?|^(hello|what|huh|why|how|who|wait|sorry|pardon|hold on|excuse)\b|not interested|no thanks|no thank you|expensive|pricey|too much|how much|price|cost|free\b|busy|later|call (me )?back|not now|bad time|can'?t talk|driving|working|wrong number|stop calling|remove me|who is this|sounds good|let'?s do it|i'?ll take it|book it|sign me up|think about|no idea|don'?t know|espa[nñ]ol|spanish/i;
@@ -4896,9 +4896,13 @@ const COACH_MACHINE = /record your name|if you record your|reason for calling|st
 function coachEcho(text, ref) {
   const w = t => String(t || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean), a = w(text), b = w(ref);
   if (a.length < 5 || b.length < 5) return false;
+  // word pairs in the same order: an echo keeps the rep's phrasing even when the phone line garbles some words
   const pairs = new Set(); for (let i = 0; i < b.length - 1; i++) pairs.add(b[i] + " " + b[i + 1]);
   let hit = 0; for (let i = 0; i < a.length - 1; i++) if (pairs.has(a[i] + " " + a[i + 1])) hit++;
-  return hit / (a.length - 1) >= 0.65;
+  if (hit >= 4 && hit / (a.length - 1) >= 0.45) return true;
+  // or most of its meaningful words are the rep's ("Glad that you're still on your list. We'll get you started.")
+  const x = coachWords(text), y = new Set(coachWords(ref)), n = x.filter(k => y.has(k)).length;
+  return n >= 4 && n / x.length >= 0.6;
 }
 // how long to wait after the lead goes quiet: a question is done; a finished sentence may have another one behind it; a sentence left hanging certainly does
 function coachPause(text) {
@@ -5275,7 +5279,7 @@ export class CallRoom {
     if (this.sig.firstPriceSecs == null && /\$|price|how much|cost|precio|cu[aá]nto/i.test(text)) this.sig.firstPriceSecs = at;
     if (who === "rep") { this.repSaid.push(text); if (this.repSaid.length > 6) this.repSaid.shift(); this.repRecent = (this.repRecent || []).filter(x => now - x.at < 12000); this.repRecent.push({ t: text, at: now }); return; }
     if (!coachAi(this.env)) return;
-    if (coachEcho(text, this.repRef())) { this.logTurn({ gen: this.gen, said: text, trig: "final", outcome: "skipped", why: "echo" }); return; }
+    if (this.isEcho(text)) { this.logTurn({ gen: this.gen, said: text, trig: "final", outcome: "skipped", why: "echo" }); return; }
     const slot = this.dg[track]; // how far behind the live audio this transcript arrived (approximate)
     this.leadLag = slot && slot.t0 && typeof d.start === "number" ? Math.max(0, Math.round(now - (slot.t0 + (d.start + (Number(d.duration) || 0)) * 1000))) : null;
     this.leadBuf.push(text); if (low) this.leadLow = true; this.leadEnded = !!d.speech_final;
@@ -5297,7 +5301,14 @@ export class CallRoom {
     this.askTm = setTimeout(() => this.askCoach(), Math.max(0, base - (Date.now() - (this.leadHeardAt || 0))));
   }
   // what the rep has said in the last few seconds plus the answer on screen (which the rep is probably reading aloud)
-  repRef() { const now = Date.now(), m = this.lastMsg; return (this.repRecent || []).filter(x => now - x.at < 12000).map(x => x.t).join(" ") + " " + (this.repInterim || "") + " " + (m && m.type === "answer" ? (m.say || "") + " " + (m.ask || "") : ""); }
+  repRef() { const now = Date.now(), m = this.lastMsg; return (this.repRecent || []).filter(x => now - x.at < 12000).map(x => x.t).join(" ") + " " + (this.repInterim || "") + " " + (m && m.type === "answer" ? (m.say || "") + " " + (m.ask || "") + " " + ((m.then && m.then.text) || "") : ""); }
+  // Is this the rep's own voice on the lead's side of the line? Either it repeats what the rep just said or what the card says,
+  // or it is the rep introducing himself and the shop ("it's Brian from the Divine Detailers" was answered "Hey, Brian" on a real call).
+  isEcho(text) {
+    if (coachEcho(text, this.repRef())) return true;
+    const shop = String((this.ctx && this.ctx.shop) || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").trim(), t = String(text || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ");
+    return !!shop && t.includes(shop) && /\b(this is|it'?s|it is|i'?m|calling (from|with)|with|from)\b/.test(t.slice(0, t.indexOf(shop))) && !/\?\s*$/.test(String(text || "").trim());
+  }
   // The coach's earlier questions that the rep really asked (their words show up in the rep's side of the transcript after the card went up)
   // the rep's speech since a given second of the call, as stretches (back-to-back fragments joined)
   repSpeech(fromSec) { return coachTurns(this.turns.filter(t => t.who === "rep" && t.at >= (fromSec || 0)), 400).map(t => t.text).concat(this.repInterim ? [this.repInterim] : []); }
@@ -5362,7 +5373,7 @@ export class CallRoom {
     const repLast = (this.repSaid.join(" ") + " " + (this.repInterim || "")).trim();
     // more words right after an answer went up, before the rep has said anything: same remark, so answer the whole thing or leave the screen alone
     const prev = this.lastAns, after = !!(prev && t0 - prev.at < 6000 && !(this.repHeardAt > prev.at));
-    const quiet = coachEcho(frag, this.repRef()) ? "echo" : coachQuiet(frag, repLast, after);
+    const quiet = this.isEcho(frag) ? "echo" : coachQuiet(frag, repLast, after);
     if (quiet) { log.outcome = "skipped"; log.why = quiet; log.said = frag; this.carry = { text: frag.slice(-300), at: t0 }; this.logTurn(log); if (this.leadBuf.length) this.queueAsk(this.leadEnded ? "final" : "more"); return; }
     const said = after ? (prev.said + " " + frag).slice(-600) : frag; if (after) log.said = said;
     this.coachBusy = true; this.coachRestart = false; this.coachAc = new AbortController();
