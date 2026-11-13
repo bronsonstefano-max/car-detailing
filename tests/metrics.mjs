@@ -148,6 +148,8 @@ sql([
 ]);
 const all = (await get("/admin/dialer/queue?mode=smart")).leads || [], ids = all.map(l => l.id), stages = new Set(all.map(l => l.stage));
 eq("Smart mode combines every open pipeline stage in one ranked list", [stages.has("new"), stages.has("quoted"), stages.has("deposit"), ids.includes(207), !!(all[0] && all[0].rank)], [true, true, true, false, true]);
+const pg1 = await (await fetch(B + "/admin/pipeline", { headers: { cookie } })).text(), pg2 = await (await fetch(B + "/admin/dialer", { headers: { cookie } })).text();
+eq("every owner page can ring the CRM, the dialer has its own phone", [pg1.includes('id="pbx"'), pg2.includes('id="pbx"')], [true, false]);
 const mdl = await get("/admin/rank/model?fresh=1");
 eq("the model reports what it learned", [mdl.success, typeof mdl.model.pb0, mdl.model.haz.length], [true, "number", 8]);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
