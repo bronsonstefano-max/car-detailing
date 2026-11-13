@@ -81,7 +81,7 @@ eq("touchpoints per booking (2 calls + 1 text)", c.touchpoints_per_booking, 3);
 // ad spend: the month's 3000 spread over the days of the last 30 that fall in this month
 const today = new Date(); const dim = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).getUTCDate();
 const etDay = d => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-const inMonth = Array.from({ length: 30 }, (_, i) => etDay(new Date(Date.now() - i * 864e5))).filter(d => d.slice(0, 7) === month).length;
+const inMonth = new Set(Array.from({ length: 30 }, (_, i) => etDay(new Date(Date.now() - i * 864e5))).filter(d => d.slice(0, 7) === month)).size; // distinct days: a 24-hour step lands on the same day twice when the clocks change
 const spend = 3000 * Math.min(inMonth, dim) / dim;
 near("meta spend in range", sc.cost.meta.spend, spend, 2);
 eq("paid leads (2 meta)", sc.cost.meta.leads, 2);
