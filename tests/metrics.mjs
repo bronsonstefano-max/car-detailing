@@ -112,14 +112,16 @@ eq("exactly one new call counted after a repeated callback", sc2.activity.dials,
 // ---- calls TO the CRM number
 const twilioBody = async (path, f) => { const url = T + path; let data = url; for (const k of Object.keys(f).sort()) data += k + f[k]; const r = await fetch(url, { method: "POST", headers: { "x-twilio-signature": createHmac("sha1", "tok").update(data).digest("base64"), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) }); return { status: r.status, text: await r.text() }; };
 const inc = await twilioBody("/api/twilio/voice/incoming", { From: "+13055558899", To: "+13055550000", CallSid: "CA" + "f".repeat(32) });
-eq("incoming call rings the CRM dialer and the cell", [inc.status, inc.text.includes("<Dial"), inc.text.includes("<Client><Identity>bronson</Identity>"), inc.text.includes("+13055557777")], [200, true, true, true]);
+eq("incoming call rings the CRM dialer first, not the cell yet", [inc.status, inc.text.includes("<Client><Identity>bronson</Identity>"), inc.text.includes("+13055557777")], [200, true, false]);
 const newLead = (await get("/admin/calendar/find?q=305")).leads.find(l => String(l.phone).includes("8899"));
 eq("an unknown caller becomes a lead", !!newLead, true);
 const lid = newLead ? newLead.id : 0;
-const end1 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
-eq("unanswered goes to voicemail", [end1.status, end1.text.includes("<Record")], [200, true]);
+const end1 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
+eq("not answered in the CRM: the cell rings next", [end1.status, end1.text.includes("<Dial"), end1.text.includes("+13055557777"), end1.text.includes("<Record")], [200, true, true, false]);
+const end1b = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=2`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
+eq("not answered on the cell either: voicemail", [end1b.status, end1b.text.includes("<Record")], [200, true]);
 eq("voicemail callback saved", await twilio(`/api/twilio/voice/voicemail?lead=${lid}`, { RecordingSid: "RE" + "a".repeat(32), RecordingDuration: "14" }), 204);
-const end2 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}`, { DialCallStatus: "completed", DialCallDuration: "75" });
+const end2 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "completed", DialCallDuration: "75" });
 eq("answered call just hangs up", end2.text.includes("<Hangup/>") && !end2.text.includes("<Record"), true);
 eq("unsigned incoming refused", (await fetch(`${T}/api/twilio/voice/incoming`, { method: "POST", body: new URLSearchParams({ From: "+13055558899" }) })).status, 403);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");

@@ -3498,6 +3498,7 @@ async function handleVoiceStatus(request, env) {
 }
 // ---- Calls TO the CRM's Twilio number: ring the owner's cell (CALL_FORWARD_TO), fall back to voicemail, and log everything on the lead.
 // Twilio Console > the number > Voice Configuration > "A call comes in" > Webhook, POST, https://divinedetailers.com/api/twilio/voice/incoming
+const CRM_RING_SECS = 15, CELL_RING_SECS = 22;
 const xmlAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 async function incomingLead(env, from) {
   const d = last10(from);
@@ -3525,9 +3526,9 @@ async function handleVoiceIncoming(request, env) {
   const sid = /^CA[0-9a-f]{32}$/.test(String(params.CallSid || "")) ? params.CallSid : "";
   const stream = sid && coachEnabled(env) ? `<Start><Stream url="${xmlAttr(base.replace(/^http/, "ws") + "/api/twilio/stream/" + sid + "/" + await coachSig(env, sid))}" track="both_tracks"><Parameter name="lead" value="${id}"/></Stream></Start>` : "";
   const rec = env.RECORD_INBOUND === "on" ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/recording?lead=${id}&dir=in`)}" recordingStatusCallbackEvent="completed"` : "";
-  // the CRM's browser dialer rings first (it must be open and signed in); your cell rings at the same time when CALL_FORWARD_TO is set
+  // 1) the CRM's browser dialer rings (it must be open and signed in); 2) then your cell (CALL_FORWARD_TO), see handleVoiceIncomingEnd; 3) then voicemail
   const client = `<Client><Identity>${OWNER}</Identity><Parameter name="lead" value="${id}"/><Parameter name="from" value="${xmlAttr(prettyPhone(params.From))}"/><Parameter name="name" value="${xmlAttr(lead && lead.name ? lead.name : "")}"/></Client>`;
-  return xmlRes(`${stream}<Dial timeout="22" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}`)}">${client}${fwd ? `<Number>${fwd}</Number>` : ""}</Dial>`);
+  return xmlRes(`${stream}<Dial timeout="${CRM_RING_SECS}" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}&s=1`)}">${client}</Dial>`);
 }
 // after the cell stops ringing or the talk ends: log it, and send an unanswered call to voicemail
 async function handleVoiceIncomingEnd(request, env) {
@@ -3535,11 +3536,17 @@ async function handleVoiceIncomingEnd(request, env) {
   const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
   if (!(await twilioSigOk(env, request, params))) return new Response("Forbidden", { status: 403 });
   await ensureTable(env.DB);
-  const id = Number(new URL(request.url).searchParams.get("lead")) || 0, st = String(params.DialCallStatus || ""), secs = Math.max(0, parseInt(params.DialCallDuration, 10) || 0);
+  const u = new URL(request.url), id = Number(u.searchParams.get("lead")) || 0, step = Number(u.searchParams.get("s")) || 1;
+  const st = String(params.DialCallStatus || ""), secs = Math.max(0, parseInt(params.DialCallDuration, 10) || 0);
   if (st === "completed" && secs > 0) {
-    await callLog(env, id, `Incoming call answered: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
+    await callLog(env, id, `Incoming call answered ${step === 1 ? "in the CRM" : "on your cell"}: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
     if (id) await env.DB.prepare("UPDATE leads SET answered = 1, contacted = 1 WHERE id = ?").bind(id).run().catch(() => {});
     return xmlRes("<Hangup/>");
+  }
+  const fwd = e164(env.CALL_FORWARD_TO), base = incomingBase(env);
+  if (step === 1 && fwd) { // nobody picked up in the CRM: ring the cell next, the caller keeps hearing ringing
+    const rec = env.RECORD_INBOUND === "on" ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/recording?lead=${id}&dir=in`)}" recordingStatusCallbackEvent="completed"` : "";
+    return xmlRes(`<Dial timeout="${CELL_RING_SECS}" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}&s=2`)}"><Number>${fwd}</Number></Dial>`);
   }
   await callLog(env, id, "Missed incoming call");
   sendPush(env, { title: "Missed call", message: "Nobody picked up. They may leave a voicemail.", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
