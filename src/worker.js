@@ -3566,11 +3566,22 @@ async function handleVoiceIncomingEnd(request, env) {
   const fwd = e164(env.CALL_FORWARD_TO), base = incomingBase(env);
   if (step === 1 && fwd) { // nobody picked up in the CRM: ring the cell next, the caller keeps hearing ringing
     const rec = env.RECORD_INBOUND === "on" ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/recording?lead=${id}&dir=in`)}" recordingStatusCallbackEvent="completed"` : "";
-    return xmlRes(`<Dial timeout="${CELL_RING_SECS}" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}&s=2`)}"><Number>${fwd}</Number></Dial>`);
+    return xmlRes(`<Dial timeout="${CELL_RING_SECS}" answerOnBridge="true"${rec} action="${xmlAttr(`${base}/api/twilio/voice/incoming-end?lead=${id}&s=2`)}"><Number url="${xmlAttr(`${base}/api/twilio/voice/screen`)}">${fwd}</Number></Dial>`);
   }
   await callLog(env, id, "Missed incoming call");
   sendPush(env, { title: "Missed call", message: "Nobody picked up. They may leave a voicemail.", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
   return xmlRes(await voicemailTwiml(env, id));
+}
+// the cell leg plays "press 1" first, so a carrier voicemail or a busy line can never count as you picking up
+async function handleVoiceScreen(request, env) {
+  const params = Object.fromEntries(await request.formData().catch(() => new FormData()));
+  if (!(await twilioSigOk(env, request, params))) return sigFail(env, request, "screen");
+  const d = String(params.Digits || "");
+  await callEvent(env, { path: "screen", sid: params.ParentCallSid || params.CallSid, status: d ? "pressed " + d : "asked", note: "cell leg" });
+  if (d === "1") return xmlRes("");
+  if (d) return xmlRes("<Hangup/>");
+  const base = incomingBase(env);
+  return xmlRes(`<Gather numDigits="1" timeout="6" action="${xmlAttr(`${base}/api/twilio/voice/screen`)}"><Say voice="Polly.Matthew-Neural" language="en-US">Divine Detailers call. Press 1 to answer.</Say></Gather><Hangup/>`);
 }
 async function handleVoiceVoicemail(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
@@ -6057,9 +6068,9 @@ export default {
       if (!coachEnabled(env) || !/^CA[0-9a-f]{32}$/.test(sid || "") || sig !== (await coachSig(env, sid))) return new Response("Forbidden", { status: 403 });
       return env.COACH.get(env.COACH.idFromName(sid)).fetch(request);
     }
-    if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording" || p === "/api/twilio/voice/status" || p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end" || p === "/api/twilio/voice/voicemail") {
+    if (p === "/api/twilio/voice" || p === "/api/twilio/voice/recording" || p === "/api/twilio/voice/status" || p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end" || p === "/api/twilio/voice/voicemail" || p === "/api/twilio/voice/screen") {
       if (request.method !== "POST") return json({ success: false, message: "Method not allowed" }, 405);
-      try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : p === "/api/twilio/voice/status" ? await handleVoiceStatus(request, env) : p === "/api/twilio/voice/incoming" ? await handleVoiceIncoming(request, env) : p === "/api/twilio/voice/incoming-end" ? await handleVoiceIncomingEnd(request, env) : p === "/api/twilio/voice/voicemail" ? await handleVoiceVoicemail(request, env) : await handleVoiceRecording(request, env); }
+      try { return p === "/api/twilio/voice" ? await handleVoice(request, env) : p === "/api/twilio/voice/status" ? await handleVoiceStatus(request, env) : p === "/api/twilio/voice/incoming" ? await handleVoiceIncoming(request, env) : p === "/api/twilio/voice/incoming-end" ? await handleVoiceIncomingEnd(request, env) : p === "/api/twilio/voice/voicemail" ? await handleVoiceVoicemail(request, env) : p === "/api/twilio/voice/screen" ? await handleVoiceScreen(request, env) : await handleVoiceRecording(request, env); }
       catch (e) { console.error("voice error", e && e.message); if (env.DB) await callEvent(env, { path: p.replace("/api/twilio/voice/", ""), status: "error", note: String(e && e.message || e) }); if (p === "/api/twilio/voice/incoming" || p === "/api/twilio/voice/incoming-end") return xmlRes(SAFE_VM); return new Response("Server error", { status: 500 }); }
     }
     if (p.startsWith("/vm/") && request.method === "GET") return publicVoicemail(env, p.slice(4).replace(/\.\w+$/, ""));
@@ -7029,7 +7040,7 @@ async function adminRouteCore(p, request, env, a0) {
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/playbook") return a === OWNER ? playbookPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
-  if (p === "/admin/calls/debug") { if (a !== OWNER) return json({ success: false }, 403); await ensureTable(env.DB); const { results } = await env.DB.prepare("SELECT at, path, call_sid, lead, step, status, note FROM call_events ORDER BY id DESC LIMIT 60").all(); return json({ success: true, events: results || [] }); }
+  if (p === "/admin/calls/debug") { if (a !== OWNER) return json({ success: false }, 403); await ensureTable(env.DB); const { results } = await env.DB.prepare("SELECT at, path, call_sid, lead, step, status, note FROM call_events ORDER BY id DESC LIMIT 60").all(); const ev = results || []; if (/text\/html/.test(request.headers.get("accept") || "")) { const e = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;"); return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Incoming call log</title><body style="font:14px system-ui;background:#0b0f14;color:#e6edf3;padding:20px"><h2>Incoming call log</h2><p style="color:#8b98a5">Newest first. Each incoming call shows each step Twilio took. Times are UTC.</p><table cellpadding="7" style="border-collapse:collapse;width:100%">${ev.map(x => `<tr style="border-top:1px solid #243040"><td>${e(x.at)}</td><td><b>${e(x.path)}</b></td><td>step ${e(x.step)}</td><td>${e(x.status)}</td><td style="color:#8b98a5">${e(x.note)}</td></tr>`).join("") || "<tr><td>No incoming calls have reached the CRM yet. If you called and this is empty, Twilio is not pointed at the incoming-call address.</td></tr>"}</table>`, { headers: { "content-type": "text/html; charset=utf-8" } }); } return json({ success: true, events: ev }); }
   if (p === "/admin/rank/model") return a === OWNER ? json({ success: true, model: (await rankModel(env, new URL(request.url).searchParams.get("fresh") === "1")).model }) : json({ success: false }, 403);
   if (p === "/admin/scorecard") return a === OWNER ? json(await scorecard(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);
   if (p === "/admin/rate") return a === OWNER ? ratePage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
