@@ -3498,7 +3498,7 @@ async function handleVoiceStatus(request, env) {
 }
 // ---- Calls TO the CRM's Twilio number: ring the owner's cell (CALL_FORWARD_TO), fall back to voicemail, and log everything on the lead.
 // Twilio Console > the number > Voice Configuration > "A call comes in" > Webhook, POST, https://divinedetailers.com/api/twilio/voice/incoming
-const CRM_RING_SECS = 15, CELL_RING_SECS = 22;
+const CRM_RING_SECS = 24, CELL_RING_SECS = 18; // about 4 rings in the CRM (a ring cycle is 6 seconds), then about 3 on the cell
 const xmlAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 async function incomingLead(env, from) {
   const d = last10(from);
@@ -3510,9 +3510,14 @@ async function incomingLead(env, from) {
 }
 const callLog = (env, lead, reason) => lead ? env.DB.prepare("INSERT INTO stage_log (lead_id, from_stage, to_stage, reason, by_user) SELECT id, stage, stage, ?, 'system' FROM leads WHERE id = ?").bind(reason, lead).run().catch(() => {}) : null;
 const incomingBase = env => env.PUBLIC_URL || "https://divinedetailers.com";
-function voicemailTwiml(env, lead) {
+// the greeting is read by a natural AI voice (Amazon Polly Neural through Twilio) and says the caller's first name when we know it
+async function voicemailTwiml(env, lead) {
   const base = incomingBase(env);
-  return `<Say>You've reached Divine Detailers. We can't take your call right now. Please leave your name and number after the tone, and we will call you right back.</Say><Record maxLength="180" timeout="6" playBeep="true" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/voicemail?lead=${lead || 0}`)}" recordingStatusCallbackEvent="completed"/><Hangup/>`;
+  let first = "";
+  if (lead) { const r = await env.DB.prepare("SELECT name FROM leads WHERE id = ?").bind(lead).first().catch(() => null), w = String((r && r.name) || "").trim().split(/\s+/)[0]; if (/^[A-Za-z][A-Za-z'.-]{1,20}$/.test(w)) first = w; }
+  const voice = /^[A-Za-z0-9.-]{3,40}$/.test(String(env.VOICEMAIL_VOICE || "")) ? env.VOICEMAIL_VOICE : "Polly.Matthew-Neural";
+  const text = `${first ? "Hey " + first + ", thanks for calling Divine Detailers." : "Thanks for calling Divine Detailers."} We're with a customer right now. After the beep, leave your name, your number, and what you're looking to get done, and we'll call you right back.`;
+  return `<Say voice="${voice}" language="en-US">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</Say><Record maxLength="180" timeout="6" playBeep="true" recordingStatusCallback="${xmlAttr(`${base}/api/twilio/voice/voicemail?lead=${lead || 0}`)}" recordingStatusCallbackEvent="completed"/><Hangup/>`;
 }
 async function handleVoiceIncoming(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });
@@ -3550,7 +3555,7 @@ async function handleVoiceIncomingEnd(request, env) {
   }
   await callLog(env, id, "Missed incoming call");
   sendPush(env, { title: "Missed call", message: "Nobody picked up. They may leave a voicemail.", click: env.CRM_HOST && id ? `https://${env.CRM_HOST}/admin/dialer?lead=${id}` : undefined }).catch(() => {});
-  return xmlRes(voicemailTwiml(env, id));
+  return xmlRes(await voicemailTwiml(env, id));
 }
 async function handleVoiceVoicemail(request, env) {
   if (!env.DB) return new Response("No database", { status: 503 });

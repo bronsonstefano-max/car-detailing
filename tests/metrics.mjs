@@ -119,7 +119,7 @@ const lid = newLead ? newLead.id : 0;
 const end1 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
 eq("not answered in the CRM: the cell rings next", [end1.status, end1.text.includes("<Dial"), end1.text.includes("+13055557777"), end1.text.includes("<Record")], [200, true, true, false]);
 const end1b = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=2`, { DialCallStatus: "no-answer", DialCallDuration: "0" });
-eq("not answered on the cell either: voicemail", [end1b.status, end1b.text.includes("<Record")], [200, true]);
+eq("not answered on the cell either: AI-voice voicemail", [end1b.status, end1b.text.includes("<Record"), end1b.text.includes("Polly.Matthew-Neural"), end1b.text.includes("Divine Detailers")], [200, true, true, true]);
 eq("voicemail callback saved", await twilio(`/api/twilio/voice/voicemail?lead=${lid}`, { RecordingSid: "RE" + "a".repeat(32), RecordingDuration: "14" }), 204);
 const end2 = await twilioBody(`/api/twilio/voice/incoming-end?lead=${lid}&s=1`, { DialCallStatus: "completed", DialCallDuration: "75" });
 eq("answered call just hangs up", end2.text.includes("<Hangup/>") && !end2.text.includes("<Record"), true);
