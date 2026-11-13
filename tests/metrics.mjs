@@ -139,6 +139,13 @@ eq("a due callback and a brand new lead are at the top (a caller who just rang i
 eq("a lead tried 30 minutes ago drops below an untouched one", pos(204) < pos(203), true);
 const old = (await get("/admin/dialer/queue?order=old")).leads || [];
 eq("the old order is still available", old.length > 0 && !old[0].rank, true);
+sql([
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (205,'quote','Quoted Old','3055500205','Ceramic Coating','quoted',600,datetime('now','-9 days'))`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (206,'quote','Deposit Waiting','3055500206','Ceramic Coating','deposit',600,datetime('now','-4 days'))`,
+  `INSERT INTO leads (id,type,name,phone,service,stage,value,created_at) VALUES (207,'quote','Lost One','3055500207','Ceramic Coating','lost',600,datetime('now','-4 days'))`,
+]);
+const all = (await get("/admin/dialer/queue?mode=smart")).leads || [], ids = all.map(l => l.id), stages = new Set(all.map(l => l.stage));
+eq("Smart mode combines every open pipeline stage in one ranked list", [stages.has("new"), stages.has("quoted"), stages.has("deposit"), ids.includes(207), !!(all[0] && all[0].rank)], [true, true, true, false, true]);
 const mdl = await get("/admin/rank/model?fresh=1");
 eq("the model reports what it learned", [mdl.success, typeof mdl.model.pb0, mdl.model.haz.length], [true, "number", 8]);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
