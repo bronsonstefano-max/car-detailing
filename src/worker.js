@@ -3678,7 +3678,19 @@ function rankOne(l, M, f, now) {
   if (failedNow && !l.tries3) why.push("Try another hour");
   if (hourLift >= 1.15 && !why.length) why.push("Good hour to call");
   if (svcL >= 1.25 && !why.length) why.push("Books well");
-  return { score: Math.round(sc * 10) / 10, why: why.slice(0, 3) };
+  const det = [], x = n => (Math.round(n * 10) / 10) + "x", pc = Math.round(tryRate * 100), h12 = (etH % 12 || 12) + (etH < 12 ? " am" : " pm");
+  if (due >= 0) det.push(due > 0 ? `A callback was promised ${due} day${due === 1 ? "" : "s"} ago and is overdue.` : "A callback is due today.");
+  if (ageM < 1440 && !dials) det.push(ageM < 60 ? `Came in ${Math.max(1, Math.round(ageM))} min ago and nobody has called yet. Leads called in the first hour book far more often.` : "Came in today and has not been called yet.");
+  if (replied) det.push("They replied by text and it is unread.");
+  if (l.stage === "deposit") det.push("A deposit is pending, so closing it is worth the most.");
+  if (l.tries3 > 0) det.push("Already called in the last 3 hours, so it is pushed down for now.");
+  else if (failedNow) det.push("You already missed them near this hour, so a different time of day is a better bet.");
+  det.push(reachedBefore ? `You have talked to them before. Follow-up calls connect about ${pc}% of the time.` : `This would be call #${dials + 1}. Calls like this connect about ${pc}% of the time.`);
+  if (Math.abs(hourLift - 1) >= 0.12) det.push(`${h12} ${hourLift > 1 ? "connects more" : "connects less"} than average (${x(hourLift)}).`);
+  if (Math.abs(svcL - 1) >= 0.12) det.push(`${l.service || "This service"} leads book ${x(svcL)} as often as the average lead${M.svcN && M.svcN[rkSvc(l.service)] ? ` (learned from ${M.svcN[rkSvc(l.service)]} past leads)` : ""}.`);
+  if (Math.abs(chL - 1) >= 0.12) det.push(`Leads from this source book ${x(chL)} as often as average.`);
+  if (l.value && Math.abs(V - 1) >= 0.15) det.push(V > 1 ? "Above-average job value." : "Below-average job value.");
+  return { score: Math.round(sc * 10) / 10, why: why.slice(0, 3), detail: det.slice(0, 6) };
 }
 async function rankLeads(env, rows) {
   const { model, byId } = await rankModel(env), now = Date.now();
@@ -3689,13 +3701,14 @@ async function dialerQueue(env, url) {
   await ensureTable(env.DB);
   // ?stages=aged,contacted dials everyone in those pipeline stages (any age), least recently tried first. Without it: new leads and follow-ups that are due.
   const want = String((url && url.searchParams.get("stages")) || "").split(",").filter(x => DIAL_STAGES.includes(x));
+  const every = !!(url && url.searchParams.get("mode") === "smart" && !want.length); // Smart mode: every open pipeline stage in one ranked list
   const counts = {};
   for (const r of (await env.DB.prepare("SELECT stage, COUNT(*) n FROM leads WHERE type != 'newsletter' AND COALESCE(ip,'') != 'demo' AND COALESCE(phone,'') != '' GROUP BY stage").all().catch(() => ({ results: [] }))).results || []) counts[r.stage] = r.n;
-  const where = want.length
+  const where = every ? "l.stage NOT IN ('done','lost')" : want.length
     ? `l.stage IN (${want.map(() => "?").join(",")})`
     : `((l.stage IN ('new','nocontact') AND l.created_at >= datetime('now','-14 days')) OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date <= date('now') AND l.stage NOT IN ('done','lost','aged')))`;
-  const smart = String((url && url.searchParams.get("order")) || "smart") !== "old";
-  const order = want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT " + (smart ? 400 : 120) : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT " + (smart ? 300 : 60);
+  const smart = every || String((url && url.searchParams.get("order")) || "smart") !== "old";
+  const order = every ? "cb DESC, (tries3 > 0), l.created_at DESC LIMIT 600" : want.length ? "(tries3 > 0), (last_try IS NOT NULL), last_try ASC, l.created_at DESC LIMIT " + (smart ? 400 : 120) : "cb DESC, (tries3 > 0), l.created_at DESC LIMIT " + (smart ? 300 : 60);
   const sel = (w, o) => `SELECT l.id, l.type, l.name, l.phone, l.email, l.service, l.year, l.make, l.model, l.message, l.created_at, l.stage, l.value, l.follow_up_date, l.utm_medium, (CASE WHEN COALESCE(l.gclid,'') != '' THEN 1 ELSE 0 END) gc,
       (SELECT COUNT(*) FROM messages m WHERE m.lead_id = l.id AND m.direction = 'in' AND m.is_read = 0) inq,
       (SELECT COUNT(*) FROM dial_calls d WHERE d.lead_id = l.id AND d.started_at >= datetime('now','-1 day')) tries24,
@@ -3708,7 +3721,7 @@ async function dialerQueue(env, url) {
   let rows = (await env.DB.prepare(sel(where, order)).bind(...want).all()).results || [];
   // ?lead=ID puts one lead (clicked from the pipeline) first, whatever its stage
   const one = Number(url && url.searchParams.get("lead"));
-  if (smart && rows.length) { try { await rankLeads(env, rows); rows = rows.slice(0, want.length ? 120 : 60); } catch (e) { rows = rows.slice(0, want.length ? 120 : 60); } }
+  if (smart && rows.length) { try { await rankLeads(env, rows); rows = rows.slice(0, every ? 100 : want.length ? 120 : 60); } catch (e) { rows = rows.slice(0, every ? 100 : want.length ? 120 : 60); } }
   if (Number.isInteger(one) && one > 0) { const r1 = (await env.DB.prepare(sel("l.id = ?", "l.id")).bind(one).all().catch(() => ({ results: [] }))).results || []; if (r1.length) rows = r1.concat(rows.filter(r => r.id !== one)); }
   const ids = rows.map(r => r.id);
   const notes = ids.length ? (await env.DB.prepare(`SELECT lead_id, reason, at FROM stage_log WHERE lead_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 400`).bind(...ids).all()).results || [] : [];
@@ -4054,7 +4067,7 @@ ${BNAV_CSS}
 ${LEADM_CSS}
 .inb{position:fixed;right:18px;bottom:18px;z-index:90;width:min(340px,calc(100vw - 28px));background:#0d1116;border:1px solid var(--accent-line);border-radius:16px;padding:14px 16px;box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 4px rgba(50,205,50,.12);animation:inbp 1.4s ease-in-out infinite}.inb[hidden]{display:none}.inbt b{display:block;font-size:17px;line-height:1.2}.inbt .inbph{color:var(--mut);font-size:13px;margin-top:2px}.inbi{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}.inbi i{font-style:normal;font-size:11.5px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}.inbi i.n{color:var(--accent)}.inbq{margin-top:9px;font-size:12px;color:var(--mut);line-height:1.4;max-height:9.5em;overflow:auto;display:flex;flex-direction:column;gap:6px}.inbq .nt{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px}.inbq .nt b{color:var(--accent);font-weight:600}.inbq:empty{display:none}.inba{display:flex;gap:8px;margin-top:12px}.inba button{flex:1;border:0;border-radius:999px;padding:10px 0;font:inherit;font-weight:700;cursor:pointer}.inbg{background:var(--accent);color:#04120a}.inbd{background:#2a1618;color:#ff8a8a}@keyframes inbp{50%{box-shadow:0 16px 50px rgba(0,0,0,.65),0 0 0 9px rgba(50,205,50,.05)}}
 /* smart queue */
-.q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
+.whyn{margin:14px 0 4px;padding:10px 14px;border:1px solid var(--accent-line);background:var(--accent-bg);border-radius:12px}.whyn h4{margin:0 0 6px;color:var(--accent)}.whyn ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--text)}.q .it .bd.why{color:var(--accent2);background:var(--accent-bg);padding:2px 8px;border-radius:999px;letter-spacing:.04em}.qf button[data-smart]{border-style:dashed}
 main.m-idle{grid-template-columns:316px minmax(0,1fr);column-gap:28px;row-gap:0}main.m-idle>.bar,main.m-idle>#setup,main.m-idle>#newb{margin-bottom:10px}main.m-idle>#setup[hidden],main.m-idle>#newb[hidden]{display:none}
 /* queue */
 .rail{background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 24px 0 0;box-shadow:none}
@@ -4138,7 +4151,7 @@ function drawBrief(l){const b=el('brief');if(!l){b.innerHTML='';return}
   const hist=(l.texts||[]).map(t=>(t.direction==='in'?'They texted: ':'You texted: ')+t.body).concat((l.history||[]).slice(0,3).map(h=>h.reason));
   b.innerHTML='<div class="tabs" id="btabs"><button type="button" data-b="brief" class="'+(bt==='brief'?'on':'')+'">Brief</button><button type="button" data-b="info" class="'+(bt==='info'?'on':'')+'">Lead info</button></div><div id="bbody" class="bbody"'+(bt==='brief'?'':' hidden')+'><div class="bh"><span class="av">'+$(initials(l.name))+'</span><div style="min-width:0;flex:1"><h2>'+$(l.name||pretty(l.phone))+'</h2><div class="ph">'+$(pretty(l.phone))+'</div></div>'+(l.cb?'<span class="pill warn">Callback due</span>':'')+(l.fresh?'<span class="pill ok">New lead</span>':'')+'</div>'
    +'<div class="chips">'+(l.service?'<span class="chip hot">'+$(l.service)+'</span>':'')+(car?'<span class="chip">'+$(car)+'</span>':'')+(l.value?'<span class="chip">$'+Math.round(l.value)+'</span>':'')+'<span class="chip">came in '+ago(l.created_at)+'</span>'+(l.tries24?'<span class="chip">'+l.tries24+' call'+(l.tries24===1?'':'s')+' today</span>':'')+(l.utm_medium==='paid_social'?'<span class="chip">Facebook</span>':'')+'</div>'
-   +'<div class="bgrid"><div class="bc"><h4>What they asked for</h4><p class="big">'+$(l.service||'Quote request')+'</p>'+(car?'<p>'+$(car)+'</p>':'')+lines.map(x=>'<p class="mut">'+$(x)+'</p>').join('')+(hist.length?'<h4>History</h4>'+hist.map(x=>'<p class="mut">'+$(x)+'</p>').join(''):'')+'</div>'
+   +(l.rank&&l.rank.detail&&l.rank.detail.length?'<div class="whyn"><h4>Why this lead is next</h4><ul>'+l.rank.detail.map(x=>'<li>'+$(x)+'</li>').join('')+'</ul></div>':'')+'<div class="bgrid"><div class="bc"><h4>What they asked for</h4><p class="big">'+$(l.service||'Quote request')+'</p>'+(car?'<p>'+$(car)+'</p>':'')+lines.map(x=>'<p class="mut">'+$(x)+'</p>').join('')+(hist.length?'<h4>History</h4>'+hist.map(x=>'<p class="mut">'+$(x)+'</p>').join(''):'')+'</div>'
    +'<div class="bc">'+(ask?'<h4>Ask first</h4><p class="big">'+$(ask)+'</p>':'')+(offer?'<h4>The offer</h4><p>'+$(offer)+'</p>':'')+'</div></div></div><div id="infoc" class="inf"'+(bt==='info'?'':' hidden')+'></div>'
    +'<div class="bact"><button class="btn skip" id="sk2" type="button">Skip</button><button class="btn g bcall" id="cb2" type="button">Call '+$(fn)+'</button></div>';
   el('cb2').onclick=dial;el('sk2').onclick=()=>el('nxt').click();syncCb();if(bt==='info')loadInfo(l.id);if(mt==='info')loadInfo(l.id)}
@@ -4289,17 +4302,17 @@ el('mtb').onclick=()=>{const l=Q[ix];if(!l)return;el('mtx').value=fillT(ST.misse
 el('mts').onclick=async()=>{const l=Q[ix],b=el('mtx').value.trim();if(!l||!b)return;el('mts').disabled=true;const r=await fetch('/admin/msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:l.id,body:b})});const j=await r.json().catch(()=>({}));el('mts').disabled=false;el('mtm').textContent=j.success?'Text sent.':(j.message||'Could not send.');el('mtm').className=j.success?'note okm':'note'};
 function next(){if(state==='live'||state==='connecting')return;outSaved=true;outPick='';state='idle';ix=Math.min(ix+1,Q.length);el('after').hidden=true;el('nt').value='';setSt(dev?'Ready':'Not set up',dev?'ok':'bad');drawLead();drawQ();bannerDraw();window.scrollTo({top:0})}
 el('nxt').onclick=next;
-function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?!QS.length:QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')+'<button type="button" data-smart="1" class="'+(SMART?'on':'')+'" title="Orders the list by who is most likely to book right now. It learns from your results.">Smart order</button>'}
+function drawQF(){const b=el('qf');if(!b)return;b.innerHTML=QF.map(f=>{const on=f[0]===''?(!QS.length&&!SM):QS.indexOf(f[0])>=0,n=f[0]===''?'':(QC[f[0]]!=null?' ('+QC[f[0]]+')':'');return '<button type="button" data-f="'+f[0]+'" class="'+(on?'on':'')+'">'+f[1]+n+'</button>'}).join('')+'<button type="button" data-smart="1" class="'+(SM?'on':'')+'" title="Every open pipeline stage in one list, ranked by who is most likely to book right now. It learns from your results.">Smart order</button>'}
 let OPEN_BY={tint:[],coating:[]};let WANT=+(new URLSearchParams(location.search).get('lead')||0)||0;
-let SMART=true;try{SMART=localStorage.getItem('dq_order')!=='old'}catch(_){}
-const qparams=()=>{const a=[];if(QS.length)a.push('stages='+QS.join(','));if(WANT)a.push('lead='+WANT);if(!SMART)a.push('order=old');return a.length?'?'+a.join('&'):''};
+let SM=false;try{SM=localStorage.getItem('dq_smart')==='1'}catch(_){}if(SM)QS=[];
+const qparams=()=>{const a=[];if(SM)a.push('mode=smart');else if(QS.length)a.push('stages='+QS.join(','));if(WANT)a.push('lead='+WANT);return a.length?'?'+a.join('&'):''};
 async function loadQ(){try{const q=await (await fetch('/admin/dialer/queue'+qparams())).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){Q=[]}ix=0;Q.forEach(l=>known.add(l.id));state='idle';el('after').hidden=true;drawQF();drawLead();drawQ();drawScript()}
-el('qf').addEventListener('click',e=>{const sm=e.target.closest('[data-smart]');if(sm){if(state==='live'||state==='connecting')return;SMART=!SMART;try{localStorage.setItem('dq_order',SMART?'smart':'old')}catch(_){}loadQ();return}const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
-const stLab=k=>(QF.find(f=>f[0]===k)||[0,k])[1]||'';
+el('qf').addEventListener('click',e=>{const sm=e.target.closest('[data-smart]');if(sm){if(state==='live'||state==='connecting')return;SM=!SM;if(SM)QS=[];try{localStorage.setItem('dq_smart',SM?'1':'0');localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ();return}const b=e.target.closest('[data-f]');if(!b||state==='live'||state==='connecting')return;const k=b.dataset.f;SM=false;try{localStorage.setItem('dq_smart','0')}catch(_){}if(k==='')QS=[];else{const i=QS.indexOf(k);if(i>=0)QS.splice(i,1);else QS.push(k)}try{localStorage.setItem('dq',JSON.stringify(QS))}catch(_){}loadQ()});
+const stLab=k=>k==='new'?'New lead':(QF.find(f=>f[0]===k)||[0,k])[1]||'';
 function drawQ(){const lab={idle:'Ready',connecting:'Calling',live:'In call',ended:'Wrap-up'};const nm=l=>$(l.name||pretty(l.phone));
   {const nx=Q[ix+1],left=Math.max(0,Q.length-ix-1),fr=Q.slice(ix+1).some(x=>x.fresh);el('nextline').innerHTML=nx?'Next: <b>'+$(shortN(nx.name)||pretty(nx.phone))+'</b> \\u00b7 '+svcLab(nx)+' \\u00b7 '+left+' waiting'+(fr?' <span class="pill ok nb">New lead</span>':''):'Last lead in the queue'}
   el('rs').innerHTML='<span><b>'+Math.max(0,Q.length-ix)+'</b> in queue</span><span><b>'+made+'</b> called</span>';
-  el('q').innerHTML=Q.map((l,i)=>i<ix?(CALLED.has(l.id)?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Called</small></span></div>':'<button class="it" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+nm(l)+'</b><small>Skipped, not called. Tap to call</small></span><span class="bd">Skipped</span></button>'):'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+(QS.length?stLab(l.stage)+' \u00b7 '+(l.last_try?'last tried '+ago(l.last_try):'never called'):ago(l.created_at))+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':'')+'">'+lab[state]+'</span>':'<span class="bd'+(l.rank&&l.rank.why&&l.rank.why[0]?' why':'')+'">'+(l.rank&&l.rank.why&&l.rank.why[0]?$(l.rank.why[0]):'Waiting')+'</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
+  el('q').innerHTML=Q.map((l,i)=>i<ix?(CALLED.has(l.id)?'<div class="it done"><span class="av">\u2713</span><span class="tx"><b>'+nm(l)+'</b><small>Called</small></span></div>':'<button class="it" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+nm(l)+'</b><small>Skipped, not called. Tap to call</small></span><span class="bd">Skipped</span></button>'):'<button class="it'+(i===ix?' cur':'')+(l.fresh&&i!==ix?' fresh':'')+'" data-i="'+i+'" type="button"><span class="av">'+$(initials(l.name))+'</span><span class="tx"><b>'+(l.fresh?'<span class="chip new">NEW</span> ':'')+nm(l)+'</b><small>'+$([l.service,[l.year,l.make,l.model].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 '))+' \u00b7 '+(QS.length||SM?stLab(l.stage)+' \u00b7 '+(l.last_try?'last tried '+ago(l.last_try):'never called'):ago(l.created_at))+(l.tries24?' \u00b7 '+l.tries24+' tries':'')+'</small></span>'+(i===ix?'<span class="bd'+(state==='live'?' live':(state==='idle'&&l.rank&&l.rank.why&&l.rank.why[0]?' why':''))+'">'+(state==='idle'&&l.rank&&l.rank.why&&l.rank.why[0]?$(l.rank.why[0]):lab[state])+'</span>':'<span class="bd'+(l.rank&&l.rank.why&&l.rank.why[0]?' why':'')+'">'+(l.rank&&l.rank.why&&l.rank.why[0]?$(l.rank.why[0]):'Waiting')+'</span>')+'</button>').join('')||'<p class="note">Nothing queued.</p>'}
 el('q').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(!b||state==='live'||state==='connecting')return;ix=+b.dataset.i;state='idle';el('after').hidden=true;drawLead();drawQ()});
 el('stabs').addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){sk=b.dataset.k;drawScript()}});
 // ---- guided scripts: private, owner-only, loaded from the database (never part of the page source) ----
@@ -4748,7 +4761,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)document.t
 async function init(){
   try{const s=await (await fetch('/admin/dialer/settings')).json();if(s.success){ST={tint:s.tint,coating:s.coating,missed:s.missed}}}catch(_){}
   await loadAudio();await coachStatus();await loadOffer();
-  try{const q=await (await fetch('/admin/dialer/queue'+(QS.length?'?stages='+QS.join(','):'')+(WANT?(QS.length?'&':'?')+'lead='+WANT:''))).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){}
+  try{const q=await (await fetch('/admin/dialer/queue'+qparams())).json();Q=q.leads||[];QC=q.counts||{};OPEN_BY={tint:((q.open||{}).tint||[]).map(d=>d.say),coating:((q.open||{}).coating||[]).map(d=>d.say)};if(WANT){WANT=0;try{history.replaceState(null,'','/admin/dialer')}catch(_){}}}catch(_){}
   ix=0;Q.forEach(l=>known.add(l.id));drawQF();drawLead();drawQ();drawScript();setInterval(poll,10000);el('hrs').textContent=inHours()?'':'Calling hours are 8 AM to 9 PM Eastern.';
   await initDev()}
 init();
