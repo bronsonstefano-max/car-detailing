@@ -6059,7 +6059,7 @@ async function remindStale(env) {
   ]);
 }
 
-export default {
+const WORKER = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(remindStale(env).catch(e => console.error("reminder error", e && e.message)));
     ctx.waitUntil(retryDials(env).catch(e => console.error("retry error", e && e.message)));
@@ -6076,7 +6076,7 @@ export default {
     ctx.waitUntil(numberHealthAlert(env).catch(e => console.error("number health error", e && e.message)));
     ctx.waitUntil(backfillNotes(env).catch(e => console.error("notes backfill error", e && e.message)));
   },
-  async fetch(request, env, ctx) {
+  async handle(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname.replace(/\/+$/, "") || "/";
     // When CRM_HOST is set (e.g. crm.divinedetailers.com) the lead dashboard lives only on that host, at its root.
@@ -6111,6 +6111,7 @@ export default {
       if (p === "/admin/scorecard") return adminRoute("/admin/scorecard", request, env);
       if (p === "/admin/rank/model") return adminRoute("/admin/rank/model", request, env);
       if (p === "/admin/calls/debug") return adminRoute("/admin/calls/debug", request, env);
+      if (p === "/admin/errors") return adminRoute("/admin/errors", request, env);
       if (p === "/missed" || p === "/admin/missed") return adminRoute("/admin/missed", request, env);
       if (p === "/messages" || p === "/admin/messages") return adminRoute("/admin/messages", request, env);
       if (p === "/calendar" || p === "/admin/calendar") return adminRoute("/admin/calendar", request, env);
@@ -6183,6 +6184,21 @@ export default {
     }
 
     return env.ASSETS.fetch(request);
+  },
+};
+// Safety net: an error nobody caught used to show Cloudflare's blank "Error 1101". Now it is logged (owner: /admin/errors) and the person sees a plain page with a reference.
+export default {
+  scheduled: WORKER.scheduled,
+  async fetch(request, env, ctx) {
+    try { return await WORKER.handle(request, env, ctx); }
+    catch (e) {
+      const ref = Math.random().toString(36).slice(2, 8).toUpperCase(), msg = String((e && e.message) || e).slice(0, 300), stack = String((e && e.stack) || "").slice(0, 900);
+      console.error("unhandled", ref, msg, stack);
+      try { if (env.DB) { await env.DB.prepare("CREATE TABLE IF NOT EXISTS app_errors (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), ref TEXT, method TEXT, path TEXT, host TEXT, ua TEXT, msg TEXT, stack TEXT)").run(); await env.DB.prepare("INSERT INTO app_errors (ref, method, path, host, ua, msg, stack) VALUES (?,?,?,?,?,?,?)").bind(ref, request.method, new URL(request.url).pathname.slice(0, 200), new URL(request.url).hostname, String(request.headers.get("user-agent") || "").slice(0, 160), msg, stack).run(); } } catch (_) {}
+      const path = new URL(request.url).pathname;
+      if (path.startsWith("/api/")) return new Response("Server error " + ref, { status: 500 });
+      return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Something went wrong</title><body style="font:16px system-ui;background:#0b0f14;color:#e6edf3;padding:28px;max-width:520px;margin:auto"><h2>Something went wrong</h2><p style="color:#8b98a5">That page hit a problem on our side. Try again in a moment. If it keeps happening, tell Bronson and mention reference <b style="color:#32cd32">${ref}</b>.</p><p><a href="/" style="color:#32cd32">Try again</a></p>`, { status: 500, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    }
   },
 };
 
@@ -7120,6 +7136,15 @@ async function adminRouteCore(p, request, env, a0) {
   if (p === "/admin/ads.csv") return a === OWNER ? adsCsv(env, new URL(request.url)) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
   if (p === "/admin/missed") return new Response(null, { status: 302, headers: { location: "/admin/speed" } });
   if (p === "/admin/playbook") return a === OWNER ? playbookPage(env, a) : new Response(null, { status: 302, headers: { location: "/admin/today" } });
+  if (p === "/admin/errors") {
+    if (a !== OWNER) return json({ success: false }, 403);
+    const u = new URL(request.url);
+    if (u.searchParams.get("test") === "1") throw new Error("Test error from /admin/errors?test=1 (safety net check)");
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS app_errors (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), ref TEXT, method TEXT, path TEXT, host TEXT, ua TEXT, msg TEXT, stack TEXT)").run();
+    const { results } = await env.DB.prepare("SELECT at, ref, method, path, host, ua, msg, stack FROM app_errors ORDER BY id DESC LIMIT 40").all(); const ev = results || [];
+    if (/text\/html/.test(request.headers.get("accept") || "")) { const e = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;"); return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Errors</title><body style="font:14px system-ui;background:#0b0f14;color:#e6edf3;padding:20px"><h2>Page errors</h2><p style="color:#8b98a5">Newest first (UTC). Each is a page that crashed. The reference is what the person saw on screen.</p>${ev.map(x => `<div style="border-top:1px solid #243040;padding:10px 0"><b style="color:#32cd32">${e(x.ref)}</b> &middot; ${e(x.at)} &middot; ${e(x.method)} ${e(x.path)} <span style="color:#8b98a5">(${e(x.host)})</span><br><b>${e(x.msg)}</b><pre style="white-space:pre-wrap;color:#8b98a5;font-size:12px;margin:6px 0 0">${e(x.stack)}</pre><span style="color:#8b98a5;font-size:12px">${e(x.ua)}</span></div>`).join("") || "<p>No crashes recorded yet.</p>"}`, { headers: { "content-type": "text/html; charset=utf-8" } }); }
+    return json({ success: true, errors: ev });
+  }
   if (p === "/admin/calls/debug") { if (a !== OWNER) return json({ success: false }, 403); await ensureTable(env.DB); const { results } = await env.DB.prepare("SELECT at, path, call_sid, lead, step, status, note FROM call_events ORDER BY id DESC LIMIT 60").all(); const ev = results || []; if (/text\/html/.test(request.headers.get("accept") || "")) { const e = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;"); return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Incoming call log</title><body style="font:14px system-ui;background:#0b0f14;color:#e6edf3;padding:20px"><h2>Incoming call log</h2><p style="color:#8b98a5">Newest first. Each incoming call shows each step Twilio took. Times are UTC.</p><table cellpadding="7" style="border-collapse:collapse;width:100%">${ev.map(x => `<tr style="border-top:1px solid #243040"><td>${e(x.at)}</td><td><b>${e(x.path)}</b></td><td>step ${e(x.step)}</td><td>${e(x.status)}</td><td style="color:#8b98a5">${e(x.note)}</td></tr>`).join("") || "<tr><td>No incoming calls have reached the CRM yet. If you called and this is empty, Twilio is not pointed at the incoming-call address.</td></tr>"}</table>`, { headers: { "content-type": "text/html; charset=utf-8" } }); } return json({ success: true, events: ev }); }
   if (p === "/admin/rank/model") return a === OWNER ? json({ success: true, model: (await rankModel(env, new URL(request.url).searchParams.get("fresh") === "1")).model }) : json({ success: false }, 403);
   if (p === "/admin/scorecard") return a === OWNER ? json(await scorecard(env, Number(new URL(request.url).searchParams.get("days")))) : json({ success: false }, 403);

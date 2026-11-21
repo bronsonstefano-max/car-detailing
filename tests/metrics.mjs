@@ -174,6 +174,10 @@ sql([`INSERT INTO number_health (num, level, at) VALUES ('+13055550001', 2, date
 eq("if the number we reached them on is resting, the main number is used", await dialFrom(405, "e"), MAIN);
 const fr = await get("/admin/dialer/from?id=402");
 eq("the dialer can show which number it will use and why", [fr.success, typeof fr.why, fr.multi], [true, "string", true]);
+// a crash shows a plain page with a reference and is recorded for the owner
+const boom = await fetch(B + "/admin/errors?test=1", { headers: { cookie } }), boomText = await boom.text(), errLog = await get("/admin/errors");
+eq("a crashing page shows a friendly page, not Cloudflare's error", [boom.status, boomText.includes("Something went wrong"), boomText.includes("reference")], [500, true, true]);
+eq("the crash is recorded with its message", [errLog.success, !!(errLog.errors[0] && /Test error/.test(errLog.errors[0].msg)), errLog.errors[0] && boomText.includes(errLog.errors[0].ref)], [true, true, true]);
 const mdl = await get("/admin/rank/model?fresh=1");
 eq("the model reports what it learned", [mdl.success, typeof mdl.model.pb0, mdl.model.haz.length], [true, "number", 8]);
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
