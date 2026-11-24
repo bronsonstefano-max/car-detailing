@@ -332,6 +332,25 @@ for (const said of ["Hi. If you record your name and reason for calling, I'll se
   const v = room(); v.r.ctx.pkg = "1"; v.lead("That's too much for me honestly.", { end: true }); await sleep(900);
   check("a lead on the 5-year gets no save line", !/PACKAGES:/.test(last(aiCalls).user), 0); }
 
+// 19v. REAL CALLS (5 booked coating calls): once a day is agreed, the next card must take the close forward, not start a new subject.
+{ aiCalls = []; const t = room();
+  t.rep("Alright, let's get you in Saturday the 28th, 9am drop off."); await sleep(50);
+  t.lead("Yeah that works for me.", { end: true }); await sleep(1000);
+  const u = last(aiCalls).user;
+  check("day agreed and no deposit yet: the close is pushed", /CLOSE: a day has been agreed and the deposit has not been raised yet/.test(u), u.match(/CLOSE:[^\n]*/));
+  t.rep("And the last thing I need is a deposit of a hundred bucks that comes off your total."); await sleep(50);
+  t.lead("Sure, go ahead.", { end: true }); await sleep(1000);
+  check("once the deposit is raised the nudge stops", !/CLOSE: a day has been agreed/.test(last(aiCalls).user), last(aiCalls).user);
+  const v = room(); v.rep("What color is the truck?"); await sleep(50); v.lead("Black.", { end: true }); await sleep(1000);
+  check("no nudge before a day is agreed", !/CLOSE: a day has been agreed/.test(last(aiCalls).user), 0); }
+
+// 19w. Add-ons and logistics come from the owner's settings; with none set the coach must not invent either
+{ const src = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
+  const a2 = src.indexOf("const offerText ="), b2 = src.indexOf("const system = COACH_RULES");
+  const block = src.slice(a2, b2);
+  check("empty settings produce explicit do-not-invent text", /ADD-ONS: none configured\. Never offer an add-on/.test(block) && /LOGISTICS: not configured/.test(block), block.slice(0, 200));
+  check("filled settings are passed through to the coach", /ADD-ONS the rep may sell \(offer these ONLY after the deposit is paid/.test(block) && /LOGISTICS \(drop-off, pick-up, cure time\)/.test(block), block.slice(0, 200)); }
+
 // 19j. owner's rule enforced in code: free windshield and wheel coatings / add-ons never reach the card (the AI said them on real calls)
 { aiCalls = []; const t = room();
   aiSay = "With the special, the total comes to $599 with the paint correction, free windshield and wheel coatings, and a 5 year warranty."; aiAsk = "Want me to walk you through the free add-ons that come with the special?";
